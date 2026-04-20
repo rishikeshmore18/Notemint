@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { signIn, signUp } from '../lib/supabase'
+import { useEffect, useState } from 'react'
+import { resendSignupConfirmation, signIn, signUp } from '../lib/supabase'
 
 export default function AuthScreen({ onAuthenticated }) {
   const [mode, setMode] = useState('signin')
@@ -7,22 +7,47 @@ export default function AuthScreen({ onAuthenticated }) {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [notice, setNotice] = useState(null)
+  const [pendingEmail, setPendingEmail] = useState('')
 
   const isSignIn = mode === 'signin'
+
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    const hash = window.location.hash.startsWith('#')
+      ? new URLSearchParams(window.location.hash.slice(1))
+      : new URLSearchParams()
+    const description =
+      hash.get('error_description') ||
+      url.searchParams.get('error_description') ||
+      url.searchParams.get('message')
+
+    if (!description) return
+
+    if (description.includes('Email link is invalid or has expired')) {
+      setError('confirmation link expired - request a new email below')
+      return
+    }
+
+    setError(description.replace(/\+/g, ' '))
+  }, [])
 
   function handleModeChange(nextMode) {
     setMode(nextMode)
     setError(null)
+    setNotice(null)
   }
 
   function handleEmailChange(event) {
     setEmail(event.target.value)
     if (error) setError(null)
+    if (notice) setNotice(null)
   }
 
   function handlePasswordChange(event) {
     setPassword(event.target.value)
     if (error) setError(null)
+    if (notice) setNotice(null)
   }
 
   async function handleSubmit(event) {
@@ -42,14 +67,25 @@ export default function AuthScreen({ onAuthenticated }) {
 
     setLoading(true)
     setError(null)
+    setNotice(null)
 
     try {
       if (isSignIn) {
         await signIn(trimmedEmail, password)
+        setPendingEmail('')
+        onAuthenticated()
       } else {
-        await signUp(trimmedEmail, password)
+        const data = await signUp(trimmedEmail, password)
+        setPendingEmail(trimmedEmail)
+
+        if (data.session) {
+          onAuthenticated()
+          return
+        }
+
+        setMode('signin')
+        setNotice('check your email to confirm your account')
       }
-      onAuthenticated()
     } catch (err) {
       const message = err?.message ?? 'authentication failed'
 
@@ -60,6 +96,9 @@ export default function AuthScreen({ onAuthenticated }) {
         setMode('signin')
       } else if (message.includes('Email not confirmed')) {
         setError('check your email to confirm your account')
+        setPendingEmail(trimmedEmail)
+      } else if (message.includes('For security purposes')) {
+        setError(message)
       } else {
         setError(message)
       }
@@ -67,6 +106,36 @@ export default function AuthScreen({ onAuthenticated }) {
       setLoading(false)
     }
   }
+
+  async function handleResendConfirmation() {
+    const trimmedEmail = email.trim() || pendingEmail
+    if (!trimmedEmail) {
+      setError('please enter your email')
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+    setNotice(null)
+
+    try {
+      await resendSignupConfirmation(trimmedEmail)
+      setPendingEmail(trimmedEmail)
+      setNotice('confirmation email sent - open the newest message')
+    } catch (err) {
+      const message = err?.message ?? 'could not resend confirmation email'
+      setError(message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const showResend =
+    !loading &&
+    Boolean(email.trim() || pendingEmail) &&
+    (error === 'check your email to confirm your account' ||
+      error === 'confirmation link expired - request a new email below' ||
+      notice === 'check your email to confirm your account')
 
   return (
     <div className="min-h-screen bg-white">
@@ -119,9 +188,19 @@ export default function AuthScreen({ onAuthenticated }) {
             disabled={loading}
             className="h-11 w-full rounded-lg bg-indigo-600 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-70"
           >
-            {loading ? 'signing in...' : isSignIn ? 'sign in' : 'create account'}
+            {loading ? (isSignIn ? 'signing in...' : 'creating account...') : isSignIn ? 'sign in' : 'create account'}
           </button>
           {error ? <p className="text-xs text-red-500">{error}</p> : null}
+          {notice ? <p className="text-xs text-indigo-600">{notice}</p> : null}
+          {showResend ? (
+            <button
+              type="button"
+              onClick={handleResendConfirmation}
+              className="self-start text-xs font-medium text-indigo-600"
+            >
+              resend confirmation email
+            </button>
+          ) : null}
         </form>
 
         <p className="mt-auto pb-8 text-center text-xs text-gray-300">

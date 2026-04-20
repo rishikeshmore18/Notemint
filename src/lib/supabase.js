@@ -9,6 +9,11 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
+function getEmailRedirectUrl() {
+  if (typeof window === 'undefined') return undefined
+  return new URL(import.meta.env.BASE_URL, window.location.origin).toString()
+}
+
 export async function getCurrentUser() {
   const {
     data: { session },
@@ -17,7 +22,13 @@ export async function getCurrentUser() {
 }
 
 export async function signUp(email, password) {
-  const { data, error } = await supabase.auth.signUp({ email, password })
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: {
+      emailRedirectTo: getEmailRedirectUrl(),
+    },
+  })
   if (error) throw error
   return data
 }
@@ -31,4 +42,16 @@ export async function signIn(email, password) {
 export async function signOut() {
   const { error } = await supabase.auth.signOut()
   if (error) throw error
+}
+
+export async function resendSignupConfirmation(email) {
+  const { data, error } = await supabase.auth.resend({
+    type: 'signup',
+    email,
+    options: {
+      emailRedirectTo: getEmailRedirectUrl(),
+    },
+  })
+  if (error) throw error
+  return data
 }
