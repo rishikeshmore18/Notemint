@@ -11,7 +11,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
 function getEmailRedirectUrl() {
   if (typeof window === 'undefined') return undefined
-  return new URL(import.meta.env.BASE_URL, window.location.origin).toString()
+  const redirectUrl = new URL(import.meta.env.BASE_URL, window.location.origin)
+  redirectUrl.searchParams.set('auth_callback', '1')
+  return redirectUrl.toString()
 }
 
 export async function getCurrentUser() {

@@ -1,36 +1,27 @@
 import { useEffect, useState } from 'react'
 import { resendSignupConfirmation, signIn, signUp } from '../lib/supabase'
 
-export default function AuthScreen({ onAuthenticated }) {
+export default function AuthScreen({ initialEmail = '', initialError = null, onAuthenticated }) {
   const [mode, setMode] = useState('signin')
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(initialEmail)
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState(initialError)
   const [notice, setNotice] = useState(null)
-  const [pendingEmail, setPendingEmail] = useState('')
+  const [pendingEmail, setPendingEmail] = useState(initialEmail)
 
   const isSignIn = mode === 'signin'
 
   useEffect(() => {
-    const url = new URL(window.location.href)
-    const hash = window.location.hash.startsWith('#')
-      ? new URLSearchParams(window.location.hash.slice(1))
-      : new URLSearchParams()
-    const description =
-      hash.get('error_description') ||
-      url.searchParams.get('error_description') ||
-      url.searchParams.get('message')
-
-    if (!description) return
-
-    if (description.includes('Email link is invalid or has expired')) {
-      setError('confirmation link expired - request a new email below')
-      return
+    if (initialEmail && !email) {
+      setEmail(initialEmail)
+      setPendingEmail(initialEmail)
     }
+  }, [email, initialEmail])
 
-    setError(description.replace(/\+/g, ' '))
-  }, [])
+  useEffect(() => {
+    setError(initialError)
+  }, [initialError])
 
   function handleModeChange(nextMode) {
     setMode(nextMode)
@@ -72,13 +63,16 @@ export default function AuthScreen({ onAuthenticated }) {
     try {
       if (isSignIn) {
         await signIn(trimmedEmail, password)
+        window.localStorage.removeItem('pending_confirmation_email')
         setPendingEmail('')
         onAuthenticated()
       } else {
         const data = await signUp(trimmedEmail, password)
+        window.localStorage.setItem('pending_confirmation_email', trimmedEmail)
         setPendingEmail(trimmedEmail)
 
         if (data.session) {
+          window.localStorage.removeItem('pending_confirmation_email')
           onAuthenticated()
           return
         }
@@ -96,6 +90,7 @@ export default function AuthScreen({ onAuthenticated }) {
         setMode('signin')
       } else if (message.includes('Email not confirmed')) {
         setError('check your email to confirm your account')
+        window.localStorage.setItem('pending_confirmation_email', trimmedEmail)
         setPendingEmail(trimmedEmail)
       } else if (message.includes('For security purposes')) {
         setError(message)
@@ -120,6 +115,7 @@ export default function AuthScreen({ onAuthenticated }) {
 
     try {
       await resendSignupConfirmation(trimmedEmail)
+      window.localStorage.setItem('pending_confirmation_email', trimmedEmail)
       setPendingEmail(trimmedEmail)
       setNotice('confirmation email sent - open the newest message')
     } catch (err) {
