@@ -40,12 +40,6 @@ export async function startTranscription({ onSegment, onError, onConnected }) {
       encoding: 'wav/pcm',
       sample_rate: 16000,
       language_behaviour: 'automatic single language',
-      diarization: true,
-      diarization_config: {
-        number_of_speakers: 0,
-        min_speakers: 1,
-        max_speakers: 4,
-      },
     }
 
     websocket.send(JSON.stringify(config))
