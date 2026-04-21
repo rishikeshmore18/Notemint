@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import WaveformVisualizer from '../components/WaveformVisualizer'
 import { getAudioStream, startTranscription, stopTranscription } from '../lib/gladia'
 
-export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete, onSignOut }) {
+export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete, onSignOut, onViewHistory }) {
   const [isRecording, setIsRecording] = useState(false)
   const [segments, setSegments] = useState([])
   const [rawSegments, setRawSegments] = useState([])
@@ -117,6 +117,22 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
         <header className="flex h-14 items-center justify-between">
           <p className="text-sm font-medium text-gray-900">recall</p>
           <div className="flex items-center gap-3">
+            <button
+              onClick={onViewHistory}
+              className="text-xs text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1"
+              title="past meetings"
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.25" />
+                <path
+                  d="M7 4.5V7L8.5 8.5"
+                  stroke="currentColor"
+                  strokeWidth="1.25"
+                  strokeLinecap="round"
+                />
+              </svg>
+              history
+            </button>
             <button type="button" onClick={onSignOut} className="text-xs text-gray-400">
               sign out
             </button>

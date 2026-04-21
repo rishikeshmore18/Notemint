@@ -4,6 +4,8 @@ import AuthCallbackScreen from './screens/AuthCallbackScreen'
 import EnrollScreen from './screens/EnrollScreen'
 import RecordScreen from './screens/RecordScreen'
 import ResultsScreen from './screens/ResultsScreen'
+import HistoryScreen from './screens/HistoryScreen'
+import PastMeetingScreen from './screens/PastMeetingScreen'
 import LoadingDot from './components/LoadingDot'
 import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supabase'
 
@@ -11,6 +13,7 @@ export default function App() {
   const [screen, setScreen] = useState('loading')
   const [currentUser, setCurrentUser] = useState(null)
   const [meetingSegments, setMeetingSegments] = useState([])
+  const [selectedMeeting, setSelectedMeeting] = useState(null)
   const [authScreenError, setAuthScreenError] = useState(null)
   const [callbackState, setCallbackState] = useState({
     status: 'pending',
@@ -214,6 +217,29 @@ if (screen === 'loading') {
     )
   }
 
+  if (screen === 'history') {
+    return (
+      <HistoryScreen
+        user={currentUser}
+        onBack={() => setScreen('home')}
+        onOpenMeeting={(meeting) => {
+          setSelectedMeeting(meeting)
+          setScreen('past-meeting')
+        }}
+      />
+    )
+  }
+
+  if (screen === 'past-meeting' && selectedMeeting) {
+    return (
+      <PastMeetingScreen
+        user={currentUser}
+        meeting={selectedMeeting}
+        onBack={() => setScreen('history')}
+      />
+    )
+  }
+
   return (
     <RecordScreen
       user={currentUser}
@@ -222,6 +248,7 @@ if (screen === 'loading') {
         setMeetingSegments(segments)
         setScreen('results')
       }}
+      onViewHistory={() => setScreen('history')}
       onSignOut={handleSignOut}
     />
   )
