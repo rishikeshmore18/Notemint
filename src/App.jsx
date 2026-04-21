@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import AuthScreen from './screens/AuthScreen'
 import AuthCallbackScreen from './screens/AuthCallbackScreen'
+import EnrollScreen from './screens/EnrollScreen'
 import RecordScreen from './screens/RecordScreen'
 import ResultsScreen from './screens/ResultsScreen'
 import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supabase'
@@ -206,7 +207,7 @@ export default function App() {
   }
 
   if (screen === 'enroll') {
-    return <EnrollScreen onSkip={handleSkipEnrollment} />
+    return <EnrollScreen user={currentUser} onComplete={handleSkipEnrollment} />
   }
 
   if (screen === 'results') {
@@ -222,24 +223,6 @@ export default function App() {
     />
   )
 }
-
-function EnrollScreen({ onSkip }) {
-  return (
-    <div className="min-h-screen bg-white flex items-center justify-center">
-      <div className="flex flex-col items-center gap-4">
-        <p className="text-gray-900">enrollment coming soon</p>
-        <button
-          type="button"
-          onClick={onSkip}
-          className="h-10 rounded-lg bg-indigo-600 px-4 text-sm font-medium text-white"
-        >
-          skip for now
-        </button>
-      </div>
-    </div>
-  )
-}
-
 function getAuthCallbackContext() {
   if (typeof window === 'undefined') return { active: false }
 
