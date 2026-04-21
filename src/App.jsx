@@ -211,7 +211,7 @@ export default function App() {
   }
 
   if (screen === 'results') {
-    return <ResultsScreen segments={currentMeeting} onNewMeeting={handleNewMeeting} />
+    return <ResultsScreen user={currentUser} segments={currentMeeting} onNewMeeting={handleNewMeeting} />
   }
 
   return (

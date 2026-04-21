@@ -104,12 +104,7 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
     stopTranscription()
     setAudioStream(null)
     await delay(800)
-    const latestSegments = mergeSegments(rawSegmentsRef.current).map((segment) => ({
-      id: segment.id,
-      speaker: segment.speaker,
-      text: segment.text,
-    }))
-    onMeetingComplete(latestSegments)
+    onMeetingComplete(rawSegmentsRef.current)
   }
 
   function handleRetry() {
