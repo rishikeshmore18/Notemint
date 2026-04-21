@@ -1,0 +1,12 @@
+{
+  "name": "Recall — Meeting Notes",
+  "short_name": "Recall",
+  "description": "In-person meeting notes without bots",
+  "start_url": "/Notemint/",
+  "scope": "/Notemint/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "orientation": "portrait-primary",
+  "icons": []
+}
