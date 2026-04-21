@@ -9,7 +9,7 @@ import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supaba
 export default function App() {
   const [screen, setScreen] = useState('loading')
   const [currentUser, setCurrentUser] = useState(null)
-  const [currentMeeting, setCurrentMeeting] = useState([])
+  const [meetingSegments, setMeetingSegments] = useState([])
   const [authScreenError, setAuthScreenError] = useState(null)
   const [callbackState, setCallbackState] = useState({
     status: 'pending',
@@ -163,16 +163,6 @@ export default function App() {
     setScreen('auth')
   }
 
-  function handleMeetingComplete(segments) {
-    setCurrentMeeting(segments)
-    setScreen('results')
-  }
-
-  function handleNewMeeting() {
-    setCurrentMeeting([])
-    setScreen('home')
-  }
-
   if (screen === 'loading') {
     return (
       <div className="min-h-screen bg-white flex items-center justify-center">
@@ -211,14 +201,26 @@ export default function App() {
   }
 
   if (screen === 'results') {
-    return <ResultsScreen user={currentUser} segments={currentMeeting} onNewMeeting={handleNewMeeting} />
+    return (
+      <ResultsScreen
+        user={currentUser}
+        segments={meetingSegments}
+        onNewMeeting={() => {
+          setMeetingSegments([])
+          setScreen('home')
+        }}
+      />
+    )
   }
 
   return (
     <RecordScreen
       user={currentUser}
       enrolledVoiceId={currentUser ? localStorage.getItem(`enrolled_${currentUser.id}`) : null}
-      onMeetingComplete={handleMeetingComplete}
+      onMeetingComplete={(segments) => {
+        setMeetingSegments(segments)
+        setScreen('results')
+      }}
       onSignOut={handleSignOut}
     />
   )
