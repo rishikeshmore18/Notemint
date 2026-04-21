@@ -90,7 +90,7 @@ export async function startTranscription({ onSegment, onError }) {
         if (!text) return
 
         onSegment({
-          speaker: data.speaker ?? 0,
+          speaker: normalizeSpeaker(data.speaker),
           text,
           isFinal: data.type === 'final',
           confidence: data.confidence ?? 1,
@@ -133,4 +133,10 @@ function getSupportedMimeType() {
     if (MediaRecorder.isTypeSupported(type)) return type
   }
   return ''
+}
+
+function normalizeSpeaker(value) {
+  const parsed = Number(value)
+  if (Number.isNaN(parsed) || parsed < 0) return 0
+  return Math.floor(parsed)
 }

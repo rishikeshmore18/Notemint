@@ -18,6 +18,10 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
   }, [user?.email])
 
   useEffect(() => {
+    checkMicPermission()
+  }, [])
+
+  useEffect(() => {
     rawSegmentsRef.current = rawSegments
     setSegments(mergeSegments(rawSegments))
   }, [rawSegments])
@@ -50,6 +54,26 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
       return
     }
     await handleStart()
+  }
+
+  async function checkMicPermission() {
+    try {
+      if (navigator.permissions) {
+        const result = await navigator.permissions.query({ name: 'microphone' })
+        if (result.state === 'denied') {
+          setError('Microphone access is blocked. Go to browser settings to allow it.')
+        }
+        result.onchange = () => {
+          if (result.state === 'denied') {
+            setError('Microphone access was blocked.')
+          } else if (result.state === 'granted') {
+            setError(null)
+          }
+        }
+      }
+    } catch {
+      // permissions API not available - ignore silently
+    }
   }
 
   async function handleStart() {
@@ -142,11 +166,27 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
           </div>
         </header>
 
-        {!isRecording ? (
-          <main className="flex flex-1 flex-col items-center justify-center text-center">
-            <MicIcon className="h-6 w-6 text-gray-300" />
-            <p className="mt-3 text-sm text-gray-400">tap to start recording</p>
-            <p className="mt-1 text-xs text-gray-300">your voice will be recognized automatically</p>
+        {!isRecording && segments.length === 0 ? (
+          <main className="flex flex-col items-center justify-center flex-1 text-center px-6">
+            <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                <rect x="9" y="2" width="6" height="12" rx="3" stroke="#4F46E5" strokeWidth="1.5" />
+                <path
+                  d="M5 10C5 14.4 7.8 17 12 17C16.2 17 19 14.4 19 10"
+                  stroke="#4F46E5"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+                <line x1="12" y1="17" x2="12" y2="21" stroke="#4F46E5" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="9" y1="21" x2="15" y2="21" stroke="#4F46E5" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
+            </div>
+            <p className="text-sm font-medium text-gray-700 mb-1">ready to record</p>
+            <p className="text-xs text-gray-400 leading-relaxed max-w-xs">
+              tap the button below to start.
+              <br />
+              speakers are detected automatically.
+            </p>
             {enrolledVoiceId ? null : (
               <p className="mt-3 text-[11px] text-gray-300">voice profile not enrolled yet</p>
             )}
