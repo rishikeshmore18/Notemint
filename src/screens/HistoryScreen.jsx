@@ -16,18 +16,44 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
     try {
       const { data, error } = await supabase
         .from('meetings')
-        .select('id, title, summary, created_at, duration_segments, transcript_compressed, segments, label_map')
+        .select('id, title, summary, created_at, duration_segments')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(50)
 
-      if (error) throw error
+      if (error) {
+        console.error('[History] Supabase error:', error)
+        setError('Could not load meetings: ' + error.message)
+        return
+      }
       setMeetings(data || [])
     } catch (err) {
-      setError('Could not load meetings. Check your connection.')
-      console.error(err)
+      console.error('[History] Supabase error:', err)
+      setError('Could not load meetings: ' + err.message)
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleOpenMeeting(meeting) {
+    try {
+      const { data, error } = await supabase
+        .from('meetings')
+        .select('id, title, summary, created_at, duration_segments, transcript_compressed, segments, label_map')
+        .eq('id', meeting.id)
+        .eq('user_id', user.id)
+        .single()
+
+      if (error) {
+        console.error('[History] Supabase error:', error)
+        setError('Could not open meeting: ' + error.message)
+        return
+      }
+
+      onOpenMeeting(data)
+    } catch (err) {
+      console.error('[History] Supabase error:', err)
+      setError('Could not open meeting: ' + err.message)
     }
   }
 
@@ -120,7 +146,7 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
           {meetings.map((meeting) => (
             <button
               key={meeting.id}
-              onClick={() => onOpenMeeting(meeting)}
+              onClick={() => handleOpenMeeting(meeting)}
               className="flex flex-col items-start text-left py-4 border-b border-gray-50 hover:bg-gray-50 active:bg-gray-100 transition-colors px-1 rounded-lg w-full"
             >
               <div className="flex items-center justify-between w-full mb-1">

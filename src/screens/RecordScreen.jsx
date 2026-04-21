@@ -89,6 +89,7 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
 
     const started = await startTranscription({
       onSegment: (incomingSegment) => {
+        console.log('[RecordScreen] segment received:', incomingSegment)
         setRawSegments((prev) => [
           ...prev,
           {
@@ -100,6 +101,7 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
         ])
       },
       onError: (message) => {
+        console.log('[RecordScreen] error received:', message)
         const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
         if (isSafari && message.toLowerCase().includes('could not access microphone')) {
           setError('use Chrome or Firefox for best experience')
@@ -111,7 +113,11 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
         }
         setError(message)
       },
+      onConnected: () => {
+        console.log('[RecordScreen] Gladia connected successfully')
+      },
     })
+    console.log('[RecordScreen] startTranscription called')
 
     if (!started) {
       setIsRecording(false)

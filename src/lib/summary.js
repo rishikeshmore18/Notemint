@@ -37,7 +37,7 @@ export function compressTranscript(segments, labelMap) {
 }
 
 export async function getSummary(compressedTranscript, onChunk, onComplete, onError) {
-  if (!compressedTranscript || compressedTranscript.length < 30) {
+  if (!compressedTranscript || compressedTranscript.length < 10) {
     onError('Recording too short to summarize — try at least 30 seconds.')
     return
   }
@@ -181,4 +181,3 @@ export async function saveMeeting(supabase, userId, meetingData) {
     return null
   }
 }
-

@@ -28,7 +28,7 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
   }, [])
 
   async function runSummary() {
-    if (!segments || segments.length < 3) {
+    if (!segments || segments.length < 1) {
       setSummaryStatus('error')
       setSummaryError('Recording was too short. Record at least 30 seconds and try again.')
       return
