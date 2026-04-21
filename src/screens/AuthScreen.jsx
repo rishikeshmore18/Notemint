@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { resendSignupConfirmation, signIn, signUp } from '../lib/supabase'
 
+const EMAIL_CONFIRMATION_MESSAGE =
+  'Supabase email confirmation is enabled. Disable Confirm Email in Supabase to make signup instant.'
+
 export default function AuthScreen({ initialEmail = '', initialError = null, onAuthenticated }) {
   const [mode, setMode] = useState('signin')
   const [email, setEmail] = useState(initialEmail)
@@ -68,8 +71,6 @@ export default function AuthScreen({ initialEmail = '', initialError = null, onA
         onAuthenticated()
       } else {
         const data = await signUp(trimmedEmail, password)
-        window.localStorage.setItem('pending_confirmation_email', trimmedEmail)
-        setPendingEmail(trimmedEmail)
 
         if (data.session) {
           window.localStorage.removeItem('pending_confirmation_email')
@@ -77,8 +78,9 @@ export default function AuthScreen({ initialEmail = '', initialError = null, onA
           return
         }
 
-        setMode('signin')
-        setNotice('check your email to confirm your account')
+        window.localStorage.setItem('pending_confirmation_email', trimmedEmail)
+        setPendingEmail(trimmedEmail)
+        setError(EMAIL_CONFIRMATION_MESSAGE)
       }
     } catch (err) {
       const message = err?.message ?? 'authentication failed'
@@ -89,7 +91,7 @@ export default function AuthScreen({ initialEmail = '', initialError = null, onA
         setError('account already exists - sign in instead')
         setMode('signin')
       } else if (message.includes('Email not confirmed')) {
-        setError('check your email to confirm your account')
+        setError(EMAIL_CONFIRMATION_MESSAGE)
         window.localStorage.setItem('pending_confirmation_email', trimmedEmail)
         setPendingEmail(trimmedEmail)
       } else if (message.includes('For security purposes')) {
@@ -129,7 +131,7 @@ export default function AuthScreen({ initialEmail = '', initialError = null, onA
   const showResend =
     !loading &&
     Boolean(email.trim() || pendingEmail) &&
-    (error === 'check your email to confirm your account' ||
+    (error === EMAIL_CONFIRMATION_MESSAGE ||
       error === 'confirmation link expired - request a new email below' ||
       notice === 'check your email to confirm your account')
 

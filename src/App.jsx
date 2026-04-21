@@ -3,7 +3,7 @@ import AuthScreen from './screens/AuthScreen'
 import AuthCallbackScreen from './screens/AuthCallbackScreen'
 import RecordScreen from './screens/RecordScreen'
 import ResultsScreen from './screens/ResultsScreen'
-import { getCurrentUser, signOut, supabase } from './lib/supabase'
+import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supabase'
 
 export default function App() {
   const [screen, setScreen] = useState('loading')
@@ -89,6 +89,8 @@ export default function App() {
   }
 
   function handleSignedInUser(user) {
+    void syncUserProfile(user)
+
     if (callbackContextRef.current.active) {
       showCallbackSuccess(user)
       return
@@ -134,6 +136,7 @@ export default function App() {
 
   async function handleAuthenticated() {
     const user = await getCurrentUser()
+    await syncUserProfile(user)
     setCurrentUser(user)
     setAuthScreenError(null)
     applyEnrollmentGate(user)

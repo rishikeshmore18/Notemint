@@ -46,6 +46,26 @@ export async function signOut() {
   if (error) throw error
 }
 
+export async function syncUserProfile(user) {
+  if (!user) return
+
+  const { error } = await supabase.from('profiles').upsert(
+    {
+      id: user.id,
+      email: user.email ?? '',
+      updated_at: new Date().toISOString(),
+    },
+    {
+      onConflict: 'id',
+    },
+  )
+
+  if (error) {
+    // Keep auth usable even if the profiles table has not been created yet.
+    console.warn('Profile sync skipped:', error.message)
+  }
+}
+
 export async function resendSignupConfirmation(email) {
   const { data, error } = await supabase.auth.resend({
     type: 'signup',
