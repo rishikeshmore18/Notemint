@@ -4,6 +4,7 @@ import AuthCallbackScreen from './screens/AuthCallbackScreen'
 import EnrollScreen from './screens/EnrollScreen'
 import RecordScreen from './screens/RecordScreen'
 import ResultsScreen from './screens/ResultsScreen'
+import LoadingDot from './components/LoadingDot'
 import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supabase'
 
 export default function App() {
@@ -163,13 +164,13 @@ export default function App() {
     setScreen('auth')
   }
 
-  if (screen === 'loading') {
-    return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <span className="h-2 w-2 rounded-full bg-gray-400" />
-      </div>
-    )
-  }
+if (screen === 'loading') {
+  return (
+    <div className="min-h-screen bg-white flex items-center justify-center">
+      <LoadingDot />
+    </div>
+  )
+}
 
   if (screen === 'auth') {
     return (
