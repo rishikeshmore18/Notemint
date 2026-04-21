@@ -112,8 +112,8 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
   }
 
   return (
-    <div className="min-h-screen bg-white">
-      <div className="mx-auto flex min-h-screen w-full max-w-[640px] flex-col px-5 md:px-10">
+    <div className="min-h-screen bg-white flex flex-col max-w-2xl mx-auto px-5 md:px-8">
+      <div className="w-full flex min-h-screen flex-col">
         <header className="flex h-14 items-center justify-between">
           <p className="text-sm font-medium text-gray-900">recall</p>
           <div className="flex items-center gap-3">
@@ -137,14 +137,16 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
           </main>
         ) : (
           <main className="flex flex-1 flex-col pt-6">
-            <WaveformVisualizer isRecording={isRecording} audioStream={audioStream} />
+            <div className="w-full" style={{ minHeight: '40px' }}>
+              <WaveformVisualizer className="w-full" isRecording={isRecording} audioStream={audioStream} />
+            </div>
             <div className="mt-6 flex items-center justify-center gap-3">
               <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
               <p className="text-3xl font-medium text-gray-900">{formatTime(elapsedSeconds)}</p>
             </div>
             <p className="mt-2 text-center text-xs uppercase tracking-[0.2em] text-gray-400">recording</p>
 
-            <div className="mt-6 max-h-[calc(100vh-280px)] overflow-y-auto">
+            <div className="mt-6 overflow-y-auto" style={{ maxHeight: 'calc(100dvh - 280px)' }}>
               <div className="space-y-3 pb-2">
                 {segments.map((segment) => (
                   <div key={segment.id} className="flex items-start gap-3">
@@ -158,7 +160,7 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
           </main>
         )}
 
-        <div className="mt-auto flex flex-col items-center pb-8 pt-4">
+        <div className="mt-auto flex flex-col items-center pb-8 pt-4 safe-bottom">
           <button
             type="button"
             onClick={handleRecordClick}

@@ -1,161 +1,175 @@
-import { useEffect, useRef } from 'react'
+import React, { useEffect, useRef } from 'react'
 
-const BAR_COUNT = 20
-const BAR_GAP = 3
-const CANVAS_HEIGHT = 40
-const ACTIVE_COLOR = '#4F46E5'
-const IDLE_COLOR = '#E5E7EB'
-const MIN_BAR_HEIGHT = 3
-
-export default function WaveformVisualizer({ isRecording, audioStream }) {
+export default function WaveformVisualizer({ isRecording, audioStream, className = '' }) {
   const canvasRef = useRef(null)
-  const animationFrameRef = useRef(null)
-  const audioContextRef = useRef(null)
+  const animFrameRef = useRef(null)
   const analyserRef = useRef(null)
+  const audioCtxRef = useRef(null)
   const sourceRef = useRef(null)
-  const resizeObserverRef = useRef(null)
+  const roRef = useRef(null)
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return undefined
+  // Draw a flat idle state (grey bars)
+  function drawIdle(canvas, ctx) {
+    const dpr = window.devicePixelRatio || 1
+    const w = canvas.offsetWidth
+    const h = 40
 
-    const resizeCanvas = () => {
-      const width = Math.max(1, Math.floor(canvas.clientWidth))
-      canvas.width = width
-      canvas.height = CANVAS_HEIGHT
-      if (!isRecording) drawIdle(canvas)
+    canvas.width = w * dpr
+    canvas.height = h * dpr
+    canvas.style.width = w + 'px'
+    canvas.style.height = h + 'px'
+    ctx.scale(dpr, dpr)
+
+    ctx.clearRect(0, 0, w, h)
+
+    const barCount = 20
+    const gap = 3
+    const barWidth = (w - gap * (barCount - 1)) / barCount
+
+    for (let i = 0; i < barCount; i++) {
+      const x = i * (barWidth + gap)
+      const barH = 3
+      const y = (h - barH) / 2
+      ctx.fillStyle = '#E5E7EB'
+      ctx.beginPath()
+      ctx.roundRect(x, y, barWidth, barH, 2)
+      ctx.fill()
     }
+  }
 
-    resizeCanvas()
+  // Draw animated bars from frequency data
+  function drawActive(canvas, ctx, analyser) {
+    const dpr = window.devicePixelRatio || 1
+    const w = canvas.offsetWidth
+    const h = 40
 
-    if (typeof ResizeObserver !== 'undefined') {
-      resizeObserverRef.current = new ResizeObserver(resizeCanvas)
-      resizeObserverRef.current.observe(canvas)
-    } else {
-      window.addEventListener('resize', resizeCanvas)
-    }
+    canvas.width = w * dpr
+    canvas.height = h * dpr
+    canvas.style.width = w + 'px'
+    canvas.style.height = h + 'px'
+    ctx.scale(dpr, dpr)
 
-    return () => {
-      if (resizeObserverRef.current) {
-        resizeObserverRef.current.disconnect()
-        resizeObserverRef.current = null
-      } else {
-        window.removeEventListener('resize', resizeCanvas)
-      }
-    }
-  }, [isRecording])
+    const dataArray = new Uint8Array(analyser.frequencyBinCount)
 
-  useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return undefined
+    function draw() {
+      animFrameRef.current = requestAnimationFrame(draw)
 
-    if (!isRecording || !audioStream) {
-      cleanupAudio()
-      drawIdle(canvas)
-      return undefined
-    }
+      analyser.getByteFrequencyData(dataArray)
+      ctx.clearRect(0, 0, w, h)
 
-    let cancelled = false
+      const barCount = 20
+      const gap = 3
+      const barWidth = (w - gap * (barCount - 1)) / barCount
 
-    const setup = async () => {
-      try {
-        const AudioCtx = window.AudioContext || window.webkitAudioContext
-        if (!AudioCtx) return
+      for (let i = 0; i < barCount; i++) {
+        const dataIndex = Math.floor((i / barCount) * dataArray.length)
+        const value = dataArray[dataIndex] / 255
+        const barH = Math.max(3, value * h * 0.85)
+        const x = i * (barWidth + gap)
+        const y = (h - barH) / 2
 
-        const audioContext = new AudioCtx()
-        audioContextRef.current = audioContext
-        if (audioContext.state === 'suspended') {
-          await audioContext.resume()
-        }
-
-        const analyser = audioContext.createAnalyser()
-        analyser.fftSize = 64
-        analyser.smoothingTimeConstant = 0.8
-        analyserRef.current = analyser
-
-        const source = audioContext.createMediaStreamSource(audioStream)
-        source.connect(analyser)
-        sourceRef.current = source
-
-        const dataArray = new Uint8Array(analyser.frequencyBinCount)
-
-        const render = () => {
-          if (cancelled) return
-
-          try {
-            analyser.getByteFrequencyData(dataArray)
-            drawBars(canvas, dataArray, ACTIVE_COLOR)
-          } catch (err) {
-            drawIdle(canvas)
-          }
-
-          animationFrameRef.current = requestAnimationFrame(render)
-        }
-
-        render()
-      } catch (err) {
-        drawIdle(canvas)
+        // Gradient: bright indigo at peak, softer at base
+        const alpha = 0.5 + value * 0.5
+        ctx.fillStyle = `rgba(79, 70, 229, ${alpha})`
+        ctx.beginPath()
+        ctx.roundRect(x, y, barWidth, barH, 2)
+        ctx.fill()
       }
     }
 
-    setup()
+    draw()
+  }
 
-    return () => {
-      cancelled = true
-      cleanupAudio()
-      drawIdle(canvas)
+  function cleanup() {
+    if (animFrameRef.current) {
+      cancelAnimationFrame(animFrameRef.current)
+      animFrameRef.current = null
     }
-  }, [audioStream, isRecording])
-
-  function cleanupAudio() {
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current)
-      animationFrameRef.current = null
-    }
-
     if (sourceRef.current) {
-      sourceRef.current.disconnect()
+      try {
+        sourceRef.current.disconnect()
+      } catch {}
       sourceRef.current = null
     }
-
-    if (analyserRef.current) {
-      analyserRef.current.disconnect()
-      analyserRef.current = null
+    if (audioCtxRef.current) {
+      try {
+        audioCtxRef.current.close()
+      } catch {}
+      audioCtxRef.current = null
     }
-
-    if (audioContextRef.current) {
-      audioContextRef.current.close().catch(() => {})
-      audioContextRef.current = null
-    }
+    analyserRef.current = null
   }
 
-  return <canvas ref={canvasRef} style={{ width: '100%', height: '40px', display: 'block' }} />
-}
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
 
-function drawIdle(canvas) {
-  const idleData = new Uint8Array(BAR_COUNT).fill(0)
-  drawBars(canvas, idleData, IDLE_COLOR)
-}
+    const ctx = canvas.getContext('2d')
 
-function drawBars(canvas, dataArray, color) {
-  const ctx = canvas.getContext('2d')
-  if (!ctx) return
+    // ResizeObserver keeps canvas sharp when container resizes
+    roRef.current = new ResizeObserver(() => {
+      if (!isRecording || !analyserRef.current) {
+        drawIdle(canvas, ctx)
+      }
+    })
+    roRef.current.observe(canvas)
 
-  const width = canvas.width
-  const height = canvas.height
-  const totalGapWidth = (BAR_COUNT - 1) * BAR_GAP
-  const barWidth = Math.max(1, (width - totalGapWidth) / BAR_COUNT)
+    return () => {
+      if (roRef.current) roRef.current.disconnect()
+      cleanup()
+    }
+  }, [])
 
-  ctx.clearRect(0, 0, width, height)
-  ctx.fillStyle = color
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
 
-  for (let i = 0; i < BAR_COUNT; i += 1) {
-    const value = dataArray[i] ?? 0
-    const scaledHeight = (value / 255) * height * 0.8
-    const barHeight = Math.max(MIN_BAR_HEIGHT, scaledHeight)
-    const x = i * (barWidth + BAR_GAP)
-    const y = (height - barHeight) / 2
+    if (!isRecording || !audioStream) {
+      cleanup()
+      drawIdle(canvas, ctx)
+      return
+    }
 
-    ctx.fillRect(x, y, barWidth, barHeight)
-  }
+    // Start audio analysis
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext
+      if (!AudioContext) {
+        drawIdle(canvas, ctx)
+        return
+      }
+
+      audioCtxRef.current = new AudioContext()
+
+      // Resume context — required by Safari after user gesture
+      if (audioCtxRef.current.state === 'suspended') {
+        audioCtxRef.current.resume()
+      }
+
+      analyserRef.current = audioCtxRef.current.createAnalyser()
+      analyserRef.current.fftSize = 64
+      analyserRef.current.smoothingTimeConstant = 0.75
+
+      sourceRef.current = audioCtxRef.current.createMediaStreamSource(audioStream)
+      sourceRef.current.connect(analyserRef.current)
+
+      drawActive(canvas, ctx, analyserRef.current)
+    } catch (err) {
+      // If AudioContext fails (old browser, permissions issue), show idle state
+      console.warn('WaveformVisualizer: AudioContext error', err)
+      drawIdle(canvas, ctx)
+    }
+
+    return () => {
+      cleanup()
+    }
+  }, [isRecording, audioStream])
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className={className}
+      style={{ display: 'block', width: '100%', height: '40px' }}
+    />
+  )
 }

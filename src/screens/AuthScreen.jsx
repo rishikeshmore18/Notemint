@@ -45,7 +45,7 @@ export default function AuthScreen({ initialEmail = '', initialError = null, onA
   }
 
   async function handleSubmit(event) {
-    event.preventDefault()
+    event?.preventDefault?.()
     if (loading) return
 
     const trimmedEmail = email.trim()
@@ -169,17 +169,24 @@ export default function AuthScreen({ initialEmail = '', initialError = null, onA
             type="email"
             value={email}
             onChange={handleEmailChange}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSubmit()
+            }}
             placeholder="you@company.com"
             autoComplete="email"
-            className="h-11 w-full rounded-lg border border-gray-200 px-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
+            inputMode="email"
+            className="h-11 w-full rounded-lg border border-gray-200 px-4 text-base text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
           />
           <input
             type="password"
             value={password}
             onChange={handlePasswordChange}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') handleSubmit()
+            }}
             placeholder="password"
             autoComplete={isSignIn ? 'current-password' : 'new-password'}
-            className="h-11 w-full rounded-lg border border-gray-200 px-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
+            className="h-11 w-full rounded-lg border border-gray-200 px-4 text-base text-gray-900 placeholder:text-gray-400 focus:border-gray-400 focus:outline-none"
           />
           <button
             type="submit"
