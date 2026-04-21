@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { getLocalMeetings } from '../lib/summary'
 
 export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
   const [meetings, setMeetings] = useState([])
@@ -13,6 +14,9 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
   async function loadMeetings() {
     setLoading(true)
     setError(null)
+
+    const localMeetings = getLocalMeetings(user.id)
+
     try {
       const { data, error } = await supabase
         .from('meetings')
@@ -23,19 +27,46 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
 
       if (error) {
         console.error('[History] Supabase error:', error)
-        setError('Could not load meetings: ' + error.message)
+        if (localMeetings.length > 0) {
+          setMeetings(localMeetings)
+          setError(null)
+        } else if (String(error.message || '').includes("Could not find the table 'public.meetings'")) {
+          setError('Supabase table "meetings" is not created yet. Use the SQL file in /supabase/sql.')
+        } else {
+          setError('Could not load meetings: ' + error.message)
+        }
         return
       }
-      setMeetings(data || [])
+
+      const remoteMeetings = data || []
+      const merged = [...remoteMeetings]
+      for (const localMeeting of localMeetings) {
+        if (!merged.some((m) => m.id === localMeeting.id)) {
+          merged.push(localMeeting)
+        }
+      }
+
+      merged.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      setMeetings(merged)
     } catch (err) {
       console.error('[History] Supabase error:', err)
-      setError('Could not load meetings: ' + err.message)
+      if (localMeetings.length > 0) {
+        setMeetings(localMeetings)
+        setError(null)
+      } else {
+        setError('Could not load meetings: ' + (err.message || 'Unknown error'))
+      }
     } finally {
       setLoading(false)
     }
   }
 
   async function handleOpenMeeting(meeting) {
+    if (String(meeting.id).startsWith('local_')) {
+      onOpenMeeting(meeting)
+      return
+    }
+
     try {
       const { data, error } = await supabase
         .from('meetings')
@@ -53,7 +84,7 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
       onOpenMeeting(data)
     } catch (err) {
       console.error('[History] Supabase error:', err)
-      setError('Could not open meeting: ' + err.message)
+      setError('Could not open meeting: ' + (err.message || 'Unknown error'))
     }
   }
 
@@ -79,7 +110,7 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
 
     if (diffDays === 0) return 'Today'
     if (diffDays === 1) return 'Yesterday'
-    if (diffDays < 7) return `${diffDays} days ago`
+    if (diffDays < 7) return diffDays + ' days ago'
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
   }
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { matchSpeakers } from '../lib/enrollment'
 import { compressTranscript, getSummary, saveMeeting } from '../lib/summary'
 import { supabase } from '../lib/supabase'
@@ -14,7 +14,6 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
 
   const summaryTextRef = useRef('')
   const mountedRef = useRef(true)
-  const compressedRef = useRef('')
   const labelMapRef = useRef({})
 
   useEffect(() => {
@@ -30,7 +29,7 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
   async function runSummary() {
     if (!segments || segments.length < 1) {
       setSummaryStatus('error')
-      setSummaryError('Recording was too short. Record at least 30 seconds and try again.')
+      setSummaryError('No transcript received. Check your microphone and transcription connection, then try again.')
       return
     }
 
@@ -39,8 +38,6 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
     if (mountedRef.current) setLabelMap(map)
 
     const compressed = compressTranscript(segments, map)
-    compressedRef.current = compressed
-
     if (mountedRef.current) setSummaryStatus('generating')
 
     summaryTextRef.current = ''
@@ -61,7 +58,7 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
           title: null,
           transcript: compressed,
           summary: fullText,
-          segments: segments,
+          segments,
           labelMap: labelMapRef.current,
         })
         if (!mountedRef.current) return
@@ -115,35 +112,36 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
   function renderMarkdownLite(text) {
     if (!text) return null
     return text.split('\n').map((line, i) => {
-      const t = line.trim()
+      const trimmed = line.trim()
 
-      if (t.startsWith('**') && t.endsWith('**') && t.length > 4) {
+      if (trimmed.startsWith('**') && trimmed.endsWith('**') && trimmed.length > 4) {
         return (
           <p key={i} className="text-sm font-semibold text-gray-900 mt-5 mb-2 first:mt-1">
-            {t.slice(2, -2)}
+            {trimmed.slice(2, -2)}
           </p>
         )
       }
 
-      if (t.startsWith('→')) {
+      if (trimmed.startsWith('->') || trimmed.startsWith('=>') || trimmed.startsWith('>')) {
+        const actionText = trimmed.replace(/^(->|=>|>)\s*/, '')
         return (
           <div key={i} className="flex items-start gap-2 bg-indigo-50 rounded-lg px-3 py-2 mb-1.5">
-            <span className="text-indigo-400 flex-shrink-0 mt-0.5 text-sm">→</span>
-            <span className="text-sm text-indigo-800 leading-relaxed">{t.slice(1).trim()}</span>
+            <span className="text-indigo-400 flex-shrink-0 mt-0.5 text-sm">-&gt;</span>
+            <span className="text-sm text-indigo-800 leading-relaxed">{actionText}</span>
           </div>
         )
       }
 
-      if (t.startsWith('- ')) {
+      if (trimmed.startsWith('- ')) {
         return (
           <div key={i} className="flex items-start gap-2 py-0.5">
-            <span className="text-gray-300 flex-shrink-0 mt-1.5 text-xs">●</span>
-            <p className="text-sm text-gray-700 leading-relaxed">{t.slice(2)}</p>
+            <span className="text-gray-300 flex-shrink-0 mt-1.5 text-xs">*</span>
+            <p className="text-sm text-gray-700 leading-relaxed">{trimmed.slice(2)}</p>
           </div>
         )
       }
 
-      if (!t) return <div key={i} className="h-1.5" />
+      if (!trimmed) return <div key={i} className="h-1.5" />
 
       return (
         <p key={i} className="text-sm text-gray-700 leading-relaxed py-0.5">
@@ -178,28 +176,11 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
 
   return (
     <div className="min-h-screen bg-white flex flex-col max-w-2xl mx-auto px-5 md:px-10">
-      <style>{`
-        @keyframes dotPulse {
-          0%, 80%, 100% { opacity: 0.35; transform: translateY(0); }
-          40% { opacity: 1; transform: translateY(-2px); }
-        }
-
-        .dot-pulse {
-          animation: dotPulse 1s ease-in-out infinite;
-        }
-      `}</style>
-
       <div className="flex items-center justify-between h-14 flex-shrink-0">
         <span className="text-sm font-medium text-gray-900">recall</span>
-
         <span className="text-xs text-gray-400">
-          {new Date().toLocaleDateString('en-GB', {
-            weekday: 'long',
-            day: 'numeric',
-            month: 'long',
-          })}
+          {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
         </span>
-
         <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
           <span className="text-sm font-medium text-indigo-600">
             {user?.email?.[0]?.toUpperCase() || '?'}
@@ -209,8 +190,8 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
 
       <div className="h-5 flex items-center justify-end mb-1">
         {saveStatus === 'saving' && <p className="text-xs text-gray-300">saving...</p>}
-        {saveStatus === 'saved' && <p className="text-xs text-gray-300">saved ✓</p>}
-        {saveStatus === 'failed' && <p className="text-xs text-red-300">couldn't save</p>}
+        {saveStatus === 'saved' && <p className="text-xs text-gray-300">saved</p>}
+        {saveStatus === 'failed' && <p className="text-xs text-red-300">could not save</p>}
       </div>
 
       <div className="flex rounded-xl overflow-hidden border border-gray-100 mb-4 flex-shrink-0">
@@ -242,18 +223,9 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
             {summaryStatus === 'generating' && !summaryText && (
               <div className="flex flex-col items-center py-12">
                 <div className="flex items-center gap-1.5 mb-3">
-                  <div
-                    className="w-1.5 h-1.5 rounded-full bg-indigo-300 dot-pulse"
-                    style={{ animationDelay: '0ms' }}
-                  />
-                  <div
-                    className="w-1.5 h-1.5 rounded-full bg-indigo-300 dot-pulse"
-                    style={{ animationDelay: '200ms' }}
-                  />
-                  <div
-                    className="w-1.5 h-1.5 rounded-full bg-indigo-300 dot-pulse"
-                    style={{ animationDelay: '400ms' }}
-                  />
+                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-300 dot-pulse" style={{ animationDelay: '0ms' }} />
+                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-300 dot-pulse" style={{ animationDelay: '200ms' }} />
+                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-300 dot-pulse" style={{ animationDelay: '400ms' }} />
                 </div>
                 <p className="text-sm text-gray-400">generating summary...</p>
               </div>
@@ -261,9 +233,7 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
 
             {(summaryStatus === 'generating' || summaryStatus === 'done') && summaryText && (
               <div>
-                {summaryStatus === 'generating' && (
-                  <p className="text-xs text-gray-300 text-right mb-2">writing...</p>
-                )}
+                {summaryStatus === 'generating' && <p className="text-xs text-gray-300 text-right mb-2">writing...</p>}
                 {renderMarkdownLite(summaryText)}
               </div>
             )}
@@ -293,17 +263,13 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
             <p className="text-xs text-gray-400 mb-4">
               {new Set(segments.map((s) => s.speaker)).size} speaker
               {new Set(segments.map((s) => s.speaker)).size > 1 ? 's' : ''}
-              {' · '}
+              {' - '}
               {segments.filter((s) => s.isFinal).length} segments
             </p>
 
             {getMergedTranscriptBlocks().map((block, i) => (
               <div key={i} className="flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0">
-                <span
-                  className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(
-                    block.label,
-                  )}`}
-                >
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(block.label)}`}>
                   {block.label.toLowerCase()}
                 </span>
                 <p className="text-sm text-gray-800 leading-relaxed">{block.text}</p>
@@ -317,23 +283,20 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
         )}
       </div>
 
-      <div
-        className="flex flex-col gap-2 pt-4 flex-shrink-0"
-        style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}
-      >
+      <div className="flex flex-col gap-2 pt-4 flex-shrink-0" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
         <button
           onClick={() => handleCopy('summary')}
           disabled={!summaryText}
           className="h-11 w-full rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {copiedWhat === 'summary' ? 'copied! ✓' : 'copy summary'}
+          {copiedWhat === 'summary' ? 'copied!' : 'copy summary'}
         </button>
 
         <button
           onClick={() => handleCopy('transcript')}
           className="h-11 w-full rounded-xl border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50 active:bg-gray-100 transition-colors"
         >
-          {copiedWhat === 'transcript' ? 'copied! ✓' : 'copy transcript'}
+          {copiedWhat === 'transcript' ? 'copied!' : 'copy transcript'}
         </button>
 
         <button

@@ -36,35 +36,36 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   function renderMarkdownLite(text) {
     if (!text) return null
     return text.split('\n').map((line, i) => {
-      const t = line.trim()
+      const trimmed = line.trim()
 
-      if (t.startsWith('**') && t.endsWith('**') && t.length > 4) {
+      if (trimmed.startsWith('**') && trimmed.endsWith('**') && trimmed.length > 4) {
         return (
           <p key={i} className="text-sm font-semibold text-gray-900 mt-5 mb-2 first:mt-1">
-            {t.slice(2, -2)}
+            {trimmed.slice(2, -2)}
           </p>
         )
       }
 
-      if (t.startsWith('→')) {
+      if (trimmed.startsWith('->') || trimmed.startsWith('=>') || trimmed.startsWith('>')) {
+        const actionText = trimmed.replace(/^(->|=>|>)\s*/, '')
         return (
           <div key={i} className="flex items-start gap-2 bg-indigo-50 rounded-lg px-3 py-2 mb-1.5">
-            <span className="text-indigo-400 flex-shrink-0 mt-0.5 text-sm">→</span>
-            <span className="text-sm text-indigo-800 leading-relaxed">{t.slice(1).trim()}</span>
+            <span className="text-indigo-400 flex-shrink-0 mt-0.5 text-sm">-&gt;</span>
+            <span className="text-sm text-indigo-800 leading-relaxed">{actionText}</span>
           </div>
         )
       }
 
-      if (t.startsWith('- ')) {
+      if (trimmed.startsWith('- ')) {
         return (
           <div key={i} className="flex items-start gap-2 py-0.5">
-            <span className="text-gray-300 flex-shrink-0 mt-1.5 text-xs">●</span>
-            <p className="text-sm text-gray-700 leading-relaxed">{t.slice(2)}</p>
+            <span className="text-gray-300 flex-shrink-0 mt-1.5 text-xs">*</span>
+            <p className="text-sm text-gray-700 leading-relaxed">{trimmed.slice(2)}</p>
           </div>
         )
       }
 
-      if (!t) return <div key={i} className="h-1.5" />
+      if (!trimmed) return <div key={i} className="h-1.5" />
 
       return (
         <p key={i} className="text-sm text-gray-700 leading-relaxed py-0.5">
@@ -154,11 +155,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
           <div>
             {transcriptLines.map((line, index) => (
               <div key={index} className="flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0">
-                <span
-                  className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(
-                    line.label,
-                  )}`}
-                >
+                <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(line.label)}`}>
                   {line.label.toLowerCase()}
                 </span>
                 <p className="text-sm text-gray-800 leading-relaxed">{line.text}</p>
@@ -172,16 +169,13 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
         )}
       </div>
 
-      <div
-        className="flex flex-col gap-2 pt-4 flex-shrink-0"
-        style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}
-      >
+      <div className="flex flex-col gap-2 pt-4 flex-shrink-0" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
         <button
           onClick={() => handleCopy('summary')}
           disabled={!meeting.summary}
           className="h-11 w-full rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {copiedWhat === 'summary' ? 'copied! ✓' : 'copy summary'}
+          {copiedWhat === 'summary' ? 'copied!' : 'copy summary'}
         </button>
 
         <button
@@ -189,7 +183,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
           disabled={!meeting.transcript_compressed}
           className="h-11 w-full rounded-xl border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50 active:bg-gray-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          {copiedWhat === 'transcript' ? 'copied! ✓' : 'copy transcript'}
+          {copiedWhat === 'transcript' ? 'copied!' : 'copy transcript'}
         </button>
 
         <button

@@ -1,4 +1,5 @@
 const FILLER_REGEX = /\b(um+|uh+|er+|erm|hmm+|ah+|like|you know|so um|ok so|mhm|yeah right)\b/gi
+const LOCAL_MEETINGS_KEY_PREFIX = 'local_meetings_'
 
 export function compressTranscript(segments, labelMap) {
   if (!segments || segments.length === 0) return ''
@@ -8,9 +9,8 @@ export function compressTranscript(segments, labelMap) {
 
   const seen = new Set()
   const cleaned = []
-
   for (const seg of finals) {
-    const text = seg.text.replace(FILLER_REGEX, '').replace(/\s+/g, ' ').trim()
+    const text = (seg.text || '').replace(FILLER_REGEX, '').replace(/\s+/g, ' ').trim()
     if (text.length < 2) continue
     if (seen.has(text)) continue
     seen.add(text)
@@ -18,7 +18,6 @@ export function compressTranscript(segments, labelMap) {
   }
 
   const merged = []
-
   for (const item of cleaned) {
     let label = labelMap[item.speaker]
     if (label === undefined || label === null) {
@@ -38,7 +37,7 @@ export function compressTranscript(segments, labelMap) {
 
 export async function getSummary(compressedTranscript, onChunk, onComplete, onError) {
   if (!compressedTranscript || compressedTranscript.length < 10) {
-    onError('Recording too short to summarize — try at least 30 seconds.')
+    onError('Recording too short to summarize - try at least 10 seconds.')
     return
   }
 
@@ -51,9 +50,9 @@ Two sentences max. Plain English. What happened and what matters.
 Bullet list with "- " prefix. Only firm decisions. If none: - None recorded.
 
 **Action items**
-Each line starts with →
-Format: → [Person] will [action] [by timeframe if mentioned]
-If none: → None recorded.
+Each line starts with ->
+Format: -> [Person] will [action] [by timeframe if mentioned]
+If none: -> None recorded.
 
 **Key discussion points**
 3 to 5 bullets with "- " prefix. Specific content, not vague descriptions.
@@ -130,7 +129,7 @@ Be direct. No filler. No repetition. When speaker label is "You", refer to them 
       err.message.includes('network') ||
       err.message.includes('Failed')
     ) {
-      onError('No internet — summary unavailable')
+      onError('No internet - summary unavailable')
     } else {
       onError('Summary error: ' + err.message)
     }
@@ -139,19 +138,11 @@ Be direct. No filler. No repetition. When speaker label is "You", refer to them 
 
 export async function saveMeeting(supabase, userId, meetingData) {
   let title = meetingData.title
-
   if (!title) {
     const now = new Date()
-    const dateStr = now.toLocaleDateString('en-GB', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-    })
-    const timeStr = now.toLocaleTimeString('en-GB', {
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-    title = dateStr + ' · ' + timeStr
+    const dateStr = now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+    const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+    title = dateStr + ' - ' + timeStr
   }
 
   try {
@@ -159,7 +150,7 @@ export async function saveMeeting(supabase, userId, meetingData) {
       .from('meetings')
       .insert({
         user_id: userId,
-        title: title,
+        title,
         transcript_compressed: meetingData.transcript,
         summary: meetingData.summary,
         segments: meetingData.segments,
@@ -172,12 +163,48 @@ export async function saveMeeting(supabase, userId, meetingData) {
 
     if (error) {
       console.error('saveMeeting error:', error)
-      return null
+      return saveMeetingLocally(userId, title, meetingData)
     }
 
     return data.id
   } catch (err) {
     console.error('saveMeeting error:', err)
+    return saveMeetingLocally(userId, title, meetingData)
+  }
+}
+
+export function getLocalMeetings(userId) {
+  try {
+    const raw = localStorage.getItem(LOCAL_MEETINGS_KEY_PREFIX + userId)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+function saveMeetingLocally(userId, title, meetingData) {
+  try {
+    const meetings = getLocalMeetings(userId)
+    const localMeeting = {
+      id: 'local_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
+      user_id: userId,
+      title,
+      transcript_compressed: meetingData.transcript || '',
+      summary: meetingData.summary || '',
+      segments: meetingData.segments || [],
+      label_map: meetingData.labelMap || {},
+      duration_segments: meetingData.segments?.length || 0,
+      created_at: new Date().toISOString(),
+    }
+
+    const next = [localMeeting, ...meetings].slice(0, 100)
+    localStorage.setItem(LOCAL_MEETINGS_KEY_PREFIX + userId, JSON.stringify(next))
+    return localMeeting.id
+  } catch (err) {
+    console.error('saveMeeting local fallback error:', err)
     return null
   }
 }
+

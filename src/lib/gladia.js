@@ -1,15 +1,17 @@
-const GLADIA_WS_URL = 'wss://api.gladia.io/audio/text/audio-transcription'
+const LIVE_INIT_URL = 'https://api.gladia.io/v2/live'
 
 let websocket = null
-let mediaRecorder = null
 let audioStream = null
+let audioContext = null
+let sourceNode = null
+let processorNode = null
+let silenceNode = null
+let streaming = false
 
 export async function startTranscription({ onSegment, onError, onConnected }) {
-  // Step 1: Get microphone
   try {
     audioStream = await navigator.mediaDevices.getUserMedia({
       audio: {
-        sampleRate: 16000,
         channelCount: 1,
         echoCancellation: true,
         noiseSuppression: true,
@@ -29,51 +31,84 @@ export async function startTranscription({ onSegment, onError, onConnected }) {
     return false
   }
 
-  // Step 2: Open WebSocket
-  websocket = new WebSocket(GLADIA_WS_URL)
-  websocket.binaryType = 'arraybuffer'
+  const AudioContextCtor = window.AudioContext || window.webkitAudioContext
+  if (!AudioContextCtor) {
+    onError('AudioContext is not supported in this browser.')
+    cleanup()
+    return false
+  }
 
-  websocket.onopen = () => {
-    // Send config as JSON immediately
-    const config = {
-      x_gladia_key: import.meta.env.VITE_GLADIA_KEY,
-      encoding: 'wav/pcm',
-      sample_rate: 16000,
-      language_behaviour: 'automatic single language',
+  try {
+    audioContext = new AudioContextCtor()
+    if (audioContext.state === 'suspended') {
+      await audioContext.resume()
+    }
+  } catch (err) {
+    onError('Could not start audio context: ' + err.message)
+    cleanup()
+    return false
+  }
+
+  const sampleRate = audioContext.sampleRate || 48000
+
+  let websocketUrl = null
+  try {
+    const response = await fetch(LIVE_INIT_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-gladia-key': import.meta.env.VITE_GLADIA_KEY,
+      },
+      body: JSON.stringify({
+        encoding: 'wav/pcm',
+        bit_depth: 16,
+        sample_rate: sampleRate,
+        channels: 1,
+      }),
+    })
+
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok) {
+      onError('Transcription init failed: ' + (payload.error || response.status))
+      cleanup()
+      return false
     }
 
-    websocket.send(JSON.stringify(config))
+    websocketUrl = payload.url
+    if (!websocketUrl) {
+      onError('Transcription init failed: missing websocket URL.')
+      cleanup()
+      return false
+    }
+  } catch (err) {
+    onError('Transcription init failed: ' + err.message)
+    cleanup()
+    return false
+  }
 
-    // Start sending audio chunks after config is sent
-    startAudioStream(onSegment, onError)
-
+  websocket = new WebSocket(websocketUrl)
+  websocket.onopen = () => {
+    startPcmStream(onError)
     if (onConnected) onConnected()
   }
 
   websocket.onmessage = (event) => {
     try {
-      const data = JSON.parse(event.data)
+      const msg = JSON.parse(event.data)
 
-      // Gladia sends { event: 'transcript', type: 'final'|'partial', transcription: '...', speaker: 0 }
-      // Also handles older format: { transcription: '...', speaker: 0, type: 'final' }
-      const text = data.transcription || data.transcript || ''
-      const type = data.type || ''
-      const isFinal = type === 'final'
-      const speakerRaw = data.speaker
+      if (msg.type === 'transcript') {
+        const utterance = msg.data?.utterance
+        const text = (utterance?.text || '').trim()
+        if (!text) return
 
-      // Normalize speaker to integer
-      const speaker =
-        typeof speakerRaw === 'number' ? speakerRaw : parseInt(speakerRaw ?? '0', 10) || 0
-
-      if (!text || !text.trim()) return
-
-      onSegment({
-        speaker,
-        text: text.trim(),
-        isFinal,
-      })
-    } catch (err) {
-      // Ignore malformed messages
+        onSegment({
+          speaker: normalizeSpeaker(utterance?.speaker ?? utterance?.channel ?? 0),
+          text,
+          isFinal: Boolean(msg.data?.is_final),
+        })
+      }
+    } catch {
+      // Ignore malformed websocket messages.
     }
   }
 
@@ -85,106 +120,135 @@ export async function startTranscription({ onSegment, onError, onConnected }) {
   websocket.onclose = (event) => {
     console.log('[Gladia] WebSocket closed. Code:', event.code, 'Reason:', event.reason)
     if (event.code !== 1000 && event.code !== 1001) {
-      onError(
-        'Transcription disconnected (code ' +
-          event.code +
-          '). ' +
-          (event.reason || 'Check your API key.'),
-      )
+      onError('Transcription disconnected (code ' + event.code + '). ' + (event.reason || ''))
     }
   }
 
   return true
 }
 
-function startAudioStream(onSegment, onError) {
-  if (!audioStream) return
+function startPcmStream(onError) {
+  if (!audioStream || !audioContext || !websocket) return
 
-  // Find the best supported MIME type
-  const mimeTypes = [
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/ogg;codecs=opus',
-    'audio/mp4',
-    '',
-  ]
+  streaming = true
+  sourceNode = audioContext.createMediaStreamSource(audioStream)
+  processorNode = audioContext.createScriptProcessor(4096, 1, 1)
+  silenceNode = audioContext.createGain()
+  silenceNode.gain.value = 0
 
-  let mimeType = ''
-  for (const type of mimeTypes) {
-    if (!type || MediaRecorder.isTypeSupported(type)) {
-      mimeType = type
-      break
-    }
-  }
-
-  try {
-    const options = mimeType ? { mimeType } : {}
-    mediaRecorder = new MediaRecorder(audioStream, options)
-  } catch (err) {
-    try {
-      mediaRecorder = new MediaRecorder(audioStream)
-    } catch (err2) {
-      onError('Could not start audio recorder: ' + err2.message)
-      return
-    }
-  }
-
-  mediaRecorder.ondataavailable = async (event) => {
-    if (!event.data || event.data.size === 0) return
-    if (!websocket || websocket.readyState !== WebSocket.OPEN) return
+  processorNode.onaudioprocess = (event) => {
+    if (!streaming || !websocket || websocket.readyState !== WebSocket.OPEN) return
 
     try {
-      // Convert blob to base64 and send as JSON frame.
-      // This is more compatible across browsers than raw binary.
-      const arrayBuffer = await event.data.arrayBuffer()
-      const uint8Array = new Uint8Array(arrayBuffer)
-      let binary = ''
-      uint8Array.forEach((byte) => {
-        binary += String.fromCharCode(byte)
-      })
-      const base64 = btoa(binary)
+      const input = event.inputBuffer.getChannelData(0)
+      const pcmBuffer = floatTo16BitPcm(input)
+      const base64Chunk = arrayBufferToBase64(pcmBuffer)
 
-      websocket.send(JSON.stringify({ frames: base64 }))
+      websocket.send(
+        JSON.stringify({
+          type: 'audio_chunk',
+          data: {
+            chunk: base64Chunk,
+          },
+        }),
+      )
     } catch (err) {
       console.warn('[Gladia] Failed to send audio chunk:', err)
+      onError('Audio streaming error: ' + err.message)
     }
   }
 
-  mediaRecorder.onerror = (err) => {
-    console.error('[Gladia] MediaRecorder error:', err)
-    onError('Audio recording error: ' + err.message)
+  sourceNode.connect(processorNode)
+  processorNode.connect(silenceNode)
+  silenceNode.connect(audioContext.destination)
+}
+
+function floatTo16BitPcm(float32Array) {
+  const buffer = new ArrayBuffer(float32Array.length * 2)
+  const view = new DataView(buffer)
+
+  for (let i = 0; i < float32Array.length; i += 1) {
+    const sample = Math.max(-1, Math.min(1, float32Array[i]))
+    view.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true)
   }
 
-  // 250ms chunks for near-real-time feel
-  mediaRecorder.start(250)
+  return buffer
+}
+
+function arrayBufferToBase64(arrayBuffer) {
+  const bytes = new Uint8Array(arrayBuffer)
+  let binary = ''
+  const chunkSize = 0x8000
+
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize)
+    binary += String.fromCharCode.apply(null, chunk)
+  }
+
+  return btoa(binary)
+}
+
+function normalizeSpeaker(value) {
+  const parsed = Number(value)
+  if (Number.isNaN(parsed) || parsed < 0) return 0
+  return Math.floor(parsed)
+}
+
+function cleanup() {
+  streaming = false
+
+  if (processorNode) {
+    try {
+      processorNode.disconnect()
+    } catch {}
+    processorNode = null
+  }
+
+  if (sourceNode) {
+    try {
+      sourceNode.disconnect()
+    } catch {}
+    sourceNode = null
+  }
+
+  if (silenceNode) {
+    try {
+      silenceNode.disconnect()
+    } catch {}
+    silenceNode = null
+  }
+
+  if (audioContext) {
+    try {
+      audioContext.close()
+    } catch {}
+    audioContext = null
+  }
+
+  if (audioStream) {
+    audioStream.getTracks().forEach((track) => track.stop())
+    audioStream = null
+  }
 }
 
 export function stopTranscription() {
-  // Send finalize message so Gladia flushes final transcript
+  streaming = false
+
   if (websocket && websocket.readyState === WebSocket.OPEN) {
     try {
-      websocket.send(JSON.stringify({ event: 'terminate' }))
+      websocket.send(JSON.stringify({ type: 'stop_recording' }))
     } catch {}
   }
 
   setTimeout(() => {
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      try {
-        mediaRecorder.stop()
-      } catch {}
-    }
-    if (audioStream) {
-      audioStream.getTracks().forEach((track) => track.stop())
-    }
     if (websocket) {
       try {
         websocket.close(1000)
       } catch {}
+      websocket = null
     }
-    websocket = null
-    mediaRecorder = null
-    audioStream = null
-  }, 500)
+    cleanup()
+  }, 300)
 }
 
 export function getAudioStream() {
@@ -192,5 +256,5 @@ export function getAudioStream() {
 }
 
 export function isConnected() {
-  return websocket && websocket.readyState === WebSocket.OPEN
+  return Boolean(websocket && websocket.readyState === WebSocket.OPEN)
 }
