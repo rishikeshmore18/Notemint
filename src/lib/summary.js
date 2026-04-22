@@ -2,7 +2,10 @@ const FILLER_REGEX = /\b(um+|uh+|er+|erm|hmm+|ah+|like|you know|so um|ok so|mhm|
 const LOCAL_MEETINGS_KEY_PREFIX = 'local_meetings_'
 
 export function compressTranscript(segments, labelMap) {
-  if (!segments || segments.length === 0) return ''
+  if (!segments || segments.length === 0) {
+    console.warn('[Summary] compressTranscript called with empty segments')
+    return ''
+  }
 
   let finals = segments.filter((s) => s.isFinal === true)
   if (finals.length === 0) finals = segments
@@ -32,7 +35,9 @@ export function compressTranscript(segments, labelMap) {
     }
   }
 
-  return merged.map((m) => `[${m.label}]: ${m.text.trim()}`).join('\n')
+  const result = merged.map((m) => `[${m.label}]: ${m.text.trim()}`).join('\n')
+  console.log('[Summary] Compressed transcript preview:', result.slice(0, 200))
+  return result
 }
 
 export async function getSummary(compressedTranscript, onChunk, onComplete, onError) {
@@ -64,6 +69,9 @@ If none: - None.
 Be direct. No filler. No repetition. When speaker label is "You", refer to them as "you".`
 
   try {
+    console.log('[Summary] Calling Claude. Transcript chars:', compressedTranscript.length)
+    console.log('[Summary] Using key starting with:', import.meta.env.VITE_CLAUDE_KEY?.slice(0, 10))
+
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -87,38 +95,57 @@ Be direct. No filler. No repetition. When speaker label is "You", refer to them 
     })
 
     if (!response.ok) {
-      const body = await response.json().catch(() => ({}))
-      onError('Summary failed: ' + (body.error?.message || 'HTTP ' + response.status))
+      let errorDetail = 'HTTP ' + response.status
+      try {
+        const body = await response.json()
+        errorDetail = body.error?.message || errorDetail
+        console.error('[Summary] Claude API error body:', body)
+      } catch {}
+      console.error('[Summary] Claude API failed:', response.status, errorDetail)
+      onError('Summary failed (' + response.status + '): ' + errorDetail)
       return
     }
+
+    console.log('[Summary] Claude API OK, reading stream...')
 
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let fullText = ''
+    let buffer = ''
 
     while (true) {
       const { done, value } = await reader.read()
       if (done) break
 
-      const raw = decoder.decode(value, { stream: true })
-      const lines = raw.split('\n')
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
 
       for (const line of lines) {
-        if (!line.startsWith('data: ')) continue
-        const jsonStr = line.slice(6).trim()
-        if (jsonStr === '[DONE]' || jsonStr === '') continue
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        if (trimmed.startsWith('event:')) continue
+        if (!trimmed.startsWith('data:')) continue
+
+        const jsonStr = trimmed.slice(5).trim()
+        if (!jsonStr || jsonStr === '[DONE]') continue
 
         try {
           const parsed = JSON.parse(jsonStr)
-          const text = parsed.delta?.text
-          if (text) {
-            fullText += text
-            onChunk(text)
+          const chunkText = parsed.delta?.text || ''
+          if (chunkText) {
+            fullText += chunkText
+            onChunk(chunkText)
           }
         } catch {
           continue
         }
       }
+    }
+
+    if (!fullText || fullText.trim().length < 5) {
+      onError('Summary returned empty. Check your Claude API key in GitHub Secrets (VITE_CLAUDE_KEY).')
+      return
     }
 
     onComplete(fullText)
@@ -207,4 +234,3 @@ function saveMeetingLocally(userId, title, meetingData) {
     return null
   }
 }
-
