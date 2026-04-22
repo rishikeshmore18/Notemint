@@ -5,12 +5,13 @@ import { getAudioStream, startTranscription, stopTranscription } from '../lib/gl
 export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete, onSignOut, onViewHistory }) {
   const [isRecording, setIsRecording] = useState(false)
   const [segments, setSegments] = useState([])
-  const [rawSegments, setRawSegments] = useState([])
   const [audioStream, setAudioStream] = useState(null)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [error, setError] = useState(null)
-  const bottomRef = useRef(null)
-  const rawSegmentsRef = useRef([])
+  const [debugMessages, setDebugMessages] = useState([])
+  const [showDebug, setShowDebug] = useState(false)
+  const segmentsRef = useRef([])
+  const transcriptEndRef = useRef(null)
 
   const initial = useMemo(() => {
     const email = user?.email ?? ''
@@ -22,13 +23,12 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
   }, [])
 
   useEffect(() => {
-    rawSegmentsRef.current = rawSegments
-    setSegments(mergeSegments(rawSegments))
-  }, [rawSegments])
+    segmentsRef.current = segments
+  }, [segments])
 
   useEffect(() => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
+    if (transcriptEndRef.current) {
+      transcriptEndRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' })
     }
   }, [segments])
 
@@ -84,21 +84,32 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
 
     setError(null)
     setElapsedSeconds(0)
-    setRawSegments([])
     setSegments([])
+    segmentsRef.current = []
 
     const started = await startTranscription({
       onSegment: (incomingSegment) => {
+        if (import.meta.env.DEV) {
+          setDebugMessages((prev) => [
+            ...prev.slice(-15),
+            {
+              time: new Date().toLocaleTimeString('en-GB', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              }),
+              speaker: incomingSegment.speaker,
+              text: incomingSegment.text,
+              isFinal: incomingSegment.isFinal,
+            },
+          ])
+        }
         console.log('[RecordScreen] segment received:', incomingSegment)
-        setRawSegments((prev) => [
-          ...prev,
-          {
-            id: `seg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-            speaker: normalizeSpeaker(incomingSegment.speaker),
-            text: incomingSegment.text,
-            isFinal: Boolean(incomingSegment.isFinal),
-          },
-        ])
+        handleSegment({
+          speaker: normalizeSpeaker(incomingSegment.speaker),
+          text: incomingSegment.text,
+          isFinal: Boolean(incomingSegment.isFinal),
+        })
       },
       onError: (message) => {
         console.log('[RecordScreen] error received:', message)
@@ -134,11 +145,49 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
     stopTranscription()
     setAudioStream(null)
     await delay(800)
-    onMeetingComplete(rawSegmentsRef.current)
+    onMeetingComplete(segmentsRef.current)
   }
 
   function handleRetry() {
     setError(null)
+  }
+
+  function handleSegment(seg) {
+    // seg has shape: { speaker: number, text: string, isFinal: boolean }
+    setSegments((prev) => {
+      const updated = [...prev]
+      const last = updated[updated.length - 1]
+
+      if (!seg.isFinal) {
+        // PARTIAL: update last entry if same speaker and also partial.
+        if (last && !last.isFinal && last.speaker === seg.speaker) {
+          updated[updated.length - 1] = { ...seg, id: last.id || Date.now() }
+          return updated
+        }
+        return [...updated, { ...seg, id: Date.now() }]
+      }
+
+      // FINAL: replace the last partial from same speaker.
+      if (last && !last.isFinal && last.speaker === seg.speaker) {
+        updated[updated.length - 1] = { ...seg, id: last.id || Date.now() }
+        return updated
+      }
+      return [...updated, { ...seg, id: Date.now() }]
+    })
+
+    // Keep ref in sync for stop handler (avoids stale closure).
+    segmentsRef.current = [...segmentsRef.current]
+    // We update it after state settles via useEffect instead.
+  }
+
+  function getSpeakerBadgeClass(speaker) {
+    const colors = [
+      'bg-indigo-100 text-indigo-700',
+      'bg-emerald-100 text-emerald-700',
+      'bg-amber-100 text-amber-700',
+      'bg-rose-100 text-rose-700',
+    ]
+    return colors[speaker % colors.length]
   }
 
   return (
@@ -146,6 +195,14 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
       <div className="w-full flex min-h-screen flex-col">
         <header className="flex h-14 items-center justify-between">
           <p className="text-sm font-medium text-gray-900">recall</p>
+          {import.meta.env.DEV && (
+            <button
+              onClick={() => setShowDebug((prev) => !prev)}
+              className="text-xs text-gray-300 hover:text-gray-500 transition-colors px-2 py-1"
+            >
+              {showDebug ? 'hide debug' : 'debug'}
+            </button>
+          )}
           <div className="flex items-center gap-3">
             <button
               onClick={onViewHistory}
@@ -171,6 +228,33 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
             </div>
           </div>
         </header>
+
+        {import.meta.env.DEV && showDebug && (
+          <div className="bg-gray-950 rounded-xl p-3 mb-3 max-h-44 overflow-y-auto flex-shrink-0">
+            <p className="text-gray-600 text-xs font-mono mb-2">
+              Gladia messages ({debugMessages.length}):
+            </p>
+            {debugMessages.length === 0 ? (
+              <p className="text-gray-700 text-xs font-mono">
+                No messages yet. Start recording and speak.
+              </p>
+            ) : (
+              debugMessages.map((message, index) => (
+                <div key={index} className="text-xs font-mono mb-0.5 leading-relaxed">
+                  <span className="text-gray-600">{message.time}</span>
+                  {' '}
+                  <span className="text-blue-400">[spk{message.speaker}]</span>
+                  {' '}
+                  <span className={message.isFinal ? 'text-green-400' : 'text-yellow-400'}>
+                    {message.isFinal ? '[F]' : '[P]'}
+                  </span>
+                  {' '}
+                  <span className="text-gray-300">{message.text}</span>
+                </div>
+              ))
+            )}
+          </div>
+        )}
 
         {!isRecording && segments.length === 0 ? (
           <main className="flex flex-col items-center justify-center flex-1 text-center px-6">
@@ -209,14 +293,31 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
             <p className="mt-2 text-center text-xs uppercase tracking-[0.2em] text-gray-400">recording</p>
 
             <div className="mt-6 overflow-y-auto" style={{ maxHeight: 'calc(100dvh - 280px)' }}>
-              <div className="space-y-3 pb-2">
-                {segments.map((segment) => (
-                  <div key={segment.id} className="flex items-start gap-3">
-                    <SpeakerBadge speaker={segment.speaker} />
-                    <p className="pt-1 text-sm leading-relaxed text-gray-800">{segment.text}</p>
+              <div className="flex flex-col gap-3 pb-2">
+                {segments.length === 0 && isRecording && (
+                  <p className="text-xs text-gray-400 text-center pt-4">
+                    listening... speak now
+                  </p>
+                )}
+                {segments.map((seg, i) => (
+                  <div key={seg.id || i} className="flex items-start gap-2.5">
+                    <span
+                      className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(
+                        seg.speaker,
+                      )}`}
+                    >
+                      {seg.speaker === 0 ? 'you' : 'person ' + seg.speaker}
+                    </span>
+                    <p
+                      className={`text-sm leading-relaxed transition-colors duration-200 ${
+                        seg.isFinal ? 'text-gray-900' : 'text-gray-400 italic'
+                      }`}
+                    >
+                      {seg.text}
+                    </p>
                   </div>
                 ))}
-                <div ref={bottomRef} />
+                <div ref={transcriptEndRef} />
               </div>
             </div>
           </main>
@@ -255,46 +356,6 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
   )
 }
 
-function mergeSegments(rawSegments) {
-  const merged = []
-
-  for (const segment of rawSegments) {
-    const speaker = normalizeSpeaker(segment.speaker)
-    const text = (segment.text ?? '').trim()
-    if (!text) continue
-
-    const normalized = {
-      speaker,
-      text,
-      id: segment.id,
-      isFinal: Boolean(segment.isFinal),
-    }
-
-    const last = merged[merged.length - 1]
-    if (!last || last.speaker !== normalized.speaker) {
-      merged.push(normalized)
-      continue
-    }
-
-    if (normalized.isFinal) {
-      last.text = `${last.text} ${normalized.text}`.trim()
-      last.id = normalized.id
-      last.isFinal = true
-      continue
-    }
-
-    if (last.isFinal) {
-      merged.push(normalized)
-      continue
-    }
-
-    last.text = normalized.text
-    last.id = normalized.id
-  }
-
-  return merged
-}
-
 function normalizeSpeaker(value) {
   const parsed = Number(value)
   if (Number.isNaN(parsed) || parsed < 0) return 0
@@ -313,27 +374,6 @@ function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
   })
-}
-
-function SpeakerBadge({ speaker }) {
-  if (speaker === 0) {
-    return <span className="rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-medium text-indigo-700">you</span>
-  }
-  if (speaker === 1) {
-    return (
-      <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">
-        person 1
-      </span>
-    )
-  }
-  if (speaker === 2) {
-    return (
-      <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-700">
-        person 2
-      </span>
-    )
-  }
-  return <span className="rounded-full bg-rose-100 px-2.5 py-1 text-xs font-medium text-rose-700">person 3</span>
 }
 
 function PulseRing() {
