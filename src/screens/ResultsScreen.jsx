@@ -27,9 +27,9 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
   }, [])
 
   async function runSummary() {
-    if (!segments || segments.length < 1) {
+    if (!segments || segments.length === 0) {
       setSummaryStatus('error')
-      setSummaryError('No transcript received. Check your microphone and transcription connection, then try again.')
+      setSummaryError('No speech was captured. Make sure your microphone was working and try again.')
       return
     }
 
@@ -247,7 +247,9 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
                     setSummaryError(null)
                     setSummaryText('')
                     summaryTextRef.current = ''
-                    runSummary()
+                    setTimeout(() => {
+                      runSummary()
+                    }, 100)
                   }}
                   className="text-sm text-indigo-600 underline"
                 >
@@ -277,7 +279,12 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
             ))}
 
             {getMergedTranscriptBlocks().length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-8">no transcript segments found</p>
+              <div className="text-center py-10">
+                <p className="text-sm text-gray-400">No transcript segments to show.</p>
+                <p className="text-xs text-gray-300 mt-1">
+                  Only final segments are shown here.
+                </p>
+              </div>
             )}
           </div>
         )}
@@ -286,7 +293,7 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
       <div className="flex flex-col gap-2 pt-4 flex-shrink-0" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
         <button
           onClick={() => handleCopy('summary')}
-          disabled={!summaryText}
+          disabled={!summaryText || summaryText.trim().length === 0}
           className="h-11 w-full rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {copiedWhat === 'summary' ? 'copied!' : 'copy summary'}
