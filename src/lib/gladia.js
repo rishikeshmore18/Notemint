@@ -237,18 +237,23 @@ export function stopTranscription() {
   if (websocket && websocket.readyState === WebSocket.OPEN) {
     try {
       websocket.send(JSON.stringify({ type: 'stop_recording' }))
-    } catch {}
+      websocket.send(JSON.stringify({ event: 'terminate' }))
+      console.log('[Gladia] Terminate sent')
+    } catch (err) {
+      console.warn('[Gladia] Could not send terminate:', err)
+    }
   }
 
   setTimeout(() => {
     if (websocket) {
       try {
-        websocket.close(1000)
+        websocket.close(1000, 'Session ended')
       } catch {}
       websocket = null
     }
     cleanup()
-  }, 300)
+    console.log('[Gladia] Cleanup complete')
+  }, 600)
 }
 
 export function getAudioStream() {

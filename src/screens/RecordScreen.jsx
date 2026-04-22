@@ -141,11 +141,25 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
   }
 
   async function handleStop() {
+    if (!isRecording) return
+
+    console.log('[RecordScreen] Stop pressed. Current segment count:', segmentsRef.current.length)
+
     setIsRecording(false)
+
     stopTranscription()
     setAudioStream(null)
-    await delay(800)
-    onMeetingComplete(segmentsRef.current)
+    await delay(1200)
+
+    const finalSegments = segmentsRef.current
+
+    console.log('[RecordScreen] Passing segments to results:', finalSegments.length)
+
+    if (finalSegments.length === 0) {
+      console.warn('[RecordScreen] No segments captured')
+    }
+
+    onMeetingComplete(finalSegments)
   }
 
   function handleRetry() {
@@ -326,7 +340,8 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
         <div className="mt-auto flex flex-col items-center pb-8 pt-4 safe-bottom">
           <button
             type="button"
-            onClick={handleRecordClick}
+            onClick={isRecording ? handleStop : handleRecordClick}
+            disabled={isRecording ? false : undefined}
             className={`relative flex h-[72px] w-[72px] items-center justify-center rounded-full transition md:h-20 md:w-20 ${
               isRecording
                 ? 'border-2 border-indigo-600 bg-white text-indigo-600'
