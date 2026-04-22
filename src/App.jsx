@@ -24,25 +24,6 @@ export default function App() {
   const redirectTimeoutRef = useRef(null)
 
   useEffect(() => {
-    // Development-only API key check
-    if (import.meta.env.DEV) {
-      const gladiaKey = import.meta.env.VITE_GLADIA_KEY
-      const claudeKey = import.meta.env.VITE_CLAUDE_KEY
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
-
-      console.log(
-        '[ENV CHECK] Gladia key present:',
-        !!gladiaKey,
-        gladiaKey ? '(starts with ' + gladiaKey.slice(0, 8) + '...)' : 'MISSING',
-      )
-      console.log(
-        '[ENV CHECK] Claude key present:',
-        !!claudeKey,
-        claudeKey ? '(starts with ' + claudeKey.slice(0, 8) + '...)' : 'MISSING',
-      )
-      console.log('[ENV CHECK] Supabase URL present:', !!supabaseUrl)
-    }
-
     let isMounted = true
     const callbackContext = callbackContextRef.current
 

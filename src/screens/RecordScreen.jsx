@@ -8,8 +8,6 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
   const [audioStream, setAudioStream] = useState(null)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [error, setError] = useState(null)
-  const [debugMessages, setDebugMessages] = useState([])
-  const [showDebug, setShowDebug] = useState(false)
   const segmentsRef = useRef([])
   const transcriptEndRef = useRef(null)
 
@@ -89,21 +87,6 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
 
     const started = await startTranscription({
       onSegment: (incomingSegment) => {
-        if (import.meta.env.DEV) {
-          setDebugMessages((prev) => [
-            ...prev.slice(-15),
-            {
-              time: new Date().toLocaleTimeString('en-GB', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-              }),
-              speaker: incomingSegment.speaker,
-              text: incomingSegment.text,
-              isFinal: incomingSegment.isFinal,
-            },
-          ])
-        }
         console.log('[RecordScreen] segment received:', incomingSegment)
         handleSegment({
           speaker: normalizeSpeaker(incomingSegment.speaker),
@@ -209,14 +192,6 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
       <div className="w-full flex min-h-screen flex-col">
         <header className="flex h-14 items-center justify-between">
           <p className="text-sm font-medium text-gray-900">recall</p>
-          {import.meta.env.DEV && (
-            <button
-              onClick={() => setShowDebug((prev) => !prev)}
-              className="text-xs text-gray-300 hover:text-gray-500 transition-colors px-2 py-1"
-            >
-              {showDebug ? 'hide debug' : 'debug'}
-            </button>
-          )}
           <div className="flex items-center gap-3">
             <button
               onClick={onViewHistory}
@@ -242,33 +217,6 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
             </div>
           </div>
         </header>
-
-        {import.meta.env.DEV && showDebug && (
-          <div className="bg-gray-950 rounded-xl p-3 mb-3 max-h-44 overflow-y-auto flex-shrink-0">
-            <p className="text-gray-600 text-xs font-mono mb-2">
-              Gladia messages ({debugMessages.length}):
-            </p>
-            {debugMessages.length === 0 ? (
-              <p className="text-gray-700 text-xs font-mono">
-                No messages yet. Start recording and speak.
-              </p>
-            ) : (
-              debugMessages.map((message, index) => (
-                <div key={index} className="text-xs font-mono mb-0.5 leading-relaxed">
-                  <span className="text-gray-600">{message.time}</span>
-                  {' '}
-                  <span className="text-blue-400">[spk{message.speaker}]</span>
-                  {' '}
-                  <span className={message.isFinal ? 'text-green-400' : 'text-yellow-400'}>
-                    {message.isFinal ? '[F]' : '[P]'}
-                  </span>
-                  {' '}
-                  <span className="text-gray-300">{message.text}</span>
-                </div>
-              ))
-            )}
-          </div>
-        )}
 
         {!isRecording && segments.length === 0 ? (
           <main className="flex flex-col items-center justify-center flex-1 text-center px-6">
