@@ -128,41 +128,56 @@ export function clearEnrollment(userId) {
 }
 
 export function matchSpeakers(segments) {
-  if (!segments || segments.length === 0) {
-    return {}
-  }
+  if (!segments || segments.length === 0) return {}
 
+  // Count words per speaker
   const wordCounts = {}
+  const firstAppearance = {}
 
   segments.forEach((seg) => {
     const key = seg.speaker
     const words = seg.text.trim().split(/\s+/).filter(Boolean).length
     wordCounts[key] = (wordCounts[key] || 0) + words
-  })
-
-  const speakers = Object.keys(wordCounts).map(Number)
-  if (speakers.length === 0) {
-    return {}
-  }
-
-  let youSpeaker = speakers[0]
-  speakers.forEach((speaker) => {
-    if (wordCounts[speaker] > wordCounts[youSpeaker]) {
-      youSpeaker = speaker
+    if (firstAppearance[key] === undefined) {
+      firstAppearance[key] = seg // track first time this speaker appeared
     }
   })
 
-  const labelMap = {
-    [youSpeaker]: 'You',
+  const speakerKeys = Object.keys(wordCounts)
+    .map(Number)
+    .sort((a, b) => a - b)
+
+  if (speakerKeys.length === 0) return {}
+
+  // If only one speaker: they are "You"
+  if (speakerKeys.length === 1) {
+    return { [speakerKeys[0]]: 'You' }
   }
 
-  const otherSpeakers = speakers
-    .filter((speaker) => speaker !== youSpeaker)
-    .sort((a, b) => wordCounts[b] - wordCounts[a])
+  // With multiple speakers:
+  // The speaker who spoke the MOST words is "You" (the one running the meeting)
+  // This heuristic works for most meeting scenarios where the host speaks more
+  const maxSpeaker = speakerKeys.reduce(
+    (max, key) => (wordCounts[key] > wordCounts[max] ? key : max),
+    speakerKeys[0],
+  )
 
-  otherSpeakers.forEach((speaker, index) => {
-    labelMap[speaker] = `Person ${index + 1}`
-  })
+  const labelMap = {}
+  let personIndex = 1
+
+  // Sort remaining speakers by word count descending for consistent labeling
+  speakerKeys
+    .filter((key) => key !== maxSpeaker)
+    .sort((a, b) => wordCounts[b] - wordCounts[a])
+    .forEach((key) => {
+      labelMap[key] = 'Person ' + personIndex
+      personIndex++
+    })
+
+  labelMap[maxSpeaker] = 'You'
+
+  console.log('[Enrollment] Speaker label map:', labelMap)
+  console.log('[Enrollment] Word counts:', wordCounts)
 
   return labelMap
 }
