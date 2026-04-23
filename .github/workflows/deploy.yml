@@ -43,6 +43,7 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           VITE_GLADIA_KEY: ${{ secrets.VITE_GLADIA_KEY }}
           VITE_CLAUDE_KEY: ${{ secrets.VITE_CLAUDE_KEY }}
+          VITE_XAI_KEY: ${{ secrets.VITE_XAI_KEY }}
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
