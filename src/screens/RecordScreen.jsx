@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import WaveformVisualizer from '../components/WaveformVisualizer'
-import { getAudioStream, startTranscription, stopTranscription } from '../lib/gladia'
+import { getAudioStream, getFullAudioBlob, startTranscription, stopTranscription } from '../lib/gladia'
 
 export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete, onSignOut, onViewHistory }) {
   const [isRecording, setIsRecording] = useState(false)
@@ -135,6 +135,8 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
     await delay(1200)
 
     const finalSegments = segmentsRef.current
+    const audioBlob = getFullAudioBlob()
+    console.log('[RecordScreen] Audio blob size:', audioBlob?.size, 'bytes')
 
     console.log('[RecordScreen] Passing segments to results:', finalSegments.length)
 
@@ -142,7 +144,7 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
       console.warn('[RecordScreen] No segments captured')
     }
 
-    onMeetingComplete(finalSegments)
+    onMeetingComplete(finalSegments, audioBlob)
   }
 
   function handleRetry() {

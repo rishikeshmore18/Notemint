@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { matchSpeakers } from '../lib/enrollment'
+import { getDiarizedTranscript, groupSegmentsByTime } from '../lib/grokStt'
 import { compressTranscript, getSummary, saveMeeting } from '../lib/summary'
 import { supabase } from '../lib/supabase'
 
-export default function ResultsScreen({ user, segments, onNewMeeting }) {
+export default function ResultsScreen({ user, segments, audioBlob, onNewMeeting }) {
   const [activeTab, setActiveTab] = useState('summary')
   const [summaryText, setSummaryText] = useState('')
   const [summaryStatus, setSummaryStatus] = useState('idle')
@@ -11,6 +12,9 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
   const [labelMap, setLabelMap] = useState({})
   const [saveStatus, setSaveStatus] = useState(null)
   const [copiedWhat, setCopiedWhat] = useState(null)
+  const [diarizedSegments, setDiarizedSegments] = useState(null)
+  const [diarizationStatus, setDiarizationStatus] = useState('idle')
+  const [diarizationProgress, setDiarizationProgress] = useState('')
 
   const summaryTextRef = useRef('')
   const mountedRef = useRef(true)
@@ -70,6 +74,28 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
         setSummaryError(errMsg)
       },
     )
+
+    // Run Grok STT diarization in parallel with summary generation.
+    if (audioBlob && audioBlob.size > 0) {
+      setDiarizationStatus('processing')
+      getDiarizedTranscript(
+        audioBlob,
+        (progressMsg) => {
+          if (mountedRef.current) setDiarizationProgress(progressMsg)
+        },
+        (grokSegments) => {
+          if (!mountedRef.current) return
+          console.log('[Results] Grok diarization complete:', grokSegments.length, 'segments')
+          setDiarizedSegments(grokSegments)
+          setDiarizationStatus('done')
+        },
+        (errMsg) => {
+          if (!mountedRef.current) return
+          console.warn('[Results] Grok diarization failed (using Gladia fallback):', errMsg)
+          setDiarizationStatus('failed')
+        },
+      )
+    }
   }
 
   async function copyToClipboard(text) {
@@ -152,26 +178,62 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
   }
 
   function getSpeakerBadgeClass(label) {
-    if (label === 'You') return 'bg-indigo-100 text-indigo-700'
-    if (label === 'Person 1') return 'bg-emerald-100 text-emerald-700'
-    if (label === 'Person 2') return 'bg-amber-100 text-amber-700'
-    if (label === 'Person 3') return 'bg-rose-100 text-rose-700'
+    const labelLower = String(label).toLowerCase()
+    if (labelLower === 'you') return 'bg-indigo-100 text-indigo-700'
+    if (labelLower === 'person 1' || labelLower === 'person1') return 'bg-emerald-100 text-emerald-700'
+    if (labelLower === 'person 2' || labelLower === 'person2') return 'bg-amber-100 text-amber-700'
+    if (labelLower === 'person 3' || labelLower === 'person3') return 'bg-rose-100 text-rose-700'
+    if (labelLower === '0') return 'bg-indigo-100 text-indigo-700'
+    if (labelLower === '1') return 'bg-emerald-100 text-emerald-700'
+    if (labelLower === '2') return 'bg-amber-100 text-amber-700'
     return 'bg-gray-100 text-gray-600'
   }
 
-  function getMergedTranscriptBlocks() {
-    const finals = segments.filter((s) => s.isFinal)
-    const merged = []
-    finals.forEach((seg) => {
-      const label = labelMap[seg.speaker] || 'Person ' + (seg.speaker + 1)
-      const last = merged[merged.length - 1]
-      if (last && last.label === label) {
-        last.text += ' ' + seg.text
-      } else {
-        merged.push({ label, text: seg.text })
-      }
-    })
-    return merged
+  function renderTranscriptBlocks() {
+    const sourceSegments =
+      diarizationStatus === 'done' && diarizedSegments && diarizedSegments.length > 0
+        ? diarizedSegments
+        : segments
+            .filter((s) => s.isFinal)
+            .map((s) => ({ ...s, startTime: s.startTime || 0, endTime: s.endTime || 0 }))
+
+    if (!sourceSegments || sourceSegments.length === 0) {
+      return (
+        <p className="text-sm text-gray-400 text-center py-8">
+          No transcript segments found.
+        </p>
+      )
+    }
+
+    const blocks = groupSegmentsByTime(sourceSegments)
+
+    return (
+      <div className="flex flex-col gap-0">
+        {blocks.map((block, i) => (
+          <div key={i} className="flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0">
+            <div className="w-10 flex-shrink-0 pt-0.5">
+              {block.timeLabel && (
+                <span className="text-xs text-gray-300 font-mono tabular-nums">
+                  {block.timeLabel}
+                </span>
+              )}
+            </div>
+
+            <span
+              className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(
+                labelMap[block.speaker] || 'person ' + block.speaker,
+              )}`}
+            >
+              {(labelMap[block.speaker] || 'person ' + block.speaker).toLowerCase()}
+            </span>
+
+            <p className="text-sm text-gray-800 leading-relaxed flex-1">
+              {block.text}
+            </p>
+          </div>
+        ))}
+      </div>
+    )
   }
 
   return (
@@ -262,30 +324,35 @@ export default function ResultsScreen({ user, segments, onNewMeeting }) {
 
         {activeTab === 'transcript' && (
           <div>
-            <p className="text-xs text-gray-400 mb-4">
-              {new Set(segments.map((s) => s.speaker)).size} speaker
-              {new Set(segments.map((s) => s.speaker)).size > 1 ? 's' : ''}
-              {' - '}
-              {segments.filter((s) => s.isFinal).length} segments
-            </p>
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs text-gray-400">
+                {diarizationStatus === 'processing' && (
+                  <span className="flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 dot-pulse" />
+                    {diarizationProgress || 'Analysing speakers...'}
+                  </span>
+                )}
+                {diarizationStatus === 'done' && diarizedSegments && (
+                  <span className="text-indigo-600">
+                    {new Set(diarizedSegments.map((s) => s.speaker)).size} speaker
+                    {new Set(diarizedSegments.map((s) => s.speaker)).size > 1 ? 's' : ''} detected
+                  </span>
+                )}
+                {(diarizationStatus === 'failed' || diarizationStatus === 'idle') && (
+                  <span>
+                    {new Set(segments.map((s) => s.speaker)).size} speaker
+                    {new Set(segments.map((s) => s.speaker)).size > 1 ? 's' : ''} -{' '}
+                    {segments.filter((s) => s.isFinal).length} segments
+                  </span>
+                )}
+              </p>
 
-            {getMergedTranscriptBlocks().map((block, i) => (
-              <div key={i} className="flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0">
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(block.label)}`}>
-                  {block.label.toLowerCase()}
-                </span>
-                <p className="text-sm text-gray-800 leading-relaxed">{block.text}</p>
-              </div>
-            ))}
+              {diarizationStatus === 'done' && (
+                <span className="text-xs text-gray-300">via Grok STT</span>
+              )}
+            </div>
 
-            {getMergedTranscriptBlocks().length === 0 && (
-              <div className="text-center py-10">
-                <p className="text-sm text-gray-400">No transcript segments to show.</p>
-                <p className="text-xs text-gray-300 mt-1">
-                  Only final segments are shown here.
-                </p>
-              </div>
-            )}
+            {renderTranscriptBlocks()}
           </div>
         )}
       </div>

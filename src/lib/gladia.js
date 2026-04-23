@@ -7,6 +7,9 @@ let sourceNode = null
 let processorNode = null
 let silenceNode = null
 let streaming = false
+let rawMediaRecorder = null
+let audioChunks = []
+let recordingMimeType = ''
 
 export async function startTranscription({ onSegment, onError, onConnected }) {
   try {
@@ -30,6 +33,10 @@ export async function startTranscription({ onSegment, onError, onConnected }) {
     onError('Microphone error: ' + err.message)
     return false
   }
+
+  audioChunks = []
+  recordingMimeType = ''
+  startRawAudioCapture()
 
   const AudioContextCtor = window.AudioContext || window.webkitAudioContext
   if (!AudioContextCtor) {
@@ -163,6 +170,52 @@ function startPcmStream(onError) {
   silenceNode.connect(audioContext.destination)
 }
 
+function startRawAudioCapture() {
+  if (!audioStream || typeof MediaRecorder === 'undefined') return
+
+  const mimeTypes = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/ogg;codecs=opus',
+    'audio/mp4',
+    '',
+  ]
+
+  let mimeType = ''
+  for (const type of mimeTypes) {
+    if (!type || MediaRecorder.isTypeSupported(type)) {
+      mimeType = type
+      break
+    }
+  }
+
+  recordingMimeType = mimeType
+
+  try {
+    rawMediaRecorder = new MediaRecorder(audioStream, mimeType ? { mimeType } : undefined)
+  } catch {
+    try {
+      rawMediaRecorder = new MediaRecorder(audioStream)
+      recordingMimeType = rawMediaRecorder.mimeType || ''
+    } catch (err) {
+      console.warn('[Gladia] Could not start raw audio capture:', err)
+      rawMediaRecorder = null
+      return
+    }
+  }
+
+  rawMediaRecorder.ondataavailable = (event) => {
+    if (!event.data || event.data.size === 0) return
+    audioChunks.push(event.data)
+  }
+
+  rawMediaRecorder.onerror = (event) => {
+    console.warn('[Gladia] Raw audio capture error:', event)
+  }
+
+  rawMediaRecorder.start(250)
+}
+
 function floatTo16BitPcm(float32Array) {
   const buffer = new ArrayBuffer(float32Array.length * 2)
   const view = new DataView(buffer)
@@ -196,6 +249,13 @@ function normalizeSpeaker(value) {
 
 function cleanup() {
   streaming = false
+
+  if (rawMediaRecorder && rawMediaRecorder.state !== 'inactive') {
+    try {
+      rawMediaRecorder.stop()
+    } catch {}
+  }
+  rawMediaRecorder = null
 
   if (processorNode) {
     try {
@@ -258,6 +318,11 @@ export function stopTranscription() {
 
 export function getAudioStream() {
   return audioStream
+}
+
+export function getFullAudioBlob() {
+  if (audioChunks.length === 0) return null
+  return new Blob(audioChunks, { type: recordingMimeType || 'audio/webm' })
 }
 
 export function isConnected() {

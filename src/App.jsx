@@ -13,6 +13,7 @@ export default function App() {
   const [screen, setScreen] = useState('loading')
   const [currentUser, setCurrentUser] = useState(null)
   const [meetingSegments, setMeetingSegments] = useState([])
+  const [meetingAudioBlob, setMeetingAudioBlob] = useState(null)
   const [selectedMeeting, setSelectedMeeting] = useState(null)
   const [authScreenError, setAuthScreenError] = useState(null)
   const [callbackState, setCallbackState] = useState({
@@ -209,8 +210,10 @@ if (screen === 'loading') {
       <ResultsScreen
         user={currentUser}
         segments={meetingSegments}
+        audioBlob={meetingAudioBlob}
         onNewMeeting={() => {
           setMeetingSegments([])
+          setMeetingAudioBlob(null)
           setScreen('home')
         }}
       />
@@ -244,8 +247,9 @@ if (screen === 'loading') {
     <RecordScreen
       user={currentUser}
       enrolledVoiceId={currentUser ? localStorage.getItem(`enrolled_${currentUser.id}`) : null}
-      onMeetingComplete={(segments) => {
+      onMeetingComplete={(segments, audioBlob) => {
         setMeetingSegments(segments)
+        setMeetingAudioBlob(audioBlob)
         setScreen('results')
       }}
       onViewHistory={() => setScreen('history')}
