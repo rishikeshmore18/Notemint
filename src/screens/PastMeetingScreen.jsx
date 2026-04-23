@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { groupSegmentsByTime } from '../lib/grokStt'
 
 export default function PastMeetingScreen({ user, meeting, onBack }) {
   const [activeTab, setActiveTab] = useState('summary')
@@ -76,10 +77,14 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   }
 
   function getSpeakerBadgeClass(label) {
-    if (label === 'You') return 'bg-indigo-100 text-indigo-700'
-    if (label === 'Person 1') return 'bg-emerald-100 text-emerald-700'
-    if (label === 'Person 2') return 'bg-amber-100 text-amber-700'
-    if (label === 'Person 3') return 'bg-rose-100 text-rose-700'
+    const labelLower = String(label).toLowerCase()
+    if (labelLower === 'you') return 'bg-indigo-100 text-indigo-700'
+    if (labelLower === 'person 1' || labelLower === 'person1') return 'bg-emerald-100 text-emerald-700'
+    if (labelLower === 'person 2' || labelLower === 'person2') return 'bg-amber-100 text-amber-700'
+    if (labelLower === 'person 3' || labelLower === 'person3') return 'bg-rose-100 text-rose-700'
+    if (labelLower === '0') return 'bg-indigo-100 text-indigo-700'
+    if (labelLower === '1') return 'bg-emerald-100 text-emerald-700'
+    if (labelLower === '2') return 'bg-amber-100 text-amber-700'
     return 'bg-gray-100 text-gray-600'
   }
 
@@ -90,12 +95,14 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
       .map((line) => {
         const match = line.match(/^\[([^\]]+)\]:\s*(.+)$/)
         if (!match) return null
-        return { label: match[1], text: match[2] }
+        return {
+          label: match[1],
+          text: match[2],
+          timeLabel: null,
+        }
       })
       .filter(Boolean)
   }
-
-  const transcriptLines = parseTranscript(meeting.transcript_compressed)
 
   return (
     <div className="min-h-screen bg-white flex flex-col max-w-2xl mx-auto px-5 md:px-10">
@@ -151,22 +158,65 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
       <div className="flex-1 overflow-y-auto pb-4" style={{ maxHeight: 'calc(100dvh - 220px)' }}>
         {activeTab === 'summary' && <div>{renderMarkdownLite(meeting.summary)}</div>}
 
-        {activeTab === 'transcript' && (
-          <div>
-            {transcriptLines.map((line, index) => (
-              <div key={index} className="flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0">
-                <span className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(line.label)}`}>
-                  {line.label.toLowerCase()}
-                </span>
-                <p className="text-sm text-gray-800 leading-relaxed">{line.text}</p>
-              </div>
-            ))}
+        {activeTab === 'transcript' &&
+          (() => {
+            const rawSegments =
+              meeting.segments && Array.isArray(meeting.segments) && meeting.segments.length > 0
+                ? meeting.segments
+                : null
 
-            {transcriptLines.length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-8">no transcript available</p>
-            )}
-          </div>
-        )}
+            if (rawSegments) {
+              const labelMapFromDb = meeting.label_map || {}
+              const blocks = groupSegmentsByTime(rawSegments)
+
+              return (
+                <div className="flex flex-col gap-0">
+                  {blocks.map((block, i) => (
+                    <div key={i} className="flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0">
+                      <div className="w-10 flex-shrink-0 pt-0.5">
+                        {block.timeLabel && (
+                          <span className="text-xs text-gray-300 font-mono tabular-nums">
+                            {block.timeLabel}
+                          </span>
+                        )}
+                      </div>
+                      <span
+                        className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(
+                          labelMapFromDb[block.speaker] || 'person ' + block.speaker,
+                        )}`}
+                      >
+                        {(labelMapFromDb[block.speaker] || 'person ' + block.speaker).toLowerCase()}
+                      </span>
+                      <p className="text-sm text-gray-800 leading-relaxed flex-1">{block.text}</p>
+                    </div>
+                  ))}
+                </div>
+              )
+            }
+
+            const parsed = parseTranscript(meeting.transcript_compressed)
+            return (
+              <div className="flex flex-col gap-0">
+                {parsed.map((block, i) => (
+                  <div key={i} className="flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0">
+                    <div className="w-10 flex-shrink-0" />
+                    <span
+                      className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(
+                        block.label,
+                      )}`}
+                    >
+                      {block.label.toLowerCase()}
+                    </span>
+                    <p className="text-sm text-gray-800 leading-relaxed flex-1">{block.text}</p>
+                  </div>
+                ))}
+
+                {parsed.length === 0 && (
+                  <p className="text-sm text-gray-400 text-center py-8">no transcript available</p>
+                )}
+              </div>
+            )
+          })()}
       </div>
 
       <div className="flex flex-col gap-2 pt-4 flex-shrink-0" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
