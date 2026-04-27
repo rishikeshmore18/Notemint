@@ -5,6 +5,8 @@ import {
   saveEnrollment,
   clearEnrollment,
 } from '../lib/enrollment'
+import { enrollVoice, getVoiceStatus } from '../lib/api'
+import { blobToWav } from '../lib/audioToWav'
 
 export default function EnrollScreen({ user, onComplete }) {
   const phrases = getEnrollmentPhrases()
@@ -13,11 +15,31 @@ export default function EnrollScreen({ user, onComplete }) {
   const [isRecording, setIsRecording] = useState(false)
   const [countdown, setCountdown] = useState(null)
   const [error, setError] = useState(null)
+  const [voiceStatus, setVoiceStatus] = useState({
+    enrolled: false,
+    status: 'NotEnrolled',
+    sample_count: 0,
+    remaining_clips_needed: 5,
+  })
+  const [voiceError, setVoiceError] = useState(null)
   const mountedRef = useRef(true)
   const blobRef = useRef(null)
 
   useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const status = await getVoiceStatus()
+        if (cancelled || !mountedRef.current) return
+        setVoiceStatus(normalizeVoiceStatus(status))
+      } catch {
+        if (cancelled || !mountedRef.current) return
+        setVoiceError('voice status unavailable right now')
+      }
+    })()
+
     return () => {
+      cancelled = true
       mountedRef.current = false
     }
   }, [])
@@ -50,6 +72,7 @@ export default function EnrollScreen({ user, onComplete }) {
 
       setIsRecording(false)
       setPhraseStatus((prev) => prev.map((status, index) => (index === currentPhrase ? 'done' : status)))
+      await uploadVoiceClip(blob)
 
       if (currentPhrase < phrases.length - 1) {
         await delay(600)
@@ -80,6 +103,23 @@ export default function EnrollScreen({ user, onComplete }) {
     clearEnrollment(user.id)
     onComplete()
   }
+
+  async function uploadVoiceClip(blob) {
+    try {
+      const wavBlob = await blobToWav(blob)
+      const status = await enrollVoice(wavBlob)
+      if (!mountedRef.current) return
+      setVoiceStatus(normalizeVoiceStatus(status))
+      setVoiceError(null)
+    } catch (err) {
+      if (!mountedRef.current) return
+      setVoiceError('voice upload warning - continuing setup')
+      console.warn('[Enroll] Voice clip upload failed:', err)
+    }
+  }
+
+  const sampleCount = Math.max(0, Number(voiceStatus.sample_count || 0))
+  const progressPercent = Math.min(100, Math.round((sampleCount / 5) * 100))
 
   return (
     <div className="min-h-screen bg-white flex flex-col items-center px-6">
@@ -151,6 +191,23 @@ export default function EnrollScreen({ user, onComplete }) {
               </p>
             </div>
           ))}
+        </div>
+
+        <div className="mt-4">
+          <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
+            <span>{sampleCount} / 5 clips uploaded</span>
+            <span>{Math.max(0, Number(voiceStatus.remaining_clips_needed || 0))} remaining</span>
+          </div>
+          <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+            <div
+              className="h-full bg-indigo-500 transition-all duration-300"
+              style={{ width: `${progressPercent}%` }}
+            />
+          </div>
+          {voiceStatus.enrolled ? (
+            <p className="text-xs text-emerald-600 mt-2">your voice is ready for future meetings</p>
+          ) : null}
+          {voiceError ? <p className="text-xs text-amber-500 mt-2">{voiceError}</p> : null}
         </div>
 
         <div className="mt-6 min-h-[100px] flex flex-col items-center justify-center">
@@ -236,4 +293,13 @@ function mapErrorMessage(error) {
   }
 
   return "couldn't access microphone - tap to try again"
+}
+
+function normalizeVoiceStatus(status) {
+  return {
+    enrolled: Boolean(status?.enrolled),
+    status: status?.status || 'NotEnrolled',
+    sample_count: Number(status?.sample_count || 0),
+    remaining_clips_needed: Math.max(0, Number(status?.remaining_clips_needed || 5)),
+  }
 }
