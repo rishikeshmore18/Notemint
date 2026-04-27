@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { matchSpeakers } from '../lib/enrollment'
-import { getDiarizedTranscript, groupSegmentsByTime } from '../lib/grokStt'
+import { groupSegmentsByTime } from '../lib/grokStt'
 import { compressTranscript, getSummary, saveMeeting } from '../lib/summary'
 import { supabase } from '../lib/supabase'
 
-export default function ResultsScreen({ user, segments, audioBlob, onNewMeeting }) {
+export default function ResultsScreen({ user, segments, audioBlob, confirmedLabelMap, onNewMeeting }) {
   const [activeTab, setActiveTab] = useState('summary')
   const [summaryText, setSummaryText] = useState('')
   const [summaryStatus, setSummaryStatus] = useState('idle')
@@ -12,9 +12,6 @@ export default function ResultsScreen({ user, segments, audioBlob, onNewMeeting 
   const [labelMap, setLabelMap] = useState({})
   const [saveStatus, setSaveStatus] = useState(null)
   const [copiedWhat, setCopiedWhat] = useState(null)
-  const [diarizedSegments, setDiarizedSegments] = useState(null)
-  const [diarizationStatus, setDiarizationStatus] = useState('idle')
-  const [diarizationProgress, setDiarizationProgress] = useState('')
 
   const summaryTextRef = useRef('')
   const mountedRef = useRef(true)
@@ -28,20 +25,27 @@ export default function ResultsScreen({ user, segments, audioBlob, onNewMeeting 
 
   useEffect(() => {
     runSummary()
-  }, [])
+  }, [segments, confirmedLabelMap])
+
+  function getSelectedSegments() {
+    const list = Array.isArray(segments) ? segments : []
+    const finals = list.filter((s) => s.isFinal === true)
+    return finals.length > 0 ? finals : list
+  }
 
   async function runSummary() {
-    if (!segments || segments.length === 0) {
+    const selectedSegments = getSelectedSegments()
+    if (selectedSegments.length === 0) {
       setSummaryStatus('error')
       setSummaryError('No speech was captured. Make sure your microphone was working and try again.')
       return
     }
 
-    const map = matchSpeakers(segments)
+    const map = getFinalLabelMap(selectedSegments, confirmedLabelMap)
     labelMapRef.current = map
     if (mountedRef.current) setLabelMap(map)
 
-    const compressed = compressTranscript(segments, map)
+    const compressed = compressTranscript(selectedSegments, map)
     if (mountedRef.current) setSummaryStatus('generating')
 
     summaryTextRef.current = ''
@@ -62,7 +66,7 @@ export default function ResultsScreen({ user, segments, audioBlob, onNewMeeting 
           title: null,
           transcript: compressed,
           summary: fullText,
-          segments,
+          segments: selectedSegments,
           labelMap: labelMapRef.current,
         })
         if (!mountedRef.current) return
@@ -74,28 +78,6 @@ export default function ResultsScreen({ user, segments, audioBlob, onNewMeeting 
         setSummaryError(errMsg)
       },
     )
-
-    // Run Grok STT diarization in parallel with summary generation.
-    if (audioBlob && audioBlob.size > 0) {
-      setDiarizationStatus('processing')
-      getDiarizedTranscript(
-        audioBlob,
-        (progressMsg) => {
-          if (mountedRef.current) setDiarizationProgress(progressMsg)
-        },
-        (grokSegments) => {
-          if (!mountedRef.current) return
-          console.log('[Results] Grok diarization complete:', grokSegments.length, 'segments')
-          setDiarizedSegments(grokSegments)
-          setDiarizationStatus('done')
-        },
-        (errMsg) => {
-          if (!mountedRef.current) return
-          console.warn('[Results] Grok diarization failed (using Gladia fallback):', errMsg)
-          setDiarizationStatus('failed')
-        },
-      )
-    }
   }
 
   async function copyToClipboard(text) {
@@ -123,8 +105,7 @@ export default function ResultsScreen({ user, segments, audioBlob, onNewMeeting 
     if (type === 'summary') {
       text = summaryTextRef.current
     } else {
-      text = segments
-        .filter((s) => s.isFinal)
+      text = getSelectedSegments()
         .map((s) => `[${labelMapRef.current[s.speaker] || 'Speaker'}]: ${s.text}`)
         .join('\n')
     }
@@ -190,12 +171,11 @@ export default function ResultsScreen({ user, segments, audioBlob, onNewMeeting 
   }
 
   function renderTranscriptBlocks() {
-    const sourceSegments =
-      diarizationStatus === 'done' && diarizedSegments && diarizedSegments.length > 0
-        ? diarizedSegments
-        : segments
-            .filter((s) => s.isFinal)
-            .map((s) => ({ ...s, startTime: s.startTime || 0, endTime: s.endTime || 0 }))
+    const sourceSegments = getSelectedSegments().map((s) => ({
+      ...s,
+      startTime: s.startTime || 0,
+      endTime: s.endTime || 0,
+    }))
 
     if (!sourceSegments || sourceSegments.length === 0) {
       return (
@@ -326,30 +306,13 @@ export default function ResultsScreen({ user, segments, audioBlob, onNewMeeting 
           <div>
             <div className="flex items-center justify-between mb-4">
               <p className="text-xs text-gray-400">
-                {diarizationStatus === 'processing' && (
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 dot-pulse" />
-                    {diarizationProgress || 'Analysing speakers...'}
-                  </span>
-                )}
-                {diarizationStatus === 'done' && diarizedSegments && (
-                  <span className="text-indigo-600">
-                    {new Set(diarizedSegments.map((s) => s.speaker)).size} speaker
-                    {new Set(diarizedSegments.map((s) => s.speaker)).size > 1 ? 's' : ''} detected
-                  </span>
-                )}
-                {(diarizationStatus === 'failed' || diarizationStatus === 'idle') && (
-                  <span>
-                    {new Set(segments.map((s) => s.speaker)).size} speaker
-                    {new Set(segments.map((s) => s.speaker)).size > 1 ? 's' : ''} -{' '}
-                    {segments.filter((s) => s.isFinal).length} segments
-                  </span>
-                )}
+                <span>
+                  {new Set(segments.map((s) => s.speaker)).size} speaker
+                  {new Set(segments.map((s) => s.speaker)).size > 1 ? 's' : ''} -{' '}
+                  {getSelectedSegments().length} segments
+                </span>
               </p>
-
-              {diarizationStatus === 'done' && (
-                <span className="text-xs text-gray-300">via Grok STT</span>
-              )}
+              <span className="text-xs text-gray-300">final labels applied</span>
             </div>
 
             {renderTranscriptBlocks()}
@@ -382,4 +345,11 @@ export default function ResultsScreen({ user, segments, audioBlob, onNewMeeting 
       </div>
     </div>
   )
+}
+
+function getFinalLabelMap(segments, confirmedLabelMap) {
+  if (confirmedLabelMap && Object.keys(confirmedLabelMap).length > 0) {
+    return confirmedLabelMap
+  }
+  return matchSpeakers(segments)
 }
