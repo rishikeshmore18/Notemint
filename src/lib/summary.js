@@ -102,6 +102,66 @@ export async function saveMeeting(supabase, userId, meetingData) {
   }
 }
 
+export async function saveMeetingSpeakers(
+  supabase,
+  { userId, meetingId, segments, labelMap, confirmedByUser = false },
+) {
+  if (!meetingId || !userId) return false
+  const list = Array.isArray(segments) ? segments : []
+  if (list.length === 0) return false
+
+  const finalSegments = list.filter((segment) => segment?.isFinal === true)
+  const source = finalSegments.length > 0 ? finalSegments : list
+
+  const uniqueSpeakerIds = [...new Set(source.map((segment) => Number(segment?.speaker)).filter(Number.isFinite))]
+  if (uniqueSpeakerIds.length === 0) return false
+
+  let profileIdByName = new Map()
+
+  try {
+    const { data: profiles, error: profileError } = await supabase
+      .from('speaker_profiles')
+      .select('id, display_name')
+      .eq('owner_user_id', userId)
+      .eq('profile_type', 'contact')
+
+    if (!profileError && Array.isArray(profiles)) {
+      profileIdByName = new Map(
+        profiles
+          .filter((profile) => profile?.display_name)
+          .map((profile) => [String(profile.display_name).trim().toLowerCase(), profile.id]),
+      )
+    }
+  } catch (err) {
+    console.warn('[Summary] speaker_profiles lookup failed:', err?.message || err)
+  }
+
+  const rows = uniqueSpeakerIds.map((speakerId) => {
+    const rawLabel = labelMap?.[speakerId]
+    const displayName = String(rawLabel || `Person ${speakerId + 1}`).trim()
+    const lookupKey = displayName.toLowerCase()
+    const isContactName = displayName && displayName.toLowerCase() !== 'you' && !/^person\s*\d+$/i.test(displayName)
+
+    return {
+      meeting_id: meetingId,
+      raw_speaker_id: speakerId,
+      display_name: displayName,
+      speaker_profile_id: isContactName ? profileIdByName.get(lookupKey) || null : null,
+      confirmed_by_user: Boolean(confirmedByUser),
+    }
+  })
+
+  const { error } = await supabase.from('meeting_speakers').upsert(rows, {
+    onConflict: 'meeting_id,raw_speaker_id',
+  })
+
+  if (error) {
+    throw new Error(error.message || 'Could not save meeting speaker mappings')
+  }
+
+  return true
+}
+
 export function getLocalMeetings(userId) {
   try {
     const raw = localStorage.getItem(LOCAL_MEETINGS_KEY_PREFIX + userId)

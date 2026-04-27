@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { matchSpeakers } from '../lib/enrollment'
 import { groupSegmentsByTime } from '../lib/grokStt'
-import { compressTranscript, getSummary, saveMeeting } from '../lib/summary'
+import { compressTranscript, getSummary, saveMeeting, saveMeetingSpeakers } from '../lib/summary'
 import { supabase } from '../lib/supabase'
 
 export default function ResultsScreen({ user, segments, audioBlob, confirmedLabelMap, onNewMeeting }) {
@@ -69,6 +69,19 @@ export default function ResultsScreen({ user, segments, audioBlob, confirmedLabe
           segments: selectedSegments,
           labelMap: labelMapRef.current,
         })
+
+        if (id) {
+          void saveMeetingSpeakers(supabase, {
+            userId: user.id,
+            meetingId: id,
+            segments: selectedSegments,
+            labelMap: labelMapRef.current,
+            confirmedByUser: Boolean(confirmedLabelMap && Object.keys(confirmedLabelMap).length > 0),
+          }).catch((err) => {
+            console.warn('[Results] Could not save meeting speaker mappings:', err?.message || err)
+          })
+        }
+
         if (!mountedRef.current) return
         setSaveStatus(id ? 'saved' : 'failed')
       },

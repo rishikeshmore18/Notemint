@@ -203,6 +203,57 @@ export async function identifyVoice(audioBlob) {
   }
 }
 
+export async function rememberContactVoice(audioBlob, displayName) {
+  const trimmedName = String(displayName || '').trim()
+  if (!trimmedName) {
+    throw new Error('displayName is required')
+  }
+
+  const token = await getAuthToken()
+  const formData = new FormData()
+  formData.append('audio', audioBlob, inferFileName(audioBlob))
+  formData.append('display_name', trimmedName)
+
+  const response = await fetch(`${BASE_URL}/api/voice/remember-contact`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.error || 'Could not remember contact voice')
+  }
+
+  return response.json()
+}
+
+export async function identifyContactVoice(audioBlob) {
+  try {
+    const token = await getAuthToken()
+    const formData = new FormData()
+    formData.append('audio', audioBlob, inferFileName(audioBlob))
+
+    const response = await fetch(`${BASE_URL}/api/voice/identify-contact`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    })
+
+    if (!response.ok) {
+      return { identified_profile: null, display_name: null, confidence: 0, is_confident: false }
+    }
+
+    return response.json()
+  } catch {
+    return { identified_profile: null, display_name: null, confidence: 0, is_confident: false }
+  }
+}
+
 function inferFileName(audioBlob) {
   const type = String(audioBlob?.type || '')
   if (type.includes('mp4')) return 'clip.mp4'

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { getVoiceStatus, identifyVoice } from '../lib/api'
+import { getVoiceStatus, identifyContactVoice, identifyVoice, rememberContactVoice } from '../lib/api'
 import { getSpeakerNameSuggestions } from '../lib/speakerMemory'
 
 export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfirmed, onSkip }) {
@@ -9,7 +9,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
   const [snippets, setSnippets] = useState({})
   const [playingSpeaker, setPlayingSpeaker] = useState(null)
   const [identifyingStatus, setIdentifyingStatus] = useState('idle')
-  const [autoLabelScore, setAutoLabelScore] = useState({})
+  const [autoLabelMeta, setAutoLabelMeta] = useState({})
   const [nameSuggestions, setNameSuggestions] = useState([])
 
   const audioRefs = useRef({})
@@ -96,35 +96,71 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
         const status = await getVoiceStatus()
         if (cancelled) return
 
-        if (!status?.enrolled) {
-          setIdentifyingStatus('done')
-          return
-        }
+        const nextAutoLabels = {}
+        const nextAutoMeta = {}
 
-        let bestSelfMatch = null
-        for (const speakerId of allSpeakers) {
-          const snippet = snippetMap[speakerId]
-          if (!snippet?.blob) continue
+        if (status?.enrolled) {
+          let bestSelfMatch = null
+          for (const speakerId of allSpeakers) {
+            const snippet = snippetMap[speakerId]
+            if (!snippet?.blob) continue
 
-          const result = await identifyVoice(snippet.blob)
-          if (cancelled) return
+            const result = await identifyVoice(snippet.blob)
+            if (cancelled) return
 
-          if (result?.identified_profile === 'self' && result?.is_confident) {
-            const confidence = Number(result.confidence || 0)
-            if (!bestSelfMatch || confidence > bestSelfMatch.confidence) {
-              bestSelfMatch = { speakerId, confidence }
+            if (result?.identified_profile === 'self' && result?.is_confident) {
+              const confidence = Number(result.confidence || 0)
+              if (!bestSelfMatch || confidence > bestSelfMatch.confidence) {
+                bestSelfMatch = { speakerId, confidence }
+              }
+            }
+          }
+
+          if (bestSelfMatch) {
+            nextAutoLabels[bestSelfMatch.speakerId] = 'You'
+            nextAutoMeta[bestSelfMatch.speakerId] = {
+              source: 'self',
+              confidence: bestSelfMatch.confidence,
             }
           }
         }
 
-        if (bestSelfMatch) {
-          setAutoLabelScore({ [bestSelfMatch.speakerId]: bestSelfMatch.confidence })
-          setSpeakerNames((prev) => {
-            const next = { ...prev }
-            next[bestSelfMatch.speakerId] = 'You'
-            return next
-          })
+        const usedContactNames = new Set(
+          Object.values(nextAutoLabels)
+            .map((name) => String(name || '').trim().toLowerCase())
+            .filter((name) => name && name !== 'you'),
+        )
+
+        for (const speakerId of allSpeakers) {
+          const snippet = snippetMap[speakerId]
+          if (!snippet?.blob) continue
+          if (nextAutoLabels[speakerId] === 'You') continue
+
+          const result = await identifyContactVoice(snippet.blob)
+          if (cancelled) return
+
+          if (!result?.is_confident || !result?.display_name) continue
+
+          const suggestedName = String(result.display_name).trim()
+          const key = suggestedName.toLowerCase()
+          if (!suggestedName || usedContactNames.has(key) || key === 'you') continue
+
+          nextAutoLabels[speakerId] = suggestedName
+          nextAutoMeta[speakerId] = {
+            source: 'contact',
+            confidence: Number(result.confidence || 0),
+          }
+          usedContactNames.add(key)
         }
+
+        setAutoLabelMeta(nextAutoMeta)
+        setSpeakerNames((prev) => {
+          const next = { ...prev }
+          for (const [speakerId, name] of Object.entries(nextAutoLabels)) {
+            if (!next[speakerId]) next[speakerId] = name
+          }
+          return next
+        })
       } catch (err) {
         console.warn('[SpeakerReview] Voice status/identify skipped:', err)
       } finally {
@@ -202,6 +238,24 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
       }
     }
 
+    const rememberTasks = allSpeakers
+      .map((speakerId) => {
+        const label = labelMap[speakerId]
+        const snippetBlob = snippets[speakerId]?.blob
+        if (!snippetBlob || !shouldRememberContactName(label)) return null
+        return rememberContactVoice(snippetBlob, label)
+      })
+      .filter(Boolean)
+
+    if (rememberTasks.length > 0) {
+      void Promise.allSettled(rememberTasks).then((results) => {
+        const failed = results.filter((result) => result.status === 'rejected').length
+        if (failed > 0) {
+          console.warn(`[SpeakerReview] ${failed} contact voice sample(s) failed to save`)
+        }
+      })
+    }
+
     onConfirmed(labelMap)
   }
 
@@ -259,7 +313,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
           const name = speakerNames[sp]
           const snippet = snippets[sp]
           const isPlaying = playingSpeaker === sp
-          const autoConfidence = autoLabelScore[sp]
+          const autoInfo = autoLabelMeta[sp]
           const anotherSpeakerIsYou = selfAssignedSpeaker !== null && selfAssignedSpeaker !== String(sp)
           const suggestionNames = nameSuggestions.filter((candidate) => {
             const normalized = String(candidate || '').trim().toLowerCase()
@@ -281,8 +335,10 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
                   >
                     {name || `Speaker ${idx + 1}`}
                   </span>
-                  {typeof autoConfidence === 'number' ? (
-                    <span className="text-xs text-indigo-400">auto {autoConfidence.toFixed(2)}</span>
+                  {typeof autoInfo?.confidence === 'number' ? (
+                    <span className="text-xs text-indigo-400">
+                      {autoInfo.source === 'self' ? 'auto self' : 'auto match'} {autoInfo.confidence.toFixed(2)}
+                    </span>
                   ) : null}
                 </div>
 
@@ -422,6 +478,14 @@ function findBestSegmentForSpeaker(segments, speakerId) {
     const curDur = Number(current?.endTime || 0) - Number(current?.startTime || 0)
     return curDur > bestDur ? current : best
   }, candidates[0])
+}
+
+function shouldRememberContactName(name) {
+  const cleaned = String(name || '').trim()
+  if (!cleaned) return false
+  if (cleaned.toLowerCase() === 'you') return false
+  if (/^person\s*\d+$/i.test(cleaned)) return false
+  return true
 }
 
 export async function extractAudioSlice(audioBlob, startSec, endSec) {
