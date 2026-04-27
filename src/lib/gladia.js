@@ -1,4 +1,4 @@
-const LIVE_INIT_URL = 'https://api.gladia.io/v2/live'
+import { createGladiaSession } from './api.js'
 
 let websocket = null
 let audioStream = null
@@ -56,32 +56,10 @@ export async function startTranscription({ onSegment, onError, onConnected }) {
     return false
   }
 
-  const sampleRate = audioContext.sampleRate || 48000
-
   let websocketUrl = null
   try {
-    const response = await fetch(LIVE_INIT_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-gladia-key': import.meta.env.VITE_GLADIA_KEY,
-      },
-      body: JSON.stringify({
-        encoding: 'wav/pcm',
-        bit_depth: 16,
-        sample_rate: sampleRate,
-        channels: 1,
-      }),
-    })
-
-    const payload = await response.json().catch(() => ({}))
-    if (!response.ok) {
-      onError('Transcription init failed: ' + (payload.error || response.status))
-      cleanup()
-      return false
-    }
-
-    websocketUrl = payload.url
+    const session = await createGladiaSession()
+    websocketUrl = session.session_url
     if (!websocketUrl) {
       onError('Transcription init failed: missing websocket URL.')
       cleanup()
@@ -121,7 +99,7 @@ export async function startTranscription({ onSegment, onError, onConnected }) {
 
   websocket.onerror = (event) => {
     console.error('[Gladia] WebSocket error:', event)
-    onError('Transcription connection failed. Check your Gladia API key and internet connection.')
+    onError('Transcription connection failed. Check your network and backend configuration.')
   }
 
   websocket.onclose = (event) => {

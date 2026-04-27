@@ -1,72 +1,25 @@
+import { grokDiarizeAudio } from './api.js'
+
 /**
  * Grok STT Post-Processing
  * Called AFTER recording stops with the full audio blob.
  * Returns diarized segments with timestamps.
  *
- * API: POST https://api.x.ai/v1/stt
- * Auth: Bearer token in Authorization header (not exposed worse than other keys)
- * Pricing: $0.10/hour for batch REST
+ * API now goes through backend: POST /api/grok
  */
 
 export async function getDiarizedTranscript(audioBlob, onProgress, onComplete, onError) {
-  const xaiKey = import.meta.env.VITE_XAI_KEY
-
-  if (!xaiKey) {
-    console.warn('[GrokSTT] No VITE_XAI_KEY found, skipping diarization')
-    onError('XAI API key not configured')
-    return null
-  }
-
   if (!audioBlob || audioBlob.size === 0) {
     onError('No audio recorded')
     return null
   }
 
-  console.log('[GrokSTT] Sending', (audioBlob.size / 1024).toFixed(1), 'KB to Grok STT')
+  console.log('[GrokSTT] Sending', (audioBlob.size / 1024).toFixed(1), 'KB to backend Grok route')
   if (onProgress) onProgress('Analysing speakers...')
 
   try {
-    const formData = new FormData()
-
-    // Determine file extension from blob type.
-    const mimeToExt = {
-      'audio/webm': 'webm',
-      'audio/webm;codecs=opus': 'webm',
-      'audio/ogg': 'ogg',
-      'audio/ogg;codecs=opus': 'ogg',
-      'audio/mp4': 'mp4',
-      'audio/mpeg': 'mp3',
-    }
-    const ext = mimeToExt[audioBlob.type] || 'webm'
-    const filename = 'meeting.' + ext
-
-    formData.append('file', audioBlob, filename)
-    formData.append('model', 'grok-stt')
-    formData.append('diarize', 'true')
-    formData.append('timestamps', 'true')
-    formData.append('language', 'auto')
-
-    const response = await fetch('https://api.x.ai/v1/stt', {
-      method: 'POST',
-      headers: {
-        Authorization: 'Bearer ' + xaiKey,
-        // Do NOT set Content-Type; browser sets it with boundary automatically for FormData.
-      },
-      body: formData,
-    })
-
-    if (!response.ok) {
-      const errBody = await response.json().catch(() => ({}))
-      console.error('[GrokSTT] API error:', response.status, errBody)
-      onError('Diarization failed: ' + (errBody.error?.message || 'HTTP ' + response.status))
-      return null
-    }
-
-    const result = await response.json()
-    console.log('[GrokSTT] Response:', result)
-
-    // Parse Grok STT response into our segment format.
-    const segments = parseGrokResponse(result)
+    const backendSegments = await grokDiarizeAudio(audioBlob)
+    const segments = normalizeSegments(backendSegments)
     console.log('[GrokSTT] Parsed', segments.length, 'diarized segments')
 
     if (onComplete) onComplete(segments)
@@ -79,104 +32,31 @@ export async function getDiarizedTranscript(audioBlob, onProgress, onComplete, o
   }
 }
 
-function parseGrokResponse(result) {
-  /**
-   * Grok STT response shape (based on xAI docs):
-   * {
-   *   text: "full transcript",
-   *   words: [
-   *     { word: "hello", start: 0.0, end: 0.5, speaker: 0 },
-   *     { word: "world", start: 0.6, end: 1.0, speaker: 1 },
-   *     ...
-   *   ],
-   *   segments: [ ... ]  // may also have utterance-level segments
-   * }
-   *
-   * We convert this to our app's format:
-   * { speaker: number, text: string, startTime: number, endTime: number, isFinal: true }
-   */
-
-  // Try utterance-level segments first (cleaner).
-  if (result.segments && Array.isArray(result.segments) && result.segments.length > 0) {
-    return result.segments
-      .map((seg) => ({
-        speaker: typeof seg.speaker === 'number' ? seg.speaker : parseInt(seg.speaker || '0', 10),
-        text: seg.text || seg.transcript || '',
-        startTime: seg.start || seg.start_time || 0,
-        endTime: seg.end || seg.end_time || 0,
-        isFinal: true,
-        source: 'grok',
-      }))
-      .filter((s) => s.text.trim().length > 0)
-  }
-
-  // Fallback: group word-level timestamps by speaker.
-  if (result.words && Array.isArray(result.words) && result.words.length > 0) {
-    return groupWordsIntoSegments(result.words)
-  }
-
-  // Last fallback: single segment with full text.
-  if (result.text) {
-    return [
-      {
-        speaker: 0,
-        text: result.text,
-        startTime: 0,
-        endTime: 0,
-        isFinal: true,
-        source: 'grok-fallback',
-      },
-    ]
-  }
-
-  return []
+function normalizeSegments(segments) {
+  if (!Array.isArray(segments)) return []
+  return segments
+    .map((seg) => ({
+      speaker: normalizeSpeaker(seg?.speaker),
+      text: String(seg?.text || '').trim(),
+      startTime: toNumber(seg?.startTime),
+      endTime: toNumber(seg?.endTime),
+      confidence: typeof seg?.confidence === 'number' ? seg.confidence : 1,
+      source: seg?.source || 'grok',
+      isFinal: seg?.isFinal !== false,
+    }))
+    .filter((seg) => seg.text.length > 0)
 }
 
-function groupWordsIntoSegments(words) {
-  if (!words || words.length === 0) return []
+function normalizeSpeaker(value) {
+  const parsed = Number(value)
+  if (Number.isNaN(parsed) || parsed < 0) return 0
+  return Math.floor(parsed)
+}
 
-  const segments = []
-  let currentSpeaker = words[0].speaker ?? 0
-  let currentWords = []
-  let segStart = words[0].start || 0
-
-  words.forEach((word, i) => {
-    const speaker = typeof word.speaker === 'number' ? word.speaker : parseInt(word.speaker || '0', 10)
-
-    if (speaker !== currentSpeaker) {
-      // Speaker changed; close current segment.
-      if (currentWords.length > 0) {
-        segments.push({
-          speaker: currentSpeaker,
-          text: currentWords.join(' '),
-          startTime: segStart,
-          endTime: words[i - 1].end || 0,
-          isFinal: true,
-          source: 'grok',
-        })
-      }
-      // Start new segment.
-      currentSpeaker = speaker
-      currentWords = [word.word || word.text || '']
-      segStart = word.start || 0
-    } else {
-      currentWords.push(word.word || word.text || '')
-    }
-  })
-
-  // Close final segment.
-  if (currentWords.length > 0) {
-    segments.push({
-      speaker: currentSpeaker,
-      text: currentWords.join(' '),
-      startTime: segStart,
-      endTime: words[words.length - 1].end || 0,
-      isFinal: true,
-      source: 'grok',
-    })
-  }
-
-  return segments
+function toNumber(value) {
+  const parsed = Number(value)
+  if (Number.isNaN(parsed) || parsed < 0) return 0
+  return parsed
 }
 
 /**
@@ -255,4 +135,3 @@ function formatTime(seconds) {
   const s = Math.floor(seconds % 60)
   return m + ':' + String(s).padStart(2, '0')
 }
-
