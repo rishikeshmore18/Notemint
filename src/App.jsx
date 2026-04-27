@@ -3,17 +3,21 @@ import AuthScreen from './screens/AuthScreen'
 import AuthCallbackScreen from './screens/AuthCallbackScreen'
 import EnrollScreen from './screens/EnrollScreen'
 import RecordScreen from './screens/RecordScreen'
+import SpeakerReviewScreen from './screens/SpeakerReviewScreen'
 import ResultsScreen from './screens/ResultsScreen'
 import HistoryScreen from './screens/HistoryScreen'
 import PastMeetingScreen from './screens/PastMeetingScreen'
 import LoadingDot from './components/LoadingDot'
 import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supabase'
+import { grokDiarizeAudio } from './lib/api'
 
 export default function App() {
   const [screen, setScreen] = useState('loading')
   const [currentUser, setCurrentUser] = useState(null)
   const [meetingSegments, setMeetingSegments] = useState([])
   const [meetingAudioBlob, setMeetingAudioBlob] = useState(null)
+  const [diarizedSegments, setDiarizedSegments] = useState([])
+  const [confirmedLabelMap, setConfirmedLabelMap] = useState({})
   const [selectedMeeting, setSelectedMeeting] = useState(null)
   const [authScreenError, setAuthScreenError] = useState(null)
   const [callbackState, setCallbackState] = useState({
@@ -168,13 +172,15 @@ export default function App() {
     setScreen('auth')
   }
 
-if (screen === 'loading') {
-  return (
-    <div className="min-h-screen bg-white flex items-center justify-center">
-      <LoadingDot />
-    </div>
-  )
-}
+  const bestAvailableSegments = diarizedSegments.length > 0 ? diarizedSegments : meetingSegments
+
+  if (screen === 'loading') {
+    return (
+      <div className="min-h-screen bg-white flex items-center justify-center">
+        <LoadingDot />
+      </div>
+    )
+  }
 
   if (screen === 'auth') {
     return (
@@ -209,12 +215,33 @@ if (screen === 'loading') {
     return (
       <ResultsScreen
         user={currentUser}
-        segments={meetingSegments}
+        segments={bestAvailableSegments}
         audioBlob={meetingAudioBlob}
+        confirmedLabelMap={confirmedLabelMap}
         onNewMeeting={() => {
           setMeetingSegments([])
           setMeetingAudioBlob(null)
+          setDiarizedSegments([])
+          setConfirmedLabelMap({})
           setScreen('home')
+        }}
+      />
+    )
+  }
+
+  if (screen === 'speaker-review') {
+    return (
+      <SpeakerReviewScreen
+        segments={bestAvailableSegments}
+        audioBlob={meetingAudioBlob}
+        user={currentUser}
+        onConfirmed={(labelMap) => {
+          setConfirmedLabelMap(labelMap)
+          setScreen('results')
+        }}
+        onSkip={() => {
+          setConfirmedLabelMap({})
+          setScreen('results')
         }}
       />
     )
@@ -247,10 +274,30 @@ if (screen === 'loading') {
     <RecordScreen
       user={currentUser}
       enrolledVoiceId={currentUser ? localStorage.getItem(`enrolled_${currentUser.id}`) : null}
-      onMeetingComplete={(segments, audioBlob) => {
+      onMeetingComplete={async (segments, audioBlob) => {
         setMeetingSegments(segments)
         setMeetingAudioBlob(audioBlob)
-        setScreen('results')
+        setDiarizedSegments([])
+        setConfirmedLabelMap({})
+
+        if (!audioBlob || audioBlob.size === 0) {
+          setScreen('speaker-review')
+          return
+        }
+
+        try {
+          const parsed = await grokDiarizeAudio(audioBlob)
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setDiarizedSegments(parsed)
+          } else {
+            setDiarizedSegments([])
+          }
+        } catch (err) {
+          console.warn('[App] Diarization failed, using live segments fallback:', err?.message || err)
+          setDiarizedSegments([])
+        }
+
+        setScreen('speaker-review')
       }}
       onViewHistory={() => setScreen('history')}
       onSignOut={handleSignOut}
