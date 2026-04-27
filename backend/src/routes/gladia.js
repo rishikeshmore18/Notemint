@@ -4,6 +4,8 @@ import { requireAuth } from '../middleware/auth.js'
 export const gladiaRouter = express.Router()
 
 gladiaRouter.post('/session', requireAuth, async (req, res) => {
+  const { enable_diarization = true } = req.body || {}
+
   if (!process.env.GLADIA_KEY) {
     return res.status(500).json({ error: 'GLADIA_KEY is not configured on server' })
   }
@@ -17,9 +19,24 @@ gladiaRouter.post('/session', requireAuth, async (req, res) => {
       },
       body: JSON.stringify({
         encoding: 'wav/pcm',
-        bit_depth: 16,
         sample_rate: 16000,
-        channels: 1,
+        language_config: {
+          languages: [],
+          code_switching: true,
+        },
+        diarization: Boolean(enable_diarization),
+        diarization_config: enable_diarization
+          ? {
+              min_speakers: 1,
+              max_speakers: 4,
+            }
+          : undefined,
+        pre_processing: {
+          audio_enhancer: false,
+        },
+        realtime_processing: {
+          words_accurate_timestamps: false,
+        },
       }),
     })
 
