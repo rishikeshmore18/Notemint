@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { getVoiceStatus, identifyVoice } from '../lib/api'
+import { getSpeakerNameSuggestions } from '../lib/speakerMemory'
 
 export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfirmed, onSkip }) {
   const [speakerNames, setSpeakerNames] = useState({})
@@ -9,6 +10,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
   const [playingSpeaker, setPlayingSpeaker] = useState(null)
   const [identifyingStatus, setIdentifyingStatus] = useState('idle')
   const [autoLabelScore, setAutoLabelScore] = useState({})
+  const [nameSuggestions, setNameSuggestions] = useState([])
 
   const audioRefs = useRef({})
   const snippetUrlsRef = useRef([])
@@ -24,6 +26,32 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
   }, [speakerNames])
 
   const initial = (user?.email?.[0] || '?').toUpperCase()
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function loadSuggestions() {
+      if (!user?.id) {
+        setNameSuggestions([])
+        return
+      }
+
+      try {
+        const suggestions = await getSpeakerNameSuggestions(user.id, 8)
+        if (!cancelled) setNameSuggestions(suggestions)
+      } catch (err) {
+        if (!cancelled) {
+          setNameSuggestions([])
+          console.warn('[SpeakerReview] Could not load saved names:', err?.message || err)
+        }
+      }
+    }
+
+    loadSuggestions()
+    return () => {
+      cancelled = true
+    }
+  }, [user?.id])
 
   useEffect(() => {
     let cancelled = false
@@ -233,6 +261,14 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
           const isPlaying = playingSpeaker === sp
           const autoConfidence = autoLabelScore[sp]
           const anotherSpeakerIsYou = selfAssignedSpeaker !== null && selfAssignedSpeaker !== String(sp)
+          const suggestionNames = nameSuggestions.filter((candidate) => {
+            const normalized = String(candidate || '').trim().toLowerCase()
+            if (!normalized || normalized === 'you') return false
+            return !Object.entries(speakerNames).some(([speakerKey, speakerName]) => {
+              if (String(speakerKey) === String(sp)) return false
+              return String(speakerName || '').trim().toLowerCase() === normalized
+            })
+          })
 
           return (
             <div key={sp} className="border border-gray-100 rounded-2xl p-4">
@@ -303,34 +339,55 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
                   </button>
                 </div>
               ) : (
-                <div className="flex gap-2">
-                  <button
-                    onClick={() =>
-                      setSpeakerNames((prev) => ({
-                        ...prev,
-                        [sp]: 'You',
-                      }))
-                    }
-                    disabled={anotherSpeakerIsYou}
-                    className={`flex-1 h-9 rounded-lg text-sm font-medium ${
-                      name === 'You'
-                        ? 'bg-indigo-600 text-white'
-                        : anotherSpeakerIsYou
-                          ? 'bg-gray-50 text-gray-300 cursor-not-allowed'
-                          : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
-                    }`}
-                  >
-                    {name === 'You' ? 'this is you' : 'this is me'}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setEditingSpeaker(sp)
-                      setInputValue(name && name !== 'You' ? name : '')
-                    }}
-                    className="flex-1 h-9 rounded-lg text-sm border border-gray-200 text-gray-600 hover:bg-gray-50"
-                  >
-                    {name && name !== 'You' ? name : 'name person'}
-                  </button>
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() =>
+                        setSpeakerNames((prev) => ({
+                          ...prev,
+                          [sp]: 'You',
+                        }))
+                      }
+                      disabled={anotherSpeakerIsYou}
+                      className={`flex-1 h-9 rounded-lg text-sm font-medium ${
+                        name === 'You'
+                          ? 'bg-indigo-600 text-white'
+                          : anotherSpeakerIsYou
+                            ? 'bg-gray-50 text-gray-300 cursor-not-allowed'
+                            : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                      }`}
+                    >
+                      {name === 'You' ? 'this is you' : 'this is me'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingSpeaker(sp)
+                        setInputValue(name && name !== 'You' ? name : '')
+                      }}
+                      className="flex-1 h-9 rounded-lg text-sm border border-gray-200 text-gray-600 hover:bg-gray-50"
+                    >
+                      {name && name !== 'You' ? name : 'name person'}
+                    </button>
+                  </div>
+
+                  {name !== 'You' && suggestionNames.length > 0 ? (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {suggestionNames.slice(0, 3).map((suggestedName) => (
+                        <button
+                          key={`${sp}-${suggestedName}`}
+                          onClick={() =>
+                            setSpeakerNames((prev) => ({
+                              ...prev,
+                              [sp]: suggestedName,
+                            }))
+                          }
+                          className="h-7 px-2.5 rounded-full text-xs border border-gray-200 text-gray-600 hover:bg-gray-50"
+                        >
+                          {suggestedName}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               )}
             </div>

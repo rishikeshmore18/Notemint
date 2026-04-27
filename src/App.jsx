@@ -10,6 +10,7 @@ import PastMeetingScreen from './screens/PastMeetingScreen'
 import LoadingDot from './components/LoadingDot'
 import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supabase'
 import { grokDiarizeAudio } from './lib/api'
+import { rememberSpeakerLabels } from './lib/speakerMemory'
 
 export default function App() {
   const [screen, setScreen] = useState('loading')
@@ -236,6 +237,9 @@ export default function App() {
         audioBlob={meetingAudioBlob}
         user={currentUser}
         onConfirmed={(labelMap) => {
+          void rememberSpeakerLabels(currentUser?.id, labelMap).catch((err) => {
+            console.warn('[App] Could not remember speaker names:', err?.message || err)
+          })
           setConfirmedLabelMap(labelMap)
           setScreen('results')
         }}
