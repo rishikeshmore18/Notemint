@@ -92,6 +92,26 @@ voiceRouter.get('/status', requireAuth, async (req, res) => {
   return res.json(buildStatusPayload(status, sampleCount))
 })
 
+voiceRouter.post('/reset', requireAuth, async (req, res) => {
+  const supabase = getSupabaseClient()
+  if (!supabase) {
+    return res.status(500).json({ error: 'Could not reset voice profile' })
+  }
+
+  try {
+    const userId = req.user.id
+    const { error } = await supabase.from('user_voice_profiles').delete().eq('user_id', userId)
+    if (error) {
+      return res.status(500).json({ error: 'Could not reset voice profile' })
+    }
+
+    console.log('[Voice reset] user:', userId)
+    return res.json({ ok: true, reset: true })
+  } catch {
+    return res.status(500).json({ error: 'Could not reset voice profile' })
+  }
+})
+
 voiceRouter.post('/identify', requireAuth, upload.single('audio'), async (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No audio file provided' })
