@@ -203,6 +203,24 @@ export async function identifyVoice(audioBlob) {
   }
 }
 
+export async function resetVoiceProfile() {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${BASE_URL}/api/voice/reset`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.error || 'Could not reset voice profile')
+  }
+
+  return response.json()
+}
+
 export async function rememberContactVoice(audioBlob, displayName) {
   const trimmedName = String(displayName || '').trim()
   if (!trimmedName) {
