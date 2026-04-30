@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import WaveformVisualizer from '../components/WaveformVisualizer'
 import { getAudioStream, getFullAudioBlob, startTranscription, stopTranscription } from '../lib/gladia'
 
-export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete, onSignOut, onViewHistory }) {
+export default function RecordScreen({ user, onMeetingComplete, onSignOut, onViewHistory }) {
   const [isRecording, setIsRecording] = useState(false)
   const [segments, setSegments] = useState([])
   const [audioStream, setAudioStream] = useState(null)
@@ -241,9 +241,6 @@ export default function RecordScreen({ user, enrolledVoiceId, onMeetingComplete,
               <br />
               speakers are detected automatically.
             </p>
-            {enrolledVoiceId ? null : (
-              <p className="mt-3 text-[11px] text-gray-300">voice profile not enrolled yet</p>
-            )}
           </main>
         ) : (
           <main className="flex flex-1 flex-col pt-6">

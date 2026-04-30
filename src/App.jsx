@@ -277,7 +277,6 @@ export default function App() {
   return (
     <RecordScreen
       user={currentUser}
-      enrolledVoiceId={currentUser ? localStorage.getItem(`enrolled_${currentUser.id}`) : null}
       onMeetingComplete={async (segments, audioBlob) => {
         setMeetingSegments(segments)
         setMeetingAudioBlob(audioBlob)

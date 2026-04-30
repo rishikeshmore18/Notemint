@@ -81,7 +81,7 @@ export default function EnrollScreen({ user, onComplete }) {
         return
       }
 
-      void saveEnrollment(user.id, blobRef.current)
+      void saveEnrollment(user.id)
       onComplete()
     } catch (err) {
       if (!mountedRef.current) return

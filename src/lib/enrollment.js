@@ -78,36 +78,16 @@ export async function recordPhrase(durationMs = 4000) {
   })
 }
 
-export async function saveEnrollment(userId, blob) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-
-    reader.onloadend = () => {
-      try {
-        localStorage.setItem(`enrolled_audio_${userId}`, reader.result)
-        localStorage.setItem(`enrolled_${userId}`, 'true')
-        resolve(true)
-      } catch (err) {
-        if (err.name === 'QuotaExceededError') {
-          try {
-            localStorage.setItem(`enrolled_${userId}`, 'true')
-          } catch (storageErr) {
-            console.warn(storageErr)
-          }
-          console.warn(err)
-          resolve(false)
-          return
-        }
-        reject(err)
-      }
-    }
-
-    reader.onerror = () => {
-      reject(reader.error)
-    }
-
-    reader.readAsDataURL(blob)
-  })
+export async function saveEnrollment(userId) {
+  try {
+    localStorage.setItem(`enrolled_${userId}`, 'true')
+    // Cleanup old data from previous app versions that stored audio in localStorage.
+    localStorage.removeItem(`enrolled_audio_${userId}`)
+    return true
+  } catch (err) {
+    console.warn(err)
+    return false
+  }
 }
 
 export function getEnrollment(userId) {
