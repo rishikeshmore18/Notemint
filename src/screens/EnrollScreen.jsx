@@ -5,10 +5,10 @@ import {
   saveEnrollment,
   clearEnrollment,
 } from '../lib/enrollment'
-import { enrollVoice, getVoiceStatus } from '../lib/api'
+import { enrollVoice, getVoiceStatus, resetVoiceProfile } from '../lib/api'
 import { blobToWav } from '../lib/audioToWav'
 
-export default function EnrollScreen({ user, onComplete }) {
+export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
   const phrases = getEnrollmentPhrases()
   const [currentPhrase, setCurrentPhrase] = useState(0)
   const [phraseStatus, setPhraseStatus] = useState(() => phrases.map(() => 'pending'))
@@ -22,6 +22,8 @@ export default function EnrollScreen({ user, onComplete }) {
     remaining_clips_needed: 5,
   })
   const [voiceError, setVoiceError] = useState(null)
+  const [resetStatus, setResetStatus] = useState('idle')
+  const [didRunReset, setDidRunReset] = useState(false)
   const mountedRef = useRef(true)
   const blobRef = useRef(null)
 
@@ -44,8 +46,47 @@ export default function EnrollScreen({ user, onComplete }) {
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+
+    if (!user || mode !== 'reset' || didRunReset) return undefined
+
+    ;(async () => {
+      setResetStatus('resetting')
+      try {
+        await resetVoiceProfile()
+        if (cancelled || !mountedRef.current) return
+        setVoiceStatus({
+          enrolled: false,
+          status: 'NotEnrolled',
+          sample_count: 0,
+          remaining_clips_needed: 5,
+        })
+        setCurrentPhrase(0)
+        setPhraseStatus(phrases.map(() => 'pending'))
+        setError(null)
+        setVoiceError(null)
+        blobRef.current = null
+        setResetStatus('done')
+      } catch {
+        if (cancelled || !mountedRef.current) return
+        setVoiceError('could not reset existing voice profile — please try again')
+        setResetStatus('error')
+      } finally {
+        if (!cancelled && mountedRef.current) {
+          setDidRunReset(true)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [didRunReset, mode, phrases, user])
+
   async function handleRecordClick() {
     if (!mountedRef.current) return
+    if (mode === 'reset' && resetStatus === 'resetting') return
 
     setError(null)
     setCountdown(3)
@@ -154,10 +195,31 @@ export default function EnrollScreen({ user, onComplete }) {
           })}
         </div>
 
-        <h2 className="text-xl font-semibold text-gray-900 mt-5 mb-1">recognise your voice</h2>
-        <p className="text-sm text-gray-400 mb-6">
-          say each phrase clearly when prompted. takes about 30 seconds.
-        </p>
+        {mode === 'reset' ? (
+          <>
+            <h2 className="text-xl font-semibold text-gray-900 mt-5 mb-1">re-enrol your voice</h2>
+            <p className="text-sm text-gray-400 mb-3">
+              your old voice profile will be replaced. say each phrase clearly.
+            </p>
+          </>
+        ) : (
+          <>
+            <h2 className="text-xl font-semibold text-gray-900 mt-5 mb-1">recognise your voice</h2>
+            <p className="text-sm text-gray-400 mb-3">
+              say each phrase clearly when prompted. takes about 30 seconds.
+            </p>
+          </>
+        )}
+
+        {resetStatus === 'resetting' ? (
+          <p className="text-xs text-gray-400 mb-3">resetting your old voice profile...</p>
+        ) : null}
+        {resetStatus === 'done' && mode === 'reset' ? (
+          <p className="text-xs text-emerald-600 mb-3">old voice cleared - record 5 fresh phrases</p>
+        ) : null}
+        {resetStatus === 'error' ? (
+          <p className="text-xs text-amber-500 mb-3">{voiceError}</p>
+        ) : null}
 
         <div>
           {phrases.map((phrase, index) => (
