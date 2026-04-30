@@ -2,14 +2,16 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import WaveformVisualizer from '../components/WaveformVisualizer'
 import { getAudioStream, getFullAudioBlob, startTranscription, stopTranscription } from '../lib/gladia'
 
-export default function RecordScreen({ user, onMeetingComplete, onSignOut, onViewHistory }) {
+export default function RecordScreen({ user, onMeetingComplete, onSignOut, onViewHistory, onReEnrollVoice }) {
   const [isRecording, setIsRecording] = useState(false)
   const [segments, setSegments] = useState([])
   const [audioStream, setAudioStream] = useState(null)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [error, setError] = useState(null)
+  const [menuOpen, setMenuOpen] = useState(false)
   const segmentsRef = useRef([])
   const transcriptEndRef = useRef(null)
+  const menuRef = useRef(null)
 
   const initial = useMemo(() => {
     const email = user?.email ?? ''
@@ -45,6 +47,23 @@ export default function RecordScreen({ user, onMeetingComplete, onSignOut, onVie
       stopTranscription()
     }
   }, [])
+
+  useEffect(() => {
+    if (!menuOpen) return undefined
+
+    const handlePointerDown = (event) => {
+      if (!menuRef.current) return
+      if (menuRef.current.contains(event.target)) return
+      setMenuOpen(false)
+    }
+
+    document.addEventListener('mousedown', handlePointerDown)
+    document.addEventListener('touchstart', handlePointerDown)
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown)
+      document.removeEventListener('touchstart', handlePointerDown)
+    }
+  }, [menuOpen])
 
   async function handleRecordClick() {
     if (isRecording) {
@@ -211,11 +230,40 @@ export default function RecordScreen({ user, onMeetingComplete, onSignOut, onVie
               </svg>
               history
             </button>
-            <button type="button" onClick={onSignOut} className="text-xs text-gray-400">
-              sign out
-            </button>
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-sm font-medium text-indigo-600">
-              {initial}
+            <div className="relative" ref={menuRef}>
+              <button
+                type="button"
+                onClick={() => setMenuOpen((prev) => !prev)}
+                aria-label="Open profile menu"
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-sm font-medium text-indigo-600"
+              >
+                {initial}
+              </button>
+
+              {menuOpen ? (
+                <div className="absolute right-0 mt-2 w-40 rounded-xl border border-gray-200 bg-white shadow-sm z-20 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      onReEnrollVoice?.()
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    re-enroll voice
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      onSignOut()
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors border-t border-gray-100"
+                  >
+                    sign out
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         </header>
