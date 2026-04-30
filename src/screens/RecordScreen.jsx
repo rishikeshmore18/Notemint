@@ -4,6 +4,7 @@ import { getAudioStream, getFullAudioBlob, startTranscription, stopTranscription
 
 export default function RecordScreen({ user, onMeetingComplete, onSignOut, onViewHistory, onReEnrollVoice }) {
   const [isRecording, setIsRecording] = useState(false)
+  const [liveTranscriptEnabled, setLiveTranscriptEnabled] = useState(false)
   const [segments, setSegments] = useState([])
   const [audioStream, setAudioStream] = useState(null)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
@@ -12,6 +13,9 @@ export default function RecordScreen({ user, onMeetingComplete, onSignOut, onVie
   const segmentsRef = useRef([])
   const transcriptEndRef = useRef(null)
   const menuRef = useRef(null)
+  const silentRecorderRef = useRef(null)
+  const silentAudioStreamRef = useRef(null)
+  const silentChunksRef = useRef([])
 
   const initial = useMemo(() => {
     const email = user?.email ?? ''
@@ -45,6 +49,13 @@ export default function RecordScreen({ user, onMeetingComplete, onSignOut, onVie
   useEffect(() => {
     return () => {
       stopTranscription()
+      if (silentRecorderRef.current?.state !== 'inactive') {
+        try {
+          silentRecorderRef.current.stop()
+        } catch {}
+      }
+      silentAudioStreamRef.current?.getTracks().forEach((track) => track.stop())
+      setAudioStream(null)
     }
   }, [])
 
@@ -103,43 +114,53 @@ export default function RecordScreen({ user, onMeetingComplete, onSignOut, onVie
     setElapsedSeconds(0)
     setSegments([])
     segmentsRef.current = []
+    let started = false
 
-    const started = await startTranscription({
-      onSegment: (incomingSegment) => {
-        console.log('[RecordScreen] segment received:', incomingSegment)
-        handleSegment({
-          speaker: normalizeSpeaker(incomingSegment.speaker),
-          text: incomingSegment.text,
-          isFinal: Boolean(incomingSegment.isFinal),
-        })
-      },
-      onError: (message) => {
-        console.log('[RecordScreen] error received:', message)
-        const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
-        if (isSafari && message.toLowerCase().includes('could not access microphone')) {
-          setError('use Chrome or Firefox for best experience')
-          return
-        }
-        if (message.toLowerCase().includes('connection')) {
-          setError('check your internet connection')
-          return
-        }
-        setError(message)
-      },
-      onConnected: () => {
-        console.log('[RecordScreen] Gladia connected successfully')
-      },
-    })
-    console.log('[RecordScreen] startTranscription called')
+    if (liveTranscriptEnabled) {
+      started = await startTranscription({
+        onSegment: (incomingSegment) => {
+          console.log('[RecordScreen] segment received:', incomingSegment)
+          handleSegment({
+            speaker: normalizeSpeaker(incomingSegment.speaker),
+            text: incomingSegment.text,
+            isFinal: Boolean(incomingSegment.isFinal),
+          })
+        },
+        onError: (message) => {
+          console.log('[RecordScreen] error received:', message)
+          const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent)
+          if (isSafari && message.toLowerCase().includes('could not access microphone')) {
+            setError('use Chrome or Firefox for best experience')
+            return
+          }
+          if (message.toLowerCase().includes('connection')) {
+            setError('check your internet connection')
+            return
+          }
+          setError(message)
+        },
+        onConnected: () => {
+          console.log('[RecordScreen] Gladia connected successfully')
+        },
+      })
+      console.log('[RecordScreen] startTranscription called')
 
-    if (!started) {
-      setIsRecording(false)
-      setAudioStream(null)
-      return
+      if (!started) {
+        setIsRecording(false)
+        setAudioStream(null)
+        return
+      }
+      setAudioStream(getAudioStream())
+    } else {
+      started = await startAudioOnlyRecording()
+      if (!started) {
+        setIsRecording(false)
+        setAudioStream(null)
+        return
+      }
     }
 
     setIsRecording(true)
-    setAudioStream(getAudioStream())
   }
 
   async function handleStop() {
@@ -149,21 +170,80 @@ export default function RecordScreen({ user, onMeetingComplete, onSignOut, onVie
 
     setIsRecording(false)
 
-    stopTranscription()
-    setAudioStream(null)
-    await delay(1200)
+    let finalSegments = []
+    let audioBlob = null
 
-    const finalSegments = segmentsRef.current
-    const audioBlob = getFullAudioBlob()
-    console.log('[RecordScreen] Audio blob size:', audioBlob?.size, 'bytes')
+    if (liveTranscriptEnabled) {
+      stopTranscription()
+      setAudioStream(null)
+      await delay(1200)
 
-    console.log('[RecordScreen] Passing segments to results:', finalSegments.length)
+      finalSegments = segmentsRef.current || segments
+      audioBlob = getFullAudioBlob()
+      console.log('[RecordScreen] Audio blob size:', audioBlob?.size, 'bytes')
+      console.log('[RecordScreen] Passing segments to results:', finalSegments.length)
 
-    if (finalSegments.length === 0) {
-      console.warn('[RecordScreen] No segments captured')
+      if (finalSegments.length === 0) {
+        console.warn('[RecordScreen] No segments captured')
+      }
+    } else {
+      if (silentRecorderRef.current && silentRecorderRef.current.state !== 'inactive') {
+        silentRecorderRef.current.stop()
+        await delay(500)
+      }
+
+      if (silentAudioStreamRef.current) {
+        silentAudioStreamRef.current.getTracks().forEach((track) => track.stop())
+        silentAudioStreamRef.current = null
+      }
+
+      if (silentChunksRef.current.length > 0) {
+        const mimeType = silentRecorderRef.current?.mimeType || 'audio/webm'
+        audioBlob = new Blob(silentChunksRef.current, { type: mimeType })
+      }
+
+      setAudioStream(null)
+      finalSegments = []
     }
 
-    onMeetingComplete(finalSegments, audioBlob)
+    onMeetingComplete(finalSegments, audioBlob, liveTranscriptEnabled)
+  }
+
+  async function startAudioOnlyRecording() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+        },
+      })
+
+      silentAudioStreamRef.current = stream
+      setAudioStream(stream)
+
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+        ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm')
+          ? 'audio/webm'
+          : ''
+
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream)
+      silentRecorderRef.current = recorder
+      silentChunksRef.current = []
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          silentChunksRef.current.push(event.data)
+        }
+      }
+
+      recorder.start(1000)
+      return true
+    } catch (err) {
+      setError('Microphone access denied: ' + err.message)
+      return false
+    }
   }
 
   function handleRetry() {
@@ -288,6 +368,35 @@ export default function RecordScreen({ user, onMeetingComplete, onSignOut, onVie
               tap the button below to start.
               <br />
               speakers are detected automatically.
+            </p>
+            <div className="mt-8 w-full max-w-xs bg-gray-50 rounded-2xl px-4 py-3.5 flex items-center justify-between">
+              <div className="text-left">
+                <p className="text-sm font-medium text-gray-800">live transcript</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {liveTranscriptEnabled ? 'words appear as you speak' : 'transcript generated after meeting'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setLiveTranscriptEnabled((prev) => !prev)}
+                className={`relative w-12 h-6 rounded-full transition-colors duration-200 flex-shrink-0 ml-4 ${
+                  liveTranscriptEnabled ? 'bg-indigo-600' : 'bg-gray-300'
+                }`}
+                role="switch"
+                aria-checked={liveTranscriptEnabled}
+                aria-label="Toggle live transcript"
+              >
+                <span
+                  className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                    liveTranscriptEnabled ? 'translate-x-6' : 'translate-x-0.5'
+                  }`}
+                />
+              </button>
+            </div>
+            <p className="text-xs text-gray-300 mt-3 max-w-xs">
+              {liveTranscriptEnabled
+                ? 'uses more data — good for real-time notes'
+                : 'saves data — best for longer meetings'}
             </p>
           </main>
         ) : (
