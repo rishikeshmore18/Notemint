@@ -14,6 +14,8 @@ import { rememberSpeakerLabels } from './lib/speakerMemory'
 
 export default function App() {
   const [screen, setScreen] = useState('loading')
+  const [enrollMode, setEnrollMode] = useState('initial')
+  const [processingMessage, setProcessingMessage] = useState('')
   const [currentUser, setCurrentUser] = useState(null)
   const [meetingSegments, setMeetingSegments] = useState([])
   const [meetingAudioBlob, setMeetingAudioBlob] = useState(null)
@@ -209,7 +211,20 @@ export default function App() {
   }
 
   if (screen === 'enroll') {
-    return <EnrollScreen user={currentUser} onComplete={handleSkipEnrollment} />
+    return (
+      <EnrollScreen
+        user={currentUser}
+        mode={enrollMode}
+        onComplete={() => {
+          setEnrollMode('initial')
+          handleSkipEnrollment()
+        }}
+      />
+    )
+  }
+
+  if (screen === 'processing') {
+    return <ProcessingScreen message={processingMessage} />
   }
 
   if (screen === 'results') {
@@ -224,6 +239,8 @@ export default function App() {
           setMeetingAudioBlob(null)
           setDiarizedSegments([])
           setConfirmedLabelMap({})
+          setProcessingMessage('')
+          setEnrollMode('initial')
           setScreen('home')
         }}
       />
@@ -277,14 +294,43 @@ export default function App() {
   return (
     <RecordScreen
       user={currentUser}
-      onMeetingComplete={async (segments, audioBlob) => {
-        setMeetingSegments(segments)
+      onMeetingComplete={async (segments, audioBlob, hadLiveTranscript = true) => {
         setMeetingAudioBlob(audioBlob)
-        setDiarizedSegments([])
         setConfirmedLabelMap({})
+        setProcessingMessage('')
+        setDiarizedSegments([])
+
+        if (hadLiveTranscript) {
+          setMeetingSegments(segments)
+
+          if (!audioBlob || audioBlob.size === 0) {
+            setScreen('speaker-review')
+            return
+          }
+
+          setScreen('speaker-review')
+          void (async () => {
+            try {
+              const parsed = await grokDiarizeAudio(audioBlob)
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setDiarizedSegments(parsed)
+              } else {
+                setDiarizedSegments([])
+              }
+            } catch (err) {
+              console.warn('[App] Diarization failed, using live segments fallback:', err?.message || err)
+              setDiarizedSegments([])
+            }
+          })()
+          return
+        }
+
+        setMeetingSegments([])
+        setProcessingMessage('generating transcript from recording...')
+        setScreen('processing')
 
         if (!audioBlob || audioBlob.size === 0) {
-          setScreen('speaker-review')
+          setScreen('results')
           return
         }
 
@@ -292,21 +338,39 @@ export default function App() {
           const parsed = await grokDiarizeAudio(audioBlob)
           if (Array.isArray(parsed) && parsed.length > 0) {
             setDiarizedSegments(parsed)
+            setScreen('speaker-review')
           } else {
             setDiarizedSegments([])
+            setScreen('results')
           }
         } catch (err) {
-          console.warn('[App] Diarization failed, using live segments fallback:', err?.message || err)
+          console.warn('[App] Silent-mode diarization failed:', err?.message || err)
           setDiarizedSegments([])
+          setScreen('results')
         }
-
-        setScreen('speaker-review')
+      }}
+      onReEnrollVoice={() => {
+        setEnrollMode('reset')
+        setScreen('enroll')
       }}
       onViewHistory={() => setScreen('history')}
       onSignOut={handleSignOut}
     />
   )
 }
+
+function ProcessingScreen({ message }) {
+  return (
+    <div className="min-h-screen bg-white flex items-center justify-center px-6">
+      <div className="text-center">
+        <div className="mx-auto mb-3 h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
+        <p className="text-sm font-medium text-gray-800">processing recording</p>
+        <p className="mt-1 text-xs text-gray-400">{message || 'generating transcript...'}</p>
+      </div>
+    </div>
+  )
+}
+
 function getAuthCallbackContext() {
   if (typeof window === 'undefined') return { active: false }
 
