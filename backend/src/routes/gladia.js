@@ -11,6 +11,12 @@ gladiaRouter.post('/session', requireAuth, async (req, res) => {
   }
 
   try {
+    // Gladia v2 live currently rejects diarization fields at session-creation time.
+    // Live transcript still works, and post-meeting diarization is handled via Grok.
+    if (enable_diarization) {
+      console.log('[Gladia] Live diarization requested but skipped due to API schema constraints')
+    }
+
     const response = await fetch('https://api.gladia.io/v2/live', {
       method: 'POST',
       headers: {
@@ -24,13 +30,6 @@ gladiaRouter.post('/session', requireAuth, async (req, res) => {
           languages: [],
           code_switching: true,
         },
-        diarization: Boolean(enable_diarization),
-        diarization_config: enable_diarization
-          ? {
-              min_speakers: 1,
-              max_speakers: 4,
-            }
-          : undefined,
         pre_processing: {
           audio_enhancer: false,
         },
