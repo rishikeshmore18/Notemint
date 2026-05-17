@@ -25,7 +25,9 @@ gladiaRouter.post('/session', requireAuth, async (req, res) => {
       },
       body: JSON.stringify({
         encoding: 'wav/pcm',
+        bit_depth: 16,
         sample_rate: 16000,
+        channels: 1,
         language_config: {
           languages: [],
           code_switching: true,
