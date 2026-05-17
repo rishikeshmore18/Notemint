@@ -40,10 +40,18 @@ export default function App() {
     }
 
     const initialize = async () => {
-      const user = await getCurrentUser()
-      if (!isMounted) return
-      setCurrentUser(user)
-      resolveInitialScreen(user, callbackContext)
+      try {
+        const user = await getCurrentUser()
+        if (!isMounted) return
+        setCurrentUser(user)
+        resolveInitialScreen(user, callbackContext)
+      } catch (err) {
+        if (!isMounted) return
+        console.error('[App] Initial auth bootstrap failed:', err)
+        setCurrentUser(null)
+        setAuthScreenError('Could not reach authentication service. Check your setup and try again.')
+        setScreen('auth')
+      }
     }
 
     initialize()
@@ -148,11 +156,18 @@ export default function App() {
   }
 
   async function handleAuthenticated() {
-    const user = await getCurrentUser()
-    await syncUserProfile(user)
-    setCurrentUser(user)
-    setAuthScreenError(null)
-    applyEnrollmentGate(user)
+    try {
+      const user = await getCurrentUser()
+      await syncUserProfile(user)
+      setCurrentUser(user)
+      setAuthScreenError(null)
+      applyEnrollmentGate(user)
+    } catch (err) {
+      console.error('[App] Post-auth bootstrap failed:', err)
+      setCurrentUser(null)
+      setAuthScreenError('Could not finish sign-in setup. Please try again.')
+      setScreen('auth')
+    }
   }
 
   function handleReturnToAuth(errorMessage) {
