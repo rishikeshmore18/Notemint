@@ -4,7 +4,8 @@ import { getAudioStream, getFullAudioBlob, startTranscription, stopTranscription
 
 export default function RecordScreen({ user, onMeetingComplete, onSignOut, onViewHistory, onReEnrollVoice }) {
   const [isRecording, setIsRecording] = useState(false)
-  const [liveTranscriptEnabled, setLiveTranscriptEnabled] = useState(false)
+  const liveTranscriptEnabled = false
+  const setLiveTranscriptEnabled = () => {}
   const [segments, setSegments] = useState([])
   const [audioStream, setAudioStream] = useState(null)
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
@@ -369,7 +370,9 @@ export default function RecordScreen({ user, onMeetingComplete, onSignOut, onVie
               <br />
               speakers are detected automatically.
             </p>
-            <div className="mt-8 w-full max-w-xs bg-gray-50 rounded-2xl px-4 py-3.5 flex items-center justify-between">
+            {false ? (
+              <>
+              <div className="mt-8 w-full max-w-xs bg-gray-50 rounded-2xl px-4 py-3.5 flex items-center justify-between">
               <div className="text-left">
                 <p className="text-sm font-medium text-gray-800">live transcript</p>
                 <p className="text-xs text-gray-400 mt-0.5">
@@ -398,6 +401,8 @@ export default function RecordScreen({ user, onMeetingComplete, onSignOut, onVie
                 ? 'uses more data — good for real-time notes'
                 : 'saves data — best for longer meetings'}
             </p>
+            </>
+            ) : null}
           </main>
         ) : (
           <main className="flex flex-1 flex-col pt-6">
