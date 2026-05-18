@@ -26,7 +26,8 @@ grokRouter.post('/', requireAuth, upload.single('audio'), async (req, res) => {
     formData.append('model', 'grok-stt')
     formData.append('diarize', 'true')
     formData.append('timestamps', 'true')
-    formData.append('language', 'auto')
+    // English-only product path for higher consistency on in-person meetings.
+    formData.append('language', 'en')
 
     const response = await fetch('https://api.x.ai/v1/stt', {
       method: 'POST',

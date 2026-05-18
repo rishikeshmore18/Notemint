@@ -1,6 +1,6 @@
 import { streamSummary } from './api.js'
 
-const FILLER_REGEX = /\b(um+|uh+|er+|erm|hmm+|ah+|like|you know|so um|ok so|mhm|yeah right)\b/gi
+const LIGHT_FILLER_REGEX = /\b(um+|uh+|er+|erm|hmm+|ah+)\b/gi
 const LOCAL_MEETINGS_KEY_PREFIX = 'local_meetings_'
 
 export function compressTranscript(segments, labelMap) {
@@ -12,32 +12,20 @@ export function compressTranscript(segments, labelMap) {
   let finals = segments.filter((s) => s.isFinal === true)
   if (finals.length === 0) finals = segments
 
-  const seen = new Set()
-  const cleaned = []
+  const lines = []
   for (const seg of finals) {
-    const text = (seg.text || '').replace(FILLER_REGEX, '').replace(/\s+/g, ' ').trim()
+    const text = String(seg.text || '').replace(LIGHT_FILLER_REGEX, '').replace(/\s+/g, ' ').trim()
     if (text.length < 2) continue
-    if (seen.has(text)) continue
-    seen.add(text)
-    cleaned.push({ speaker: seg.speaker, text })
-  }
 
-  const merged = []
-  for (const item of cleaned) {
-    let label = labelMap[item.speaker]
+    let label = labelMap?.[seg.speaker]
     if (label === undefined || label === null) {
-      label = 'Person ' + (item.speaker + 1)
+      label = 'Person ' + (Number(seg.speaker) + 1)
     }
 
-    const last = merged[merged.length - 1]
-    if (last && last.label === label) {
-      last.text = last.text + ' ' + item.text
-    } else {
-      merged.push({ label, text: item.text })
-    }
+    lines.push(`[${label}]: ${text}`)
   }
 
-  const result = merged.map((m) => `[${m.label}]: ${m.text.trim()}`).join('\n')
+  const result = lines.join('\n')
   console.log('[Summary] Compressed transcript preview:', result.slice(0, 200))
   return result
 }

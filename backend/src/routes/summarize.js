@@ -23,6 +23,12 @@ If none: -> None recorded.
 Bullets of unresolved items or open questions.
 If none: - None.
 
+Grounding rules:
+- Use only transcript evidence. Do not infer missing facts.
+- Do not invent names, dates, deadlines, decisions, or action owners.
+- If ownership/timeframe is unclear, write "unspecified" instead of guessing.
+- If a statement appears uncertain or contradictory, mark it as unclear.
+
 Be direct. No filler. No repetition. When speaker label is "You", refer to them as "you".`
 
 summarizeRouter.post('/', requireAuth, async (req, res) => {
