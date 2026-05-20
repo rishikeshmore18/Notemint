@@ -1,16 +1,16 @@
 const PHRASES = [
-  'the quick brown fox jumps over the lazy dog',
-  'my name is being recorded for voice recognition',
-  'hello this is a test of the meeting app',
-  'I will be identified as the host of this meeting',
-  'voice recognition helps label the transcript correctly',
+  'Today I am recording my voice so Notemint can recognize me clearly',
+  'The meeting notes should label my speech accurately during future conversations',
+  'I will speak naturally in a quiet room with steady volume',
+  'This voice profile helps separate my words from other people in meetings',
+  'Please use this sample to identify me when I speak again later',
 ]
 
 export function getEnrollmentPhrases() {
   return PHRASES
 }
 
-export async function recordPhrase(durationMs = 4000) {
+export async function recordPhrase(durationMs = 6000) {
   let stream
 
   try {

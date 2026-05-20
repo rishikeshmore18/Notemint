@@ -149,6 +149,29 @@ export async function enrollVoice(audioBlob) {
   return response.json()
 }
 
+export async function enrollVoicePhrase(audioBlob, phraseIndex, expectedPhrase) {
+  const token = await getAuthToken()
+  const formData = new FormData()
+  formData.append('audio', audioBlob, inferFileName(audioBlob))
+  formData.append('phrase_index', String(phraseIndex))
+  formData.append('expected_phrase', expectedPhrase)
+
+  const response = await fetch(`${BASE_URL}/api/voice/enroll-phrase`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.error || 'Voice phrase enrollment failed')
+  }
+
+  return response.json()
+}
+
 export async function getVoiceStatus() {
   try {
     const token = await getAuthToken()

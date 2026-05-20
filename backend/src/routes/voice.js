@@ -9,6 +9,20 @@ const ENROLLMENT_TARGET_SAMPLES = 5
 const CONTACT_ENROLLMENT_TARGET_SAMPLES = 3
 const CONTACT_MIN_IDENTIFY_SAMPLES = 2
 const GENERIC_PERSON_PATTERN = /^person\s*\d+$/i
+const MIN_ENROLLMENT_DURATION_SEC = 2.2
+const MIN_ENROLLMENT_RMS = 0.008
+const MIN_ENROLLMENT_ACTIVE_RATIO = 0.2
+const MAX_ENROLLMENT_CLIPPED_RATIO = 0.05
+const MIN_PHRASE_TOKEN_RECALL = 0.72
+const MIN_PHRASE_TEXT_SIMILARITY = 0.55
+
+const ENROLLMENT_PHRASES = [
+  'Today I am recording my voice so Notemint can recognize me clearly',
+  'The meeting notes should label my speech accurately during future conversations',
+  'I will speak naturally in a quiet room with steady volume',
+  'This voice profile helps separate my words from other people in meetings',
+  'Please use this sample to identify me when I speak again later',
+]
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -28,46 +42,79 @@ voiceRouter.post('/enroll', requireAuth, upload.single('audio'), async (req, res
   }
 
   try {
-    const incomingEmbedding = await createEmbedding(req.file)
-    const userId = req.user.id
-
-    const { data: existingRow, error: fetchError } = await supabase
-      .from('user_voice_profiles')
-      .select('embedding, sample_count')
-      .eq('user_id', userId)
-      .maybeSingle()
-
-    if (fetchError) {
-      return res.status(500).json({ error: `Could not load voice profile: ${fetchError.message}` })
-    }
-
-    const existingCount = Number(existingRow?.sample_count || 0)
-    const mergedEmbedding =
-      existingRow?.embedding && Array.isArray(existingRow.embedding)
-        ? mergeEmbeddings(existingRow.embedding, existingCount, incomingEmbedding)
-        : normalizeVector(incomingEmbedding)
-
-    const nextSampleCount = existingCount + 1
-    const status = nextSampleCount >= ENROLLMENT_TARGET_SAMPLES ? 'Enrolled' : 'Enrolling'
-
-    const { error: upsertError } = await supabase.from('user_voice_profiles').upsert(
-      {
-        user_id: userId,
-        embedding: mergedEmbedding,
-        sample_count: nextSampleCount,
-        enrollment_status: status,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' },
-    )
-
-    if (upsertError) {
-      return res.status(500).json({ error: `Could not save voice profile: ${upsertError.message}` })
-    }
-
-    return res.json(buildStatusPayload(status, nextSampleCount))
+    const statusPayload = await enrollUserVoiceSample(supabase, req.user.id, req.file)
+    return res.json(statusPayload)
   } catch (err) {
     return res.status(500).json({ error: `Voice enrollment failed: ${err.message}` })
+  }
+})
+
+voiceRouter.post('/enroll-phrase', requireAuth, upload.single('audio'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No audio file provided' })
+  }
+
+  const supabase = getSupabaseClient()
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase is not configured on server' })
+  }
+  if (!process.env.VOICE_SERVICE_URL) {
+    return res.status(500).json({ error: 'VOICE_SERVICE_URL is not configured on server' })
+  }
+  if (!process.env.XAI_KEY) {
+    return res.status(500).json({ error: 'XAI_KEY is not configured on server' })
+  }
+
+  const phraseIndex = Number(req.body?.phrase_index)
+  const expectedPhrase = normalizeExpectedPhrase(req.body?.expected_phrase)
+  const serverPhrase = ENROLLMENT_PHRASES[phraseIndex]
+
+  if (!Number.isInteger(phraseIndex) || phraseIndex < 0 || phraseIndex >= ENROLLMENT_PHRASES.length) {
+    return res.status(400).json({ error: 'Invalid phrase_index' })
+  }
+  if (expectedPhrase !== normalizeExpectedPhrase(serverPhrase)) {
+    return res.status(400).json({ error: 'Enrollment phrase mismatch' })
+  }
+
+  const quality = analyzePcmWavQuality(req.file.buffer)
+  if (!quality.accepted) {
+    return res.json({
+      accepted: false,
+      reason: quality.reason,
+      message: quality.message,
+      transcript: '',
+      phrase_score: 0,
+      audio_quality: quality.metrics,
+    })
+  }
+
+  try {
+    const transcript = await transcribeEnrollmentClip(req.file)
+    const phraseMatch = scorePhraseMatch(transcript, serverPhrase)
+
+    if (!phraseMatch.accepted) {
+      return res.json({
+        accepted: false,
+        reason: 'incomplete_phrase',
+        message: 'say the full phrase',
+        transcript,
+        phrase_score: phraseMatch.score,
+        audio_quality: quality.metrics,
+      })
+    }
+
+    const statusPayload = await enrollUserVoiceSample(supabase, req.user.id, req.file)
+    return res.json({
+      accepted: true,
+      reason: 'accepted',
+      message: 'phrase accepted',
+      transcript,
+      phrase_score: phraseMatch.score,
+      audio_quality: quality.metrics,
+      ...statusPayload,
+    })
+  } catch (err) {
+    return res.status(500).json({ error: `Phrase enrollment failed: ${err.message}` })
   }
 })
 
@@ -353,6 +400,288 @@ async function createEmbedding(file) {
   }
 
   return normalizeVector(payload.embedding)
+}
+
+async function enrollUserVoiceSample(supabase, userId, file) {
+  const incomingEmbedding = await createEmbedding(file)
+
+  const { data: existingRow, error: fetchError } = await supabase
+    .from('user_voice_profiles')
+    .select('embedding, sample_count')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (fetchError) {
+    throw new Error(`Could not load voice profile: ${fetchError.message}`)
+  }
+
+  const existingCount = Number(existingRow?.sample_count || 0)
+  const mergedEmbedding =
+    existingRow?.embedding && Array.isArray(existingRow.embedding)
+      ? mergeEmbeddings(existingRow.embedding, existingCount, incomingEmbedding)
+      : normalizeVector(incomingEmbedding)
+
+  const nextSampleCount = existingCount + 1
+  const status = nextSampleCount >= ENROLLMENT_TARGET_SAMPLES ? 'Enrolled' : 'Enrolling'
+
+  const { error: upsertError } = await supabase.from('user_voice_profiles').upsert(
+    {
+      user_id: userId,
+      embedding: mergedEmbedding,
+      sample_count: nextSampleCount,
+      enrollment_status: status,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id' },
+  )
+
+  if (upsertError) {
+    throw new Error(`Could not save voice profile: ${upsertError.message}`)
+  }
+
+  return buildStatusPayload(status, nextSampleCount)
+}
+
+async function transcribeEnrollmentClip(file) {
+  const formData = new FormData()
+  const fileBlob = new Blob([file.buffer], { type: file.mimetype || 'audio/wav' })
+  formData.append('file', fileBlob, file.originalname || 'enrollment.wav')
+  formData.append('model', 'grok-stt')
+  formData.append('language', 'en')
+  formData.append('diarize', 'false')
+  formData.append('timestamps', 'false')
+
+  const response = await fetch('https://api.x.ai/v1/stt', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${process.env.XAI_KEY}`,
+    },
+    body: formData,
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok) {
+    throw new Error(payload?.error || payload?.message || 'Enrollment transcript failed')
+  }
+
+  return String(payload?.text || payload?.transcript || payload?.segments?.map((s) => s?.text || '').join(' ') || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normalizeExpectedPhrase(value) {
+  return normalizePhraseText(value)
+}
+
+function scorePhraseMatch(transcript, expectedPhrase) {
+  const normalizedTranscript = normalizePhraseText(transcript)
+  const normalizedExpected = normalizePhraseText(expectedPhrase)
+  const transcriptWords = normalizePhraseWords(transcript)
+  const expectedWords = normalizePhraseWords(expectedPhrase)
+
+  if (!normalizedTranscript || transcriptWords.length < 4 || expectedWords.length === 0) {
+    return {
+      accepted: false,
+      score: 0,
+      token_recall: 0,
+      text_similarity: 0,
+    }
+  }
+
+  const transcriptWordSet = new Set(transcriptWords)
+  const matchedTokens = expectedWords.filter((word) => transcriptWordSet.has(word)).length
+  const tokenRecall = matchedTokens / expectedWords.length
+  const maxLen = Math.max(normalizedTranscript.length, normalizedExpected.length, 1)
+  const textSimilarity = 1 - editDistance(normalizedTranscript, normalizedExpected) / maxLen
+  const score = (tokenRecall * 0.7 + textSimilarity * 0.3)
+
+  return {
+    accepted: tokenRecall >= MIN_PHRASE_TOKEN_RECALL && textSimilarity >= MIN_PHRASE_TEXT_SIMILARITY,
+    score: Number(score.toFixed(3)),
+    token_recall: Number(tokenRecall.toFixed(3)),
+    text_similarity: Number(textSimilarity.toFixed(3)),
+  }
+}
+
+function normalizePhraseText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+function normalizePhraseWords(value) {
+  return normalizePhraseText(value).split(' ').filter(Boolean)
+}
+
+function editDistance(a, b) {
+  const rows = a.length + 1
+  const cols = b.length + 1
+  const previous = Array.from({ length: cols }, (_, index) => index)
+  const current = Array(cols).fill(0)
+
+  for (let i = 1; i < rows; i += 1) {
+    current[0] = i
+
+    for (let j = 1; j < cols; j += 1) {
+      const substitutionCost = a[i - 1] === b[j - 1] ? 0 : 1
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + substitutionCost,
+      )
+    }
+
+    for (let j = 0; j < cols; j += 1) {
+      previous[j] = current[j]
+    }
+  }
+
+  return previous[cols - 1]
+}
+
+function analyzePcmWavQuality(buffer) {
+  const fallbackAccepted = {
+    accepted: true,
+    reason: 'unverified_format',
+    message: 'audio accepted',
+    metrics: {
+      duration_sec: null,
+      active_duration_sec: null,
+      rms: null,
+      active_ratio: null,
+      clipped_ratio: null,
+    },
+  }
+
+  const parsed = parsePcm16Wav(buffer)
+  if (!parsed) return fallbackAccepted
+
+  const { samples, sampleRate } = parsed
+  const durationSec = samples.length / sampleRate
+  if (durationSec < MIN_ENROLLMENT_DURATION_SEC) {
+    return rejectAudio('too_short', 'say the full phrase', durationSec, 0, 0, 0, 0)
+  }
+
+  let sumSquares = 0
+  let clipped = 0
+  for (const sample of samples) {
+    sumSquares += sample * sample
+    if (Math.abs(sample) > 0.98) clipped += 1
+  }
+
+  const rms = Math.sqrt(sumSquares / samples.length)
+  const clippedRatio = clipped / samples.length
+  const frameSize = Math.max(1, Math.floor(sampleRate * 0.03))
+  let activeFrames = 0
+  let totalFrames = 0
+
+  for (let start = 0; start < samples.length; start += frameSize) {
+    const end = Math.min(samples.length, start + frameSize)
+    let frameSquares = 0
+    for (let i = start; i < end; i += 1) {
+      frameSquares += samples[i] * samples[i]
+    }
+    const frameRms = Math.sqrt(frameSquares / (end - start))
+    if (frameRms >= MIN_ENROLLMENT_RMS) activeFrames += 1
+    totalFrames += 1
+  }
+
+  const activeRatio = totalFrames > 0 ? activeFrames / totalFrames : 0
+  const activeDurationSec = (activeFrames * frameSize) / sampleRate
+  if (activeDurationSec < MIN_ENROLLMENT_DURATION_SEC) {
+    return rejectAudio(
+      'too_short',
+      'say the full phrase',
+      durationSec,
+      rms,
+      activeRatio,
+      clippedRatio,
+      activeDurationSec,
+    )
+  }
+  if (rms < MIN_ENROLLMENT_RMS || activeRatio < MIN_ENROLLMENT_ACTIVE_RATIO) {
+    return rejectAudio('too_quiet', 'too quiet, try again', durationSec, rms, activeRatio, clippedRatio, activeDurationSec)
+  }
+  if (clippedRatio > MAX_ENROLLMENT_CLIPPED_RATIO) {
+    return rejectAudio('clipped', 'too loud, try again', durationSec, rms, activeRatio, clippedRatio, activeDurationSec)
+  }
+
+  return {
+    accepted: true,
+    reason: 'accepted',
+    message: 'audio accepted',
+    metrics: buildAudioMetrics(durationSec, rms, activeRatio, clippedRatio, activeDurationSec),
+  }
+}
+
+function rejectAudio(reason, message, durationSec, rms, activeRatio, clippedRatio, activeDurationSec = null) {
+  return {
+    accepted: false,
+    reason,
+    message,
+    metrics: buildAudioMetrics(durationSec, rms, activeRatio, clippedRatio, activeDurationSec),
+  }
+}
+
+function buildAudioMetrics(durationSec, rms, activeRatio, clippedRatio, activeDurationSec = null) {
+  return {
+    duration_sec: Number.isFinite(durationSec) ? Number(durationSec.toFixed(3)) : null,
+    active_duration_sec: Number.isFinite(activeDurationSec) ? Number(activeDurationSec.toFixed(3)) : null,
+    rms: Number.isFinite(rms) ? Number(rms.toFixed(5)) : null,
+    active_ratio: Number.isFinite(activeRatio) ? Number(activeRatio.toFixed(3)) : null,
+    clipped_ratio: Number.isFinite(clippedRatio) ? Number(clippedRatio.toFixed(5)) : null,
+  }
+}
+
+function parsePcm16Wav(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 44) return null
+  if (buffer.toString('ascii', 0, 4) !== 'RIFF' || buffer.toString('ascii', 8, 12) !== 'WAVE') return null
+
+  let offset = 12
+  let channels = 1
+  let sampleRate = 16000
+  let bitsPerSample = 16
+  let dataStart = -1
+  let dataSize = 0
+
+  while (offset + 8 <= buffer.length) {
+    const chunkId = buffer.toString('ascii', offset, offset + 4)
+    const chunkSize = buffer.readUInt32LE(offset + 4)
+    const chunkStart = offset + 8
+
+    if (chunkId === 'fmt ' && chunkStart + chunkSize <= buffer.length) {
+      channels = buffer.readUInt16LE(chunkStart + 2)
+      sampleRate = buffer.readUInt32LE(chunkStart + 4)
+      bitsPerSample = buffer.readUInt16LE(chunkStart + 14)
+    }
+
+    if (chunkId === 'data') {
+      dataStart = chunkStart
+      dataSize = Math.min(chunkSize, buffer.length - chunkStart)
+      break
+    }
+
+    offset = chunkStart + chunkSize + (chunkSize % 2)
+  }
+
+  if (dataStart < 0 || dataSize <= 0 || bitsPerSample !== 16 || channels < 1 || sampleRate <= 0) return null
+
+  const frameCount = Math.floor(dataSize / (channels * 2))
+  if (frameCount <= 0) return null
+
+  const samples = new Array(frameCount)
+  for (let frame = 0; frame < frameCount; frame += 1) {
+    let mono = 0
+    for (let channel = 0; channel < channels; channel += 1) {
+      const sampleOffset = dataStart + (frame * channels + channel) * 2
+      mono += buffer.readInt16LE(sampleOffset) / 32768
+    }
+    samples[frame] = mono / channels
+  }
+
+  return { samples, sampleRate }
 }
 
 function buildStatusPayload(status, sampleCount) {

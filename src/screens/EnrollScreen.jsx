@@ -5,7 +5,7 @@ import {
   saveEnrollment,
   clearEnrollment,
 } from '../lib/enrollment'
-import { enrollVoice, getVoiceStatus, resetVoiceProfile } from '../lib/api'
+import { enrollVoicePhrase, getVoiceStatus, resetVoiceProfile } from '../lib/api'
 import { blobToWav } from '../lib/audioToWav'
 
 export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
@@ -89,6 +89,7 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
     if (mode === 'reset' && resetStatus === 'resetting') return
 
     setError(null)
+    setVoiceError(null)
     setCountdown(3)
 
     await delay(1000)
@@ -107,13 +108,22 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
     setPhraseStatus((prev) => prev.map((status, index) => (index === currentPhrase ? 'recording' : status)))
 
     try {
-      const blob = await recordPhrase(4000)
+      const blob = await recordPhrase(6000)
       blobRef.current = blob
       if (!mountedRef.current) return
 
       setIsRecording(false)
+      setPhraseStatus((prev) => prev.map((status, index) => (index === currentPhrase ? 'validating' : status)))
+      const result = await uploadVoiceClip(blob)
+
+      if (!result?.accepted) {
+        if (!mountedRef.current) return
+        setPhraseStatus((prev) => prev.map((status, index) => (index === currentPhrase ? 'pending' : status)))
+        setError(result?.message || 'say the full phrase')
+        return
+      }
+
       setPhraseStatus((prev) => prev.map((status, index) => (index === currentPhrase ? 'done' : status)))
-      await uploadVoiceClip(blob)
 
       if (currentPhrase < phrases.length - 1) {
         await delay(600)
@@ -136,6 +146,7 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
 
   function handleRetry() {
     setError(null)
+    setVoiceError(null)
     setIsRecording(false)
     setCountdown(null)
   }
@@ -148,14 +159,22 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
   async function uploadVoiceClip(blob) {
     try {
       const wavBlob = await blobToWav(blob)
-      const status = await enrollVoice(wavBlob)
+      const result = await enrollVoicePhrase(wavBlob, currentPhrase, phrases[currentPhrase])
       if (!mountedRef.current) return
-      setVoiceStatus(normalizeVoiceStatus(status))
-      setVoiceError(null)
+      if (result?.accepted) {
+        setVoiceStatus(normalizeVoiceStatus(result))
+        setVoiceError(null)
+        return result
+      }
+
+      const message = result?.message || 'say the full phrase'
+      setVoiceError(message)
+      return result
     } catch (err) {
       if (!mountedRef.current) return
-      setVoiceError('voice upload warning - continuing setup')
+      setVoiceError('voice check failed - try again')
       console.warn('[Enroll] Voice clip upload failed:', err)
+      throw new Error('voice check failed - try again')
     }
   }
 
@@ -187,6 +206,8 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
 
             if (status === 'done') {
               colorClass = 'bg-indigo-600'
+            } else if (status === 'validating') {
+              colorClass = 'bg-indigo-400'
             } else if (index === currentPhrase) {
               colorClass = 'bg-indigo-300'
             }
@@ -237,7 +258,10 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
                       />
                     </svg>
                   </div>
-                ) : index === currentPhrase && (phraseStatus[index] === 'pending' || phraseStatus[index] === 'recording') ? (
+                ) : index === currentPhrase &&
+                  (phraseStatus[index] === 'pending' ||
+                    phraseStatus[index] === 'recording' ||
+                    phraseStatus[index] === 'validating') ? (
                   <div className="w-6 h-6 rounded-full bg-indigo-50 border border-indigo-200 flex items-center justify-center">
                     <span className="text-xs font-medium text-indigo-600">{index + 1}</span>
                   </div>
@@ -273,7 +297,7 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
         </div>
 
         <div className="mt-6 min-h-[100px] flex flex-col items-center justify-center">
-          {countdown === null && !isRecording ? (
+          {countdown === null && !isRecording && phraseStatus[currentPhrase] !== 'validating' ? (
             <button
               type="button"
               onClick={handleRecordClick}
@@ -309,6 +333,10 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
               </div>
               <p className="text-sm text-gray-400">listening...</p>
             </>
+          ) : null}
+
+          {phraseStatus[currentPhrase] === 'validating' ? (
+            <p className="text-sm text-gray-400">checking phrase...</p>
           ) : null}
         </div>
 
@@ -346,6 +374,16 @@ function delay(ms) {
 }
 
 function mapErrorMessage(error) {
+  if (
+    error === 'say the full phrase' ||
+    error === 'too quiet, try again' ||
+    error === 'too loud, try again' ||
+    error === 'we only heard part of it' ||
+    error === 'voice check failed - try again'
+  ) {
+    return error
+  }
+
   if (error.includes('MICROPHONE_DENIED')) {
     return 'microphone access was denied - check browser settings'
   }
