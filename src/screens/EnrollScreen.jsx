@@ -5,8 +5,10 @@ import {
   saveEnrollment,
   clearEnrollment,
 } from '../lib/enrollment'
-import { enrollVoicePhrase, getVoiceStatus, resetVoiceProfile } from '../lib/api'
+import { finalizeVoiceEnrollment, getVoiceStatus, resetVoiceProfile, validateVoicePhrase } from '../lib/api'
 import { blobToWav } from '../lib/audioToWav'
+
+const MAX_BACKGROUND_VALIDATIONS = 2
 
 export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
   const phrases = getEnrollmentPhrases()
@@ -24,8 +26,15 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
   const [voiceError, setVoiceError] = useState(null)
   const [resetStatus, setResetStatus] = useState('idle')
   const [didRunReset, setDidRunReset] = useState(false)
+  const [isFinishing, setIsFinishing] = useState(false)
   const mountedRef = useRef(true)
   const blobRef = useRef(null)
+  const enrollmentRunIdRef = useRef(createEnrollmentRunId())
+  const validationQueueRef = useRef([])
+  const activeValidationsRef = useRef(0)
+  const validationPromisesRef = useRef({})
+  const validationResultsRef = useRef({})
+  const finishingRef = useRef(false)
 
   useEffect(() => {
     let cancelled = false
@@ -67,10 +76,17 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
         setError(null)
         setVoiceError(null)
         blobRef.current = null
+        enrollmentRunIdRef.current = createEnrollmentRunId()
+        validationQueueRef.current = []
+        activeValidationsRef.current = 0
+        validationPromisesRef.current = {}
+        validationResultsRef.current = {}
+        finishingRef.current = false
+        setIsFinishing(false)
         setResetStatus('done')
       } catch {
         if (cancelled || !mountedRef.current) return
-        setVoiceError('could not reset existing voice profile — please try again')
+        setVoiceError('could not reset existing voice profile - please try again')
         setResetStatus('error')
       } finally {
         if (!cancelled && mountedRef.current) {
@@ -87,6 +103,7 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
   async function handleRecordClick() {
     if (!mountedRef.current) return
     if (mode === 'reset' && resetStatus === 'resetting') return
+    if (isFinishing || finishingRef.current) return
 
     setError(null)
     setVoiceError(null)
@@ -108,32 +125,29 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
     setPhraseStatus((prev) => prev.map((status, index) => (index === currentPhrase ? 'recording' : status)))
 
     try {
+      const phraseIndex = currentPhrase
       const blob = await recordPhrase(6000)
       blobRef.current = blob
       if (!mountedRef.current) return
 
       setIsRecording(false)
-      setPhraseStatus((prev) => prev.map((status, index) => (index === currentPhrase ? 'validating' : status)))
-      const result = await uploadVoiceClip(blob)
+      setPhraseStatus((prev) => prev.map((status, index) => (index === phraseIndex ? 'validating' : status)))
+      validationResultsRef.current[phraseIndex] = null
+      validationPromisesRef.current[phraseIndex] = enqueueVoiceClip(blob, phraseIndex)
 
-      if (!result?.accepted) {
+      const shouldFinish = hasRecordedAllPhrases()
+      if (shouldFinish) {
         if (!mountedRef.current) return
-        setPhraseStatus((prev) => prev.map((status, index) => (index === currentPhrase ? 'pending' : status)))
-        setError(result?.message || 'say the full phrase')
+        await finishEnrollment()
         return
       }
 
-      setPhraseStatus((prev) => prev.map((status, index) => (index === currentPhrase ? 'done' : status)))
-
-      if (currentPhrase < phrases.length - 1) {
-        await delay(600)
+      if (phraseIndex < phrases.length - 1) {
+        await delay(250)
         if (!mountedRef.current) return
-        setCurrentPhrase((prev) => prev + 1)
+        setCurrentPhrase((prev) => Math.max(prev, phraseIndex + 1))
         return
       }
-
-      void saveEnrollment(user.id)
-      onComplete()
     } catch (err) {
       if (!mountedRef.current) return
 
@@ -156,25 +170,115 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
     onComplete()
   }
 
-  async function uploadVoiceClip(blob) {
+  function enqueueVoiceClip(blob, phraseIndex) {
+    const taskPromise = new Promise((resolve) => {
+      validationQueueRef.current.push({ blob, phraseIndex, resolve })
+      pumpValidationQueue()
+    })
+
+    return taskPromise
+  }
+
+  function pumpValidationQueue() {
+    while (
+      activeValidationsRef.current < MAX_BACKGROUND_VALIDATIONS &&
+      validationQueueRef.current.length > 0
+    ) {
+      const task = validationQueueRef.current.shift()
+      activeValidationsRef.current += 1
+
+      void processValidationTask(task).finally(() => {
+        activeValidationsRef.current -= 1
+        pumpValidationQueue()
+      })
+    }
+  }
+
+  async function processValidationTask(task) {
+    const { blob, phraseIndex, resolve } = task
+
     try {
       const wavBlob = await blobToWav(blob)
-      const result = await enrollVoicePhrase(wavBlob, currentPhrase, phrases[currentPhrase])
-      if (!mountedRef.current) return
-      if (result?.accepted) {
-        setVoiceStatus(normalizeVoiceStatus(result))
-        setVoiceError(null)
-        return result
+      const result = await validateVoicePhrase(
+        wavBlob,
+        phraseIndex,
+        phrases[phraseIndex],
+        enrollmentRunIdRef.current,
+      )
+
+      validationResultsRef.current[phraseIndex] = result
+
+      if (mountedRef.current) {
+        if (result?.accepted) {
+          setPhraseStatus((prev) => prev.map((status, index) => (index === phraseIndex ? 'done' : status)))
+          setVoiceStatus(normalizeVoiceStatus(result))
+          setVoiceError(null)
+        } else {
+          setPhraseStatus((prev) => prev.map((status, index) => (index === phraseIndex ? 'failed' : status)))
+          setVoiceError(result?.message || 'record the highlighted phrase again')
+        }
       }
 
-      const message = result?.message || 'say the full phrase'
-      setVoiceError(message)
-      return result
+      resolve(result)
+    } catch (err) {
+      const result = {
+        accepted: false,
+        reason: 'validation_failed',
+        message: 'voice check failed - try again',
+      }
+
+      validationResultsRef.current[phraseIndex] = result
+
+      if (mountedRef.current) {
+        setPhraseStatus((prev) => prev.map((status, index) => (index === phraseIndex ? 'failed' : status)))
+        setVoiceError(result.message)
+      }
+
+      console.warn('[Enroll] Voice phrase validation failed:', err)
+      resolve(result)
+    }
+  }
+
+  function hasRecordedAllPhrases() {
+    return phrases.every((_, index) => validationPromisesRef.current[index])
+  }
+
+  async function finishEnrollment() {
+    if (finishingRef.current) return
+    finishingRef.current = true
+    setIsFinishing(true)
+    setError(null)
+    setVoiceError('finishing voice setup...')
+
+    try {
+      const results = await Promise.all(phrases.map((_, index) => validationPromisesRef.current[index]))
+      const firstFailedIndex = results.findIndex((result) => !result?.accepted)
+
+      if (firstFailedIndex >= 0) {
+        if (!mountedRef.current) return
+        const failedResult = results[firstFailedIndex]
+        setCurrentPhrase(firstFailedIndex)
+        setPhraseStatus((prev) => prev.map((status, index) => (index === firstFailedIndex ? 'failed' : status)))
+        setError(failedResult?.message || 'record the highlighted phrase again')
+        setVoiceError('record the highlighted phrase again')
+        return
+      }
+
+      const finalStatus = await finalizeVoiceEnrollment(enrollmentRunIdRef.current)
+      if (!mountedRef.current) return
+      setVoiceStatus(normalizeVoiceStatus(finalStatus))
+      setVoiceError(null)
+      void saveEnrollment(user.id)
+      onComplete()
     } catch (err) {
       if (!mountedRef.current) return
-      setVoiceError('voice check failed - try again')
-      console.warn('[Enroll] Voice clip upload failed:', err)
-      throw new Error('voice check failed - try again')
+      setError(err.message || 'could not finish voice setup')
+      setVoiceError('could not finish voice setup')
+    } finally {
+      if (mountedRef.current) {
+        setIsFinishing(false)
+      }
+      finishingRef.current = false
     }
   }
 
@@ -208,6 +312,8 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
               colorClass = 'bg-indigo-600'
             } else if (status === 'validating') {
               colorClass = 'bg-indigo-400'
+            } else if (status === 'failed') {
+              colorClass = 'bg-red-400'
             } else if (index === currentPhrase) {
               colorClass = 'bg-indigo-300'
             }
@@ -258,6 +364,10 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
                       />
                     </svg>
                   </div>
+                ) : phraseStatus[index] === 'failed' ? (
+                  <div className="w-6 h-6 rounded-full bg-red-50 border border-red-200 flex items-center justify-center">
+                    <span className="text-xs font-medium text-red-500">!</span>
+                  </div>
                 ) : index === currentPhrase &&
                   (phraseStatus[index] === 'pending' ||
                     phraseStatus[index] === 'recording' ||
@@ -281,7 +391,7 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
 
         <div className="mt-4">
           <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
-            <span>{sampleCount} / 5 clips uploaded</span>
+            <span>{sampleCount} / 5 clips accepted</span>
             <span>{Math.max(0, Number(voiceStatus.remaining_clips_needed || 0))} remaining</span>
           </div>
           <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
@@ -297,13 +407,13 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
         </div>
 
         <div className="mt-6 min-h-[100px] flex flex-col items-center justify-center">
-          {countdown === null && !isRecording && phraseStatus[currentPhrase] !== 'validating' ? (
+          {countdown === null && !isRecording && phraseStatus[currentPhrase] !== 'validating' && !isFinishing ? (
             <button
               type="button"
               onClick={handleRecordClick}
               className="w-full h-11 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium rounded-xl transition-colors"
             >
-              record phrase {currentPhrase + 1}
+              {phraseStatus[currentPhrase] === 'failed' ? 'record phrase again' : `record phrase ${currentPhrase + 1}`}
             </button>
           ) : null}
 
@@ -337,6 +447,10 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
 
           {phraseStatus[currentPhrase] === 'validating' ? (
             <p className="text-sm text-gray-400">checking phrase...</p>
+          ) : null}
+
+          {isFinishing ? (
+            <p className="text-sm text-gray-400">finishing voice setup...</p>
           ) : null}
         </div>
 
@@ -373,13 +487,23 @@ function delay(ms) {
   })
 }
 
+function createEnrollmentRunId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  return `enroll_${Date.now()}_${Math.random().toString(36).slice(2)}`
+}
+
 function mapErrorMessage(error) {
   if (
     error === 'say the full phrase' ||
     error === 'too quiet, try again' ||
     error === 'too loud, try again' ||
     error === 'we only heard part of it' ||
-    error === 'voice check failed - try again'
+    error === 'voice check failed - try again' ||
+    error === 'record the highlighted phrase again' ||
+    error === 'could not finish voice setup'
   ) {
     return error
   }

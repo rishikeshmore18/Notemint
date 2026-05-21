@@ -172,6 +172,50 @@ export async function enrollVoicePhrase(audioBlob, phraseIndex, expectedPhrase) 
   return response.json()
 }
 
+export async function validateVoicePhrase(audioBlob, phraseIndex, expectedPhrase, enrollmentRunId) {
+  const token = await getAuthToken()
+  const formData = new FormData()
+  formData.append('audio', audioBlob, inferFileName(audioBlob))
+  formData.append('phrase_index', String(phraseIndex))
+  formData.append('expected_phrase', expectedPhrase)
+  formData.append('enrollment_run_id', enrollmentRunId)
+
+  const response = await fetch(`${BASE_URL}/api/voice/validate-phrase`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.error || 'Voice phrase validation failed')
+  }
+
+  return response.json()
+}
+
+export async function finalizeVoiceEnrollment(enrollmentRunId) {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${BASE_URL}/api/voice/finalize-enrollment`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ enrollment_run_id: enrollmentRunId }),
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.error || 'Could not finalize voice enrollment')
+  }
+
+  return response.json()
+}
+
 export async function getVoiceStatus() {
   try {
     const token = await getAuthToken()

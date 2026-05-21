@@ -118,6 +118,97 @@ voiceRouter.post('/enroll-phrase', requireAuth, upload.single('audio'), async (r
   }
 })
 
+voiceRouter.post('/validate-phrase', requireAuth, upload.single('audio'), async (req, res) => {
+  if (!req.file) {
+    return res.status(400).json({ error: 'No audio file provided' })
+  }
+
+  const supabase = getSupabaseClient()
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase is not configured on server' })
+  }
+  if (!process.env.VOICE_SERVICE_URL) {
+    return res.status(500).json({ error: 'VOICE_SERVICE_URL is not configured on server' })
+  }
+  if (!process.env.XAI_KEY) {
+    return res.status(500).json({ error: 'XAI_KEY is not configured on server' })
+  }
+
+  try {
+    const result = await validateAndStoreEnrollmentSample(supabase, req.user.id, req.file, req.body)
+    return res.json(result)
+  } catch (err) {
+    return res.status(err.status || 500).json({ error: err.message || 'Phrase validation failed' })
+  }
+})
+
+voiceRouter.post('/finalize-enrollment', requireAuth, async (req, res) => {
+  const supabase = getSupabaseClient()
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase is not configured on server' })
+  }
+
+  const enrollmentRunId = normalizeEnrollmentRunId(req.body?.enrollment_run_id)
+  if (!enrollmentRunId) {
+    return res.status(400).json({ error: 'enrollment_run_id is required' })
+  }
+
+  try {
+    const { data, error } = await supabase
+      .from('voice_enrollment_samples')
+      .select('phrase_index, embedding')
+      .eq('user_id', req.user.id)
+      .eq('enrollment_run_id', enrollmentRunId)
+      .eq('accepted', true)
+      .order('phrase_index', { ascending: true })
+
+    if (error) {
+      return res.status(500).json({ error: `Could not load enrollment samples: ${error.message}` })
+    }
+
+    const acceptedSamples = dedupeAcceptedSamples(data || [])
+    if (acceptedSamples.length < ENROLLMENT_TARGET_SAMPLES) {
+      return res.status(400).json({
+        error: 'Not enough accepted enrollment phrases',
+        accepted_count: acceptedSamples.length,
+        remaining_clips_needed: Math.max(0, ENROLLMENT_TARGET_SAMPLES - acceptedSamples.length),
+      })
+    }
+
+    const mergedEmbedding = averageEmbeddings(acceptedSamples.map((sample) => sample.embedding))
+    const status = 'Enrolled'
+    const sampleCount = acceptedSamples.length
+
+    const { error: upsertError } = await supabase.from('user_voice_profiles').upsert(
+      {
+        user_id: req.user.id,
+        embedding: mergedEmbedding,
+        sample_count: sampleCount,
+        enrollment_status: status,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'user_id' },
+    )
+
+    if (upsertError) {
+      return res.status(500).json({ error: `Could not save voice profile: ${upsertError.message}` })
+    }
+
+    await supabase
+      .from('voice_enrollment_samples')
+      .delete()
+      .eq('user_id', req.user.id)
+      .eq('enrollment_run_id', enrollmentRunId)
+
+    return res.json({
+      finalized: true,
+      ...buildStatusPayload(status, sampleCount),
+    })
+  } catch (err) {
+    return res.status(500).json({ error: `Finalize enrollment failed: ${err.message}` })
+  }
+})
+
 voiceRouter.get('/status', requireAuth, async (req, res) => {
   const supabase = getSupabaseClient()
   if (!supabase) {
@@ -151,6 +242,7 @@ voiceRouter.post('/reset', requireAuth, async (req, res) => {
     if (error) {
       return res.status(500).json({ error: 'Could not reset voice profile' })
     }
+    await supabase.from('voice_enrollment_samples').delete().eq('user_id', userId)
 
     console.log('[Voice reset] user:', userId)
     return res.json({ ok: true, reset: true })
@@ -442,6 +534,153 @@ async function enrollUserVoiceSample(supabase, userId, file) {
   return buildStatusPayload(status, nextSampleCount)
 }
 
+async function validateAndStoreEnrollmentSample(supabase, userId, file, body = {}) {
+  const enrollmentRunId = normalizeEnrollmentRunId(body?.enrollment_run_id)
+  if (!enrollmentRunId) {
+    throw makeHttpError(400, 'enrollment_run_id is required')
+  }
+
+  const phraseIndex = Number(body?.phrase_index)
+  const expectedPhrase = normalizeExpectedPhrase(body?.expected_phrase)
+  const serverPhrase = ENROLLMENT_PHRASES[phraseIndex]
+
+  if (!Number.isInteger(phraseIndex) || phraseIndex < 0 || phraseIndex >= ENROLLMENT_PHRASES.length) {
+    throw makeHttpError(400, 'Invalid phrase_index')
+  }
+  if (expectedPhrase !== normalizeExpectedPhrase(serverPhrase)) {
+    throw makeHttpError(400, 'Enrollment phrase mismatch')
+  }
+
+  const quality = analyzePcmWavQuality(file.buffer)
+  if (!quality.accepted) {
+    await saveEnrollmentSampleValidation(supabase, {
+      userId,
+      enrollmentRunId,
+      phraseIndex,
+      expectedPhrase: serverPhrase,
+      transcript: '',
+      phraseScore: 0,
+      audioQuality: quality.metrics,
+      embedding: null,
+      accepted: false,
+      rejectionReason: quality.reason,
+    })
+
+    return {
+      accepted: false,
+      reason: quality.reason,
+      message: quality.message,
+      phrase_index: phraseIndex,
+      transcript: '',
+      phrase_score: 0,
+      audio_quality: quality.metrics,
+      ...(await buildPendingEnrollmentStatus(supabase, userId, enrollmentRunId)),
+    }
+  }
+
+  const transcript = await transcribeEnrollmentClip(file)
+  const phraseMatch = scorePhraseMatch(transcript, serverPhrase)
+
+  if (!phraseMatch.accepted) {
+    await saveEnrollmentSampleValidation(supabase, {
+      userId,
+      enrollmentRunId,
+      phraseIndex,
+      expectedPhrase: serverPhrase,
+      transcript,
+      phraseScore: phraseMatch.score,
+      audioQuality: quality.metrics,
+      embedding: null,
+      accepted: false,
+      rejectionReason: 'incomplete_phrase',
+    })
+
+    return {
+      accepted: false,
+      reason: 'incomplete_phrase',
+      message: 'say the full phrase',
+      phrase_index: phraseIndex,
+      transcript,
+      phrase_score: phraseMatch.score,
+      audio_quality: quality.metrics,
+      ...(await buildPendingEnrollmentStatus(supabase, userId, enrollmentRunId)),
+    }
+  }
+
+  const embedding = await createEmbedding(file)
+  await saveEnrollmentSampleValidation(supabase, {
+    userId,
+    enrollmentRunId,
+    phraseIndex,
+    expectedPhrase: serverPhrase,
+    transcript,
+    phraseScore: phraseMatch.score,
+    audioQuality: quality.metrics,
+    embedding,
+    accepted: true,
+    rejectionReason: null,
+  })
+
+  return {
+    accepted: true,
+    reason: 'accepted',
+    message: 'phrase accepted',
+    phrase_index: phraseIndex,
+    transcript,
+    phrase_score: phraseMatch.score,
+    audio_quality: quality.metrics,
+    ...(await buildPendingEnrollmentStatus(supabase, userId, enrollmentRunId)),
+  }
+}
+
+async function saveEnrollmentSampleValidation(
+  supabase,
+  { userId, enrollmentRunId, phraseIndex, expectedPhrase, transcript, phraseScore, audioQuality, embedding, accepted, rejectionReason },
+) {
+  const { error } = await supabase.from('voice_enrollment_samples').upsert(
+    {
+      user_id: userId,
+      enrollment_run_id: enrollmentRunId,
+      phrase_index: phraseIndex,
+      expected_phrase: expectedPhrase,
+      transcript,
+      phrase_score: phraseScore,
+      audio_quality: audioQuality,
+      embedding,
+      accepted,
+      rejection_reason: rejectionReason,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: 'user_id,enrollment_run_id,phrase_index' },
+  )
+
+  if (error) {
+    throw makeHttpError(500, `Could not save enrollment sample: ${error.message}`)
+  }
+}
+
+async function buildPendingEnrollmentStatus(supabase, userId, enrollmentRunId) {
+  const { data, error } = await supabase
+    .from('voice_enrollment_samples')
+    .select('phrase_index')
+    .eq('user_id', userId)
+    .eq('enrollment_run_id', enrollmentRunId)
+    .eq('accepted', true)
+
+  if (error) {
+    throw makeHttpError(500, `Could not load enrollment progress: ${error.message}`)
+  }
+
+  const acceptedCount = new Set((data || []).map((row) => Number(row.phrase_index))).size
+  return {
+    finalized: false,
+    enrolled: false,
+    status: acceptedCount >= ENROLLMENT_TARGET_SAMPLES ? 'ReadyToFinalize' : 'Enrolling',
+    sample_count: acceptedCount,
+    remaining_clips_needed: Math.max(0, ENROLLMENT_TARGET_SAMPLES - acceptedCount),
+  }
+}
+
 async function transcribeEnrollmentClip(file) {
   const formData = new FormData()
   const fileBlob = new Blob([file.buffer], { type: file.mimetype || 'audio/wav' })
@@ -471,6 +710,12 @@ async function transcribeEnrollmentClip(file) {
 
 function normalizeExpectedPhrase(value) {
   return normalizePhraseText(value)
+}
+
+function normalizeEnrollmentRunId(value) {
+  const normalized = String(value || '').trim()
+  if (!normalized || normalized.length > 120) return ''
+  return normalized.replace(/[^a-zA-Z0-9_-]/g, '')
 }
 
 function scorePhraseMatch(transcript, expectedPhrase) {
@@ -682,6 +927,38 @@ function parsePcm16Wav(buffer) {
   }
 
   return { samples, sampleRate }
+}
+
+function dedupeAcceptedSamples(samples) {
+  const byPhrase = new Map()
+  for (const sample of samples) {
+    if (!Array.isArray(sample?.embedding)) continue
+    const phraseIndex = Number(sample.phrase_index)
+    if (!Number.isInteger(phraseIndex)) continue
+    byPhrase.set(phraseIndex, sample)
+  }
+  return Array.from(byPhrase.values()).sort((a, b) => Number(a.phrase_index) - Number(b.phrase_index))
+}
+
+function averageEmbeddings(embeddings) {
+  const validEmbeddings = embeddings.filter((embedding) => Array.isArray(embedding) && embedding.length > 0)
+  if (validEmbeddings.length === 0) {
+    throw new Error('No accepted enrollment embeddings found')
+  }
+
+  const maxLength = Math.max(...validEmbeddings.map((embedding) => embedding.length))
+  const averaged = Array.from({ length: maxLength }, (_, index) => {
+    const sum = validEmbeddings.reduce((acc, embedding) => acc + Number(embedding[index] || 0), 0)
+    return sum / validEmbeddings.length
+  })
+
+  return normalizeVector(averaged)
+}
+
+function makeHttpError(status, message) {
+  const error = new Error(message)
+  error.status = status
+  return error
 }
 
 function buildStatusPayload(status, sampleCount) {
