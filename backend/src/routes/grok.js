@@ -199,7 +199,7 @@ function parseGrokResponse(result) {
   const transcript =
     String(result?.text || result?.transcript || result?.results?.channels?.[0]?.alternatives?.[0]?.transcript || '')
       .trim()
-  return transcriptToFallbackSegment(transcript, 'grok-fallback')
+  return transcriptToFallbackSegment(transcript, 'grok')
 }
 
 function parseGrokSegmentLevel(result) {
@@ -235,7 +235,7 @@ function parseGrokWordLevel(result) {
       end: toNumber(word?.end),
       confidence: toConfidence(word?.confidence),
     })),
-    'grok-words',
+    'grok',
   )
 }
 
@@ -269,12 +269,12 @@ function parseDeepgramResponse(result) {
         end: toNumber(word?.end),
         confidence: toConfidence(word?.confidence),
       })),
-      'deepgram-words',
+      'deepgram',
     )
   }
 
   const transcript = String(result?.results?.channels?.[0]?.alternatives?.[0]?.transcript || '').trim()
-  return transcriptToFallbackSegment(transcript, 'deepgram-fallback')
+  return transcriptToFallbackSegment(transcript, 'deepgram')
 }
 
 function parseAssemblyAIResponse(result) {
@@ -307,12 +307,12 @@ function parseAssemblyAIResponse(result) {
         end: toNumber(word?.end) / 1000,
         confidence: toConfidence(word?.confidence),
       })),
-      'assemblyai-words',
+      'assemblyai',
     )
   }
 
   const transcript = String(result?.text || '').trim()
-  return transcriptToFallbackSegment(transcript, 'assemblyai-fallback')
+  return transcriptToFallbackSegment(transcript, 'assemblyai')
 }
 
 function groupWordsBySpeaker(words, source) {
