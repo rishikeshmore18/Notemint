@@ -106,10 +106,11 @@ export async function streamSummary(transcript, onChunk, onComplete, onError) {
   }
 }
 
-export async function grokDiarizeAudio(audioBlob) {
+export async function transcribeAudio(audioBlob, provider = 'grok') {
   const token = await getAuthToken()
   const formData = new FormData()
   formData.append('audio', audioBlob, inferFileName(audioBlob))
+  formData.append('provider', provider)
 
   const response = await fetch(`${BASE_URL}/api/grok`, {
     method: 'POST',
@@ -121,11 +122,15 @@ export async function grokDiarizeAudio(audioBlob) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}))
-    throw new Error(payload.error || 'Grok diarization failed')
+    throw new Error(payload.error || 'Transcription failed')
   }
 
   const payload = await response.json()
   return Array.isArray(payload?.segments) ? payload.segments : []
+}
+
+export async function grokDiarizeAudio(audioBlob) {
+  return transcribeAudio(audioBlob, 'grok')
 }
 
 export async function enrollVoice(audioBlob) {
