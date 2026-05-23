@@ -2,7 +2,21 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import WaveformVisualizer from '../components/WaveformVisualizer'
 import { getAudioStream, getFullAudioBlob, startTranscription, stopTranscription } from '../lib/gladia'
 
-export default function RecordScreen({ user, onMeetingComplete, onSignOut, onViewHistory, onReEnrollVoice }) {
+const TRANSCRIPTION_PROVIDERS = [
+  { value: 'grok', label: 'Grok', detail: 'fast baseline' },
+  { value: 'deepgram', label: 'Deepgram', detail: 'Nova-3' },
+  { value: 'assemblyai', label: 'AssemblyAI', detail: 'Universal' },
+]
+
+export default function RecordScreen({
+  user,
+  transcriptionProvider = 'deepgram',
+  onTranscriptionProviderChange,
+  onMeetingComplete,
+  onSignOut,
+  onViewHistory,
+  onReEnrollVoice,
+}) {
   const [isRecording, setIsRecording] = useState(false)
   const liveTranscriptEnabled = false
   const setLiveTranscriptEnabled = () => {}
@@ -370,6 +384,32 @@ export default function RecordScreen({ user, onMeetingComplete, onSignOut, onVie
               <br />
               speakers are detected automatically.
             </p>
+            <div className="mt-7 w-full max-w-xs rounded-2xl border border-gray-100 bg-gray-50 p-1">
+              <p className="px-3 pb-2 pt-2 text-left text-[11px] font-medium uppercase tracking-[0.16em] text-gray-400">
+                transcript model
+              </p>
+              <div className="grid grid-cols-3 gap-1">
+                {TRANSCRIPTION_PROVIDERS.map((provider) => {
+                  const selected = transcriptionProvider === provider.value
+                  return (
+                    <button
+                      key={provider.value}
+                      type="button"
+                      onClick={() => onTranscriptionProviderChange?.(provider.value)}
+                      className={`rounded-xl px-2 py-2 text-center transition-colors ${
+                        selected
+                          ? 'bg-white text-indigo-600 shadow-sm'
+                          : 'text-gray-400 hover:bg-white/70 hover:text-gray-600'
+                      }`}
+                      aria-pressed={selected}
+                    >
+                      <span className="block text-xs font-medium">{provider.label}</span>
+                      <span className="mt-0.5 block text-[10px] leading-tight opacity-75">{provider.detail}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
             {false ? (
               <>
               <div className="mt-8 w-full max-w-xs bg-gray-50 rounded-2xl px-4 py-3.5 flex items-center justify-between">

@@ -16,6 +16,7 @@ export default function App() {
   const [screen, setScreen] = useState('loading')
   const [enrollMode, setEnrollMode] = useState('initial')
   const [processingMessage, setProcessingMessage] = useState('')
+  const [transcriptionProvider, setTranscriptionProvider] = useState('deepgram')
   const [currentUser, setCurrentUser] = useState(null)
   const [meetingSegments, setMeetingSegments] = useState([])
   const [meetingAudioBlob, setMeetingAudioBlob] = useState(null)
@@ -309,6 +310,8 @@ export default function App() {
   return (
     <RecordScreen
       user={currentUser}
+      transcriptionProvider={transcriptionProvider}
+      onTranscriptionProviderChange={setTranscriptionProvider}
       onMeetingComplete={async (segments, audioBlob, hadLiveTranscript = true) => {
         setMeetingAudioBlob(audioBlob)
         setConfirmedLabelMap({})
