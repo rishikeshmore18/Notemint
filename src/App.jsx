@@ -9,7 +9,7 @@ import HistoryScreen from './screens/HistoryScreen'
 import PastMeetingScreen from './screens/PastMeetingScreen'
 import LoadingDot from './components/LoadingDot'
 import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supabase'
-import { grokDiarizeAudio } from './lib/api'
+import { transcribeAudio } from './lib/api'
 import { rememberSpeakerLabels } from './lib/speakerMemory'
 
 export default function App() {
@@ -191,6 +191,12 @@ export default function App() {
     setScreen('auth')
   }
 
+  function getTranscriptionProviderLabel(provider) {
+    if (provider === 'deepgram') return 'Deepgram'
+    if (provider === 'assemblyai') return 'AssemblyAI'
+    return 'Grok'
+  }
+
   const bestAvailableSegments = diarizedSegments.length > 0 ? diarizedSegments : meetingSegments
 
   if (screen === 'loading') {
@@ -329,7 +335,7 @@ export default function App() {
           setScreen('speaker-review')
           void (async () => {
             try {
-              const parsed = await grokDiarizeAudio(audioBlob)
+              const parsed = await transcribeAudio(audioBlob, transcriptionProvider)
               if (Array.isArray(parsed) && parsed.length > 0) {
                 setDiarizedSegments(parsed)
               } else {
@@ -344,7 +350,7 @@ export default function App() {
         }
 
         setMeetingSegments([])
-        setProcessingMessage('generating transcript from recording...')
+        setProcessingMessage(`generating transcript with ${getTranscriptionProviderLabel(transcriptionProvider)}...`)
         setScreen('processing')
 
         if (!audioBlob || audioBlob.size === 0) {
@@ -353,7 +359,7 @@ export default function App() {
         }
 
         try {
-          const parsed = await grokDiarizeAudio(audioBlob)
+          const parsed = await transcribeAudio(audioBlob, transcriptionProvider)
           if (Array.isArray(parsed) && parsed.length > 0) {
             setDiarizedSegments(parsed)
             setScreen('speaker-review')
