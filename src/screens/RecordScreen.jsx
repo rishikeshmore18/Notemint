@@ -16,6 +16,7 @@ export default function RecordScreen({
   onSignOut,
   onViewHistory,
   onReEnrollVoice,
+  onEditContext,
 }) {
   const [isRecording, setIsRecording] = useState(false)
   const liveTranscriptEnabled = false
@@ -341,9 +342,19 @@ export default function RecordScreen({
                     type="button"
                     onClick={() => {
                       setMenuOpen(false)
-                      onReEnrollVoice?.()
+                      onEditContext?.()
                     }}
                     className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                  >
+                    edit work context
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false)
+                      onReEnrollVoice?.()
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors border-t border-gray-100"
                   >
                     re-enroll voice
                   </button>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import AuthScreen from './screens/AuthScreen'
 import AuthCallbackScreen from './screens/AuthCallbackScreen'
 import EnrollScreen from './screens/EnrollScreen'
+import ContextOnboardingScreen from './screens/ContextOnboardingScreen'
 import RecordScreen from './screens/RecordScreen'
 import SpeakerReviewScreen from './screens/SpeakerReviewScreen'
 import ResultsScreen from './screens/ResultsScreen'
@@ -11,10 +12,12 @@ import LoadingDot from './components/LoadingDot'
 import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supabase'
 import { transcribeAudio } from './lib/api'
 import { rememberSpeakerLabels } from './lib/speakerMemory'
+import { hasContextProfile, setContextOnboardingCompleted } from './lib/contextProfile'
 
 export default function App() {
   const [screen, setScreen] = useState('loading')
   const [enrollMode, setEnrollMode] = useState('initial')
+  const [contextMode, setContextMode] = useState('initial')
   const [processingMessage, setProcessingMessage] = useState('')
   const [transcriptionProvider, setTranscriptionProvider] = useState('assemblyai')
   const [currentUser, setCurrentUser] = useState(null)
@@ -107,7 +110,7 @@ export default function App() {
       return
     }
 
-    applyEnrollmentGate(user)
+    void applyEnrollmentGate(user)
   }
 
   function handleSignedInUser(user) {
@@ -118,17 +121,23 @@ export default function App() {
       return
     }
 
-    applyEnrollmentGate(user)
+    void applyEnrollmentGate(user)
   }
 
-  function applyEnrollmentGate(user) {
+  async function applyEnrollmentGate(user) {
     if (!user) {
       setScreen('auth')
       return
     }
 
     const enrolled = localStorage.getItem(`enrolled_${user.id}`) === 'true'
-    setScreen(enrolled ? 'home' : 'enroll')
+    if (!enrolled) {
+      setScreen('enroll')
+      return
+    }
+
+    const contextReady = await hasContextProfile(supabase, user.id)
+    setScreen(contextReady ? 'home' : 'context-onboarding')
   }
 
   function showCallbackSuccess(user) {
@@ -142,7 +151,7 @@ export default function App() {
     clearAuthCallbackUrl()
     callbackContextRef.current = { active: false }
     redirectTimeoutRef.current = setTimeout(() => {
-      applyEnrollmentGate(user)
+      void applyEnrollmentGate(user)
     }, 1200)
   }
 
@@ -162,7 +171,7 @@ export default function App() {
       await syncUserProfile(user)
       setCurrentUser(user)
       setAuthScreenError(null)
-      applyEnrollmentGate(user)
+      await applyEnrollmentGate(user)
     } catch (err) {
       console.error('[App] Post-auth bootstrap failed:', err)
       setCurrentUser(null)
@@ -182,7 +191,7 @@ export default function App() {
   function handleSkipEnrollment() {
     if (!currentUser) return
     localStorage.setItem(`enrolled_${currentUser.id}`, 'true')
-    setScreen('home')
+    void applyEnrollmentGate(currentUser)
   }
 
   async function handleSignOut() {
@@ -274,6 +283,25 @@ export default function App() {
         onComplete={() => {
           setEnrollMode('initial')
           handleSkipEnrollment()
+        }}
+      />
+    )
+  }
+
+  if (screen === 'context-onboarding') {
+    return (
+      <ContextOnboardingScreen
+        user={currentUser}
+        mode={contextMode}
+        onComplete={() => {
+          setContextOnboardingCompleted(currentUser?.id)
+          setContextMode('initial')
+          setScreen('home')
+        }}
+        onSkip={() => {
+          setContextOnboardingCompleted(currentUser?.id)
+          setContextMode('initial')
+          setScreen('home')
         }}
       />
     )
@@ -410,6 +438,10 @@ export default function App() {
       onReEnrollVoice={() => {
         setEnrollMode('reset')
         setScreen('enroll')
+      }}
+      onEditContext={() => {
+        setContextMode('edit')
+        setScreen('context-onboarding')
       }}
       onViewHistory={() => setScreen('history')}
       onSignOut={handleSignOut}
