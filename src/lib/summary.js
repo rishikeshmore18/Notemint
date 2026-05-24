@@ -150,6 +150,60 @@ export async function saveMeetingSpeakers(
   return true
 }
 
+export async function updateMeetingTranscriptAndSummary(supabase, meetingId, transcript, summary) {
+  if (!meetingId) return false
+
+  const { error } = await supabase
+    .from('meetings')
+    .update({
+      transcript_compressed: transcript,
+      summary,
+    })
+    .eq('id', meetingId)
+
+  if (error) {
+    throw new Error(error.message || 'Could not update meeting transcript/summary')
+  }
+
+  return true
+}
+
+export async function saveTranscriptCorrections(
+  supabase,
+  { userId, meetingId = null, provider = null, corrections = [], contextTermsUsed = [] },
+) {
+  const list = Array.isArray(corrections) ? corrections : []
+  if (!userId || list.length === 0) return false
+
+  const terms = normalizeContextTerms(contextTermsUsed)
+  const rows = list
+    .map((item) => {
+      const originalText = String(item?.originalText || '').trim()
+      const correctedText = String(item?.correctedText || '').trim()
+      if (!originalText || !correctedText || originalText === correctedText) return null
+
+      return {
+        user_id: userId,
+        meeting_id: meetingId || null,
+        provider: provider ? String(provider) : null,
+        original_text: originalText,
+        corrected_text: correctedText,
+        context_terms_used: terms,
+        created_at: new Date().toISOString(),
+      }
+    })
+    .filter(Boolean)
+
+  if (rows.length === 0) return false
+
+  const { error } = await supabase.from('transcript_corrections').insert(rows)
+  if (error) {
+    throw new Error(error.message || 'Could not save transcript corrections')
+  }
+
+  return true
+}
+
 export function getLocalMeetings(userId) {
   try {
     const raw = localStorage.getItem(LOCAL_MEETINGS_KEY_PREFIX + userId)
@@ -183,4 +237,26 @@ function saveMeetingLocally(userId, title, meetingData) {
     console.error('saveMeeting local fallback error:', err)
     return null
   }
+}
+
+function normalizeContextTerms(values) {
+  const list = Array.isArray(values) ? values : []
+  const out = []
+  const seen = new Set()
+
+  for (const raw of list) {
+    const value = String(raw || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!value) continue
+    if (value.length > 60) continue
+    if (value.split(' ').length > 8) continue
+    const key = value.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(value)
+    if (out.length >= 200) break
+  }
+
+  return out
 }

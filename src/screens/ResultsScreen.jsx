@@ -1,7 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { matchSpeakers } from '../lib/enrollment'
-import { groupSegmentsByTime } from '../lib/grokStt'
-import { compressTranscript, getSummary, saveMeeting, saveMeetingSpeakers } from '../lib/summary'
+import {
+  compressTranscript,
+  getSummary,
+  saveMeeting,
+  saveMeetingSpeakers,
+  saveTranscriptCorrections,
+  updateMeetingTranscriptAndSummary,
+} from '../lib/summary'
 import { supabase } from '../lib/supabase'
 
 export default function ResultsScreen({ user, segments, audioBlob, meetingContext, confirmedLabelMap, onNewMeeting }) {
@@ -12,10 +18,20 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
   const [labelMap, setLabelMap] = useState({})
   const [saveStatus, setSaveStatus] = useState(null)
   const [copiedWhat, setCopiedWhat] = useState(null)
+  const [meetingId, setMeetingId] = useState(null)
+  const [editableSegments, setEditableSegments] = useState([])
+  const [editingSegmentKey, setEditingSegmentKey] = useState(null)
+  const [editingText, setEditingText] = useState('')
+  const [audioUrl, setAudioUrl] = useState('')
+  const [activeLineIndex, setActiveLineIndex] = useState(-1)
+  const [isPlaying, setIsPlaying] = useState(false)
 
   const summaryTextRef = useRef('')
   const mountedRef = useRef(true)
   const labelMapRef = useRef({})
+  const audioRef = useRef(null)
+  const lineRefs = useRef({})
+  const correctionSaveKeyRef = useRef(new Set())
 
   useEffect(() => {
     return () => {
@@ -24,32 +40,74 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
   }, [])
 
   useEffect(() => {
-    runSummary()
-  }, [segments, confirmedLabelMap])
+    if (!audioBlob) {
+      setAudioUrl('')
+      return
+    }
+    const url = URL.createObjectURL(audioBlob)
+    setAudioUrl(url)
+    return () => {
+      URL.revokeObjectURL(url)
+    }
+  }, [audioBlob])
 
-  function getSelectedSegments() {
-    const list = Array.isArray(segments) ? segments : []
-    const finals = list.filter((s) => s.isFinal === true)
-    return finals.length > 0 ? finals : list
-  }
-
-  async function runSummary() {
-    const selectedSegments = getSelectedSegments()
+  useEffect(() => {
+    const selectedSegments = getSelectedSegments(segments)
     if (selectedSegments.length === 0) {
+      setEditableSegments([])
       setSummaryStatus('error')
       setSummaryError('No speech was captured. Make sure your microphone was working and try again.')
       return
     }
 
-    const map = getFinalLabelMap(selectedSegments, confirmedLabelMap)
-    labelMapRef.current = map
-    if (mountedRef.current) setLabelMap(map)
+    const mapped = toEditableSegments(selectedSegments)
+    setEditableSegments(mapped)
 
-    const compressed = compressTranscript(selectedSegments, map)
-    if (mountedRef.current) setSummaryStatus('generating')
+    const finalMap = getFinalLabelMap(selectedSegments, confirmedLabelMap)
+    labelMapRef.current = finalMap
+    setLabelMap(finalMap)
+    setMeetingId(null)
+    correctionSaveKeyRef.current.clear()
 
+    void runSummary({
+      targetSegments: mapped,
+      persist: true,
+      persistSpeakerMappings: true,
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [segments, confirmedLabelMap])
+
+  useEffect(() => {
+    if (activeLineIndex < 0) return
+    const node = lineRefs.current[activeLineIndex]
+    if (!node) return
+    node.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [activeLineIndex])
+
+  const correctedCount = useMemo(
+    () => editableSegments.filter((segment) => Boolean(segment?.correctionMeta)).length,
+    [editableSegments],
+  )
+
+  async function runSummary({ targetSegments = editableSegments, persist = false, persistSpeakerMappings = false } = {}) {
+    const selectedSegments = Array.isArray(targetSegments) ? targetSegments : []
+    if (selectedSegments.length === 0) {
+      setSummaryStatus('error')
+      setSummaryError('No transcript segments found.')
+      return
+    }
+
+    const compressed = compressTranscript(selectedSegments, labelMapRef.current)
+    if (!compressed || compressed.trim().length < 10) {
+      setSummaryStatus('error')
+      setSummaryError('Transcript is too short to summarize.')
+      return
+    }
+
+    setSummaryStatus('generating')
+    setSummaryError(null)
     summaryTextRef.current = ''
-    if (mountedRef.current) setSummaryText('')
+    setSummaryText('')
 
     getSummary(
       compressed,
@@ -61,29 +119,40 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
       async (fullText) => {
         if (!mountedRef.current) return
         setSummaryStatus('done')
+
+        if (!persist) return
         setSaveStatus('saving')
-        const id = await saveMeeting(supabase, user.id, {
-          title: null,
-          transcript: compressed,
-          summary: fullText,
-          segments: selectedSegments,
-          labelMap: labelMapRef.current,
-        })
 
-        if (id) {
-          void saveMeetingSpeakers(supabase, {
-            userId: user.id,
-            meetingId: id,
-            segments: selectedSegments,
-            labelMap: labelMapRef.current,
-            confirmedByUser: Boolean(confirmedLabelMap && Object.keys(confirmedLabelMap).length > 0),
-          }).catch((err) => {
-            console.warn('[Results] Could not save meeting speaker mappings:', err?.message || err)
-          })
+        try {
+          let currentMeetingId = meetingId
+          if (!currentMeetingId) {
+            currentMeetingId = await saveMeeting(supabase, user.id, {
+              title: null,
+              transcript: compressed,
+              summary: fullText,
+              segments: selectedSegments,
+              labelMap: labelMapRef.current,
+            })
+            if (currentMeetingId) setMeetingId(currentMeetingId)
+          } else {
+            await updateMeetingTranscriptAndSummary(supabase, currentMeetingId, compressed, fullText)
+          }
+
+          if (currentMeetingId && persistSpeakerMappings) {
+            await saveMeetingSpeakers(supabase, {
+              userId: user.id,
+              meetingId: currentMeetingId,
+              segments: selectedSegments,
+              labelMap: labelMapRef.current,
+              confirmedByUser: Boolean(confirmedLabelMap && Object.keys(confirmedLabelMap).length > 0),
+            })
+          }
+
+          setSaveStatus(currentMeetingId ? 'saved' : 'failed')
+        } catch (err) {
+          console.warn('[Results] Could not persist summary update:', err?.message || err)
+          setSaveStatus('failed')
         }
-
-        if (!mountedRef.current) return
-        setSaveStatus(id ? 'saved' : 'failed')
       },
       (errMsg) => {
         if (!mountedRef.current) return
@@ -94,6 +163,59 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
         meetingContext: meetingContext && typeof meetingContext === 'object' ? meetingContext : null,
       },
     )
+  }
+
+  async function handleRegenerateSummary() {
+    await runSummary({
+      targetSegments: editableSegments,
+      persist: Boolean(meetingId),
+      persistSpeakerMappings: false,
+    })
+  }
+
+  async function handleSaveCorrection(segment, nextText) {
+    const correctedText = String(nextText || '').replace(/\s+/g, ' ').trim()
+    if (!correctedText) return
+
+    const existingOriginal = segment?.correctionMeta?.originalText
+    const originalText = existingOriginal || String(segment?.text || '').trim()
+    if (!originalText || originalText === correctedText) return
+
+    setEditableSegments((prev) =>
+      prev.map((item) =>
+        item.key === segment.key
+          ? {
+              ...item,
+              text: correctedText,
+              uncertain: item.uncertain || false,
+              correctionMeta: {
+                originalText,
+                correctedText,
+                correctedAt: new Date().toISOString(),
+              },
+            }
+          : item,
+      ),
+    )
+
+    setEditingSegmentKey(null)
+    setEditingText('')
+
+    const persistKey = `${segment.key}:${originalText}:${correctedText}`
+    if (correctionSaveKeyRef.current.has(persistKey)) return
+    correctionSaveKeyRef.current.add(persistKey)
+
+    try {
+      await saveTranscriptCorrections(supabase, {
+        userId: user?.id,
+        meetingId,
+        provider: segment?.source || null,
+        corrections: [{ originalText, correctedText }],
+        contextTermsUsed: Array.isArray(meetingContext?.contextTerms) ? meetingContext.contextTerms : [],
+      })
+    } catch (err) {
+      console.warn('[Results] Could not save transcript correction:', err?.message || err)
+    }
   }
 
   async function copyToClipboard(text) {
@@ -121,8 +243,8 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
     if (type === 'summary') {
       text = summaryTextRef.current
     } else {
-      text = getSelectedSegments()
-        .map((s) => `[${labelMapRef.current[s.speaker] || 'Speaker'}]: ${s.text}`)
+      text = editableSegments
+        .map((segment) => `[${labelMapRef.current[segment.speaker] || `Person ${Number(segment.speaker) + 1}`}]: ${segment.text}`)
         .join('\n')
     }
     await copyToClipboard(text)
@@ -132,104 +254,22 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
     }, 2000)
   }
 
-  function renderMarkdownLite(text) {
-    if (!text) return null
-    return text.split('\n').map((line, i) => {
-      const trimmed = line.trim()
-
-      if (trimmed.startsWith('**') && trimmed.endsWith('**') && trimmed.length > 4) {
-        return (
-          <p key={i} className="text-sm font-semibold text-gray-900 mt-5 mb-2 first:mt-1">
-            {trimmed.slice(2, -2)}
-          </p>
-        )
-      }
-
-      if (trimmed.startsWith('->') || trimmed.startsWith('=>') || trimmed.startsWith('>')) {
-        const actionText = trimmed.replace(/^(->|=>|>)\s*/, '')
-        return (
-          <div key={i} className="flex items-start gap-2 bg-indigo-50 rounded-lg px-3 py-2 mb-1.5">
-            <span className="text-indigo-400 flex-shrink-0 mt-0.5 text-sm">-&gt;</span>
-            <span className="text-sm text-indigo-800 leading-relaxed">{actionText}</span>
-          </div>
-        )
-      }
-
-      if (trimmed.startsWith('- ')) {
-        return (
-          <div key={i} className="flex items-start gap-2 py-0.5">
-            <span className="text-gray-300 flex-shrink-0 mt-1.5 text-xs">*</span>
-            <p className="text-sm text-gray-700 leading-relaxed">{trimmed.slice(2)}</p>
-          </div>
-        )
-      }
-
-      if (!trimmed) return <div key={i} className="h-1.5" />
-
-      return (
-        <p key={i} className="text-sm text-gray-700 leading-relaxed py-0.5">
-          {line}
-        </p>
-      )
-    })
+  function handleAudioTimeUpdate() {
+    const audio = audioRef.current
+    if (!audio) return
+    const currentTime = audio.currentTime
+    const activeIndex = findActiveSegmentIndex(editableSegments, currentTime)
+    setActiveLineIndex(activeIndex)
   }
 
-  function getSpeakerBadgeClass(label) {
-    const labelLower = String(label).toLowerCase()
-    if (labelLower === 'you') return 'bg-indigo-100 text-indigo-700'
-    if (labelLower === 'person 1' || labelLower === 'person1') return 'bg-emerald-100 text-emerald-700'
-    if (labelLower === 'person 2' || labelLower === 'person2') return 'bg-amber-100 text-amber-700'
-    if (labelLower === 'person 3' || labelLower === 'person3') return 'bg-rose-100 text-rose-700'
-    if (labelLower === '0') return 'bg-indigo-100 text-indigo-700'
-    if (labelLower === '1') return 'bg-emerald-100 text-emerald-700'
-    if (labelLower === '2') return 'bg-amber-100 text-amber-700'
-    return 'bg-gray-100 text-gray-600'
-  }
-
-  function renderTranscriptBlocks() {
-    const sourceSegments = getSelectedSegments().map((s) => ({
-      ...s,
-      startTime: s.startTime || 0,
-      endTime: s.endTime || 0,
-    }))
-
-    if (!sourceSegments || sourceSegments.length === 0) {
-      return (
-        <p className="text-sm text-gray-400 text-center py-8">
-          No transcript segments found.
-        </p>
-      )
+  function startEditing(segment) {
+    if (!segment) return
+    if (audioRef.current && !audioRef.current.paused) {
+      audioRef.current.pause()
+      setIsPlaying(false)
     }
-
-    const blocks = groupSegmentsByTime(sourceSegments)
-
-    return (
-      <div className="flex flex-col gap-0">
-        {blocks.map((block, i) => (
-          <div key={i} className="flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0">
-            <div className="w-10 flex-shrink-0 pt-0.5">
-              {block.timeLabel && (
-                <span className="text-xs text-gray-300 font-mono tabular-nums">
-                  {block.timeLabel}
-                </span>
-              )}
-            </div>
-
-            <span
-              className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(
-                labelMap[block.speaker] || 'person ' + block.speaker,
-              )}`}
-            >
-              {(labelMap[block.speaker] || 'person ' + block.speaker).toLowerCase()}
-            </span>
-
-            <p className="text-sm text-gray-800 leading-relaxed flex-1">
-              {block.text}
-            </p>
-          </div>
-        ))}
-      </div>
-    )
+    setEditingSegmentKey(segment.key)
+    setEditingText(segment.text || '')
   }
 
   return (
@@ -240,9 +280,7 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
           {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
         </span>
         <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
-          <span className="text-sm font-medium text-indigo-600">
-            {user?.email?.[0]?.toUpperCase() || '?'}
-          </span>
+          <span className="text-sm font-medium text-indigo-600">{user?.email?.[0]?.toUpperCase() || '?'}</span>
         </div>
       </div>
 
@@ -256,9 +294,7 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
         <button
           onClick={() => setActiveTab('summary')}
           className={`flex-1 h-9 text-sm transition-colors ${
-            activeTab === 'summary'
-              ? 'bg-indigo-600 text-white font-medium'
-              : 'bg-white text-gray-500 hover:text-gray-700'
+            activeTab === 'summary' ? 'bg-indigo-600 text-white font-medium' : 'bg-white text-gray-500 hover:text-gray-700'
           }`}
         >
           summary
@@ -266,9 +302,7 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
         <button
           onClick={() => setActiveTab('transcript')}
           className={`flex-1 h-9 text-sm transition-colors ${
-            activeTab === 'transcript'
-              ? 'bg-indigo-600 text-white font-medium'
-              : 'bg-white text-gray-500 hover:text-gray-700'
+            activeTab === 'transcript' ? 'bg-indigo-600 text-white font-medium' : 'bg-white text-gray-500 hover:text-gray-700'
           }`}
         >
           transcript
@@ -278,6 +312,20 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
       <div className="flex-1 overflow-y-auto pb-4" style={{ maxHeight: 'calc(100dvh - 220px)' }}>
         {activeTab === 'summary' && (
           <div>
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-xs text-gray-400">
+                {correctedCount > 0 ? `${correctedCount} corrected line${correctedCount > 1 ? 's' : ''}` : 'no manual corrections yet'}
+              </p>
+              <button
+                type="button"
+                onClick={handleRegenerateSummary}
+                disabled={editableSegments.length === 0 || summaryStatus === 'generating'}
+                className="text-xs text-indigo-600 underline disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                regenerate summary from corrected transcript
+              </button>
+            </div>
+
             {summaryStatus === 'generating' && !summaryText && (
               <div className="flex flex-col items-center py-12">
                 <div className="flex items-center gap-1.5 mb-3">
@@ -305,9 +353,7 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
                     setSummaryError(null)
                     setSummaryText('')
                     summaryTextRef.current = ''
-                    setTimeout(() => {
-                      runSummary()
-                    }, 100)
+                    void handleRegenerateSummary()
                   }}
                   className="text-sm text-indigo-600 underline"
                 >
@@ -320,18 +366,134 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
 
         {activeTab === 'transcript' && (
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-xs text-gray-400">
-                <span>
-                  {new Set(segments.map((s) => s.speaker)).size} speaker
-                  {new Set(segments.map((s) => s.speaker)).size > 1 ? 's' : ''} -{' '}
-                  {getSelectedSegments().length} segments
-                </span>
-              </p>
-              <span className="text-xs text-gray-300">final labels applied</span>
+            <div className="mb-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
+              {audioUrl ? (
+                <div>
+                  <audio
+                    ref={audioRef}
+                    src={audioUrl}
+                    controls
+                    className="w-full"
+                    onPlay={() => setIsPlaying(true)}
+                    onPause={() => setIsPlaying(false)}
+                    onEnded={() => {
+                      setIsPlaying(false)
+                      setActiveLineIndex(-1)
+                    }}
+                    onTimeUpdate={handleAudioTimeUpdate}
+                  />
+                  <p className="mt-1 text-[11px] text-gray-500">
+                    {isPlaying ? 'playing with synced transcript' : 'press play to sync transcript scrolling'}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-xs text-gray-500">audio playback unavailable for this meeting.</p>
+              )}
             </div>
 
-            {renderTranscriptBlocks()}
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-xs text-gray-400">
+                {new Set(editableSegments.map((s) => s.speaker)).size} speaker
+                {new Set(editableSegments.map((s) => s.speaker)).size > 1 ? 's' : ''} - {editableSegments.length} segments
+              </p>
+              <button
+                type="button"
+                onClick={handleRegenerateSummary}
+                disabled={editableSegments.length === 0 || summaryStatus === 'generating'}
+                className="text-xs text-indigo-600 underline disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                regenerate summary from corrected transcript
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-0">
+              {editableSegments.map((segment, index) => {
+                const label = labelMap[segment.speaker] || `person ${Number(segment.speaker) + 1}`
+                const isActive = index === activeLineIndex
+                const isEditing = editingSegmentKey === segment.key
+                const isCorrected = Boolean(segment?.correctionMeta)
+                const rowClass = isActive
+                  ? 'bg-indigo-50'
+                  : isCorrected
+                    ? 'bg-amber-50'
+                    : 'bg-white'
+
+                return (
+                  <div
+                    key={segment.key}
+                    ref={(node) => {
+                      if (node) lineRefs.current[index] = node
+                    }}
+                    className={`flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0 ${rowClass}`}
+                  >
+                    <div className="w-10 flex-shrink-0 pt-0.5">
+                      <span className="text-xs text-gray-300 font-mono tabular-nums">
+                        {formatTimeLabel(segment.startTime)}
+                      </span>
+                    </div>
+
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full mt-0.5 ${getSpeakerBadgeClass(label)}`}>
+                      {String(label).toLowerCase()}
+                    </span>
+
+                    <div className="flex-1">
+                      {isEditing ? (
+                        <div>
+                          <textarea
+                            value={editingText}
+                            onChange={(event) => setEditingText(event.target.value)}
+                            rows={2}
+                            className="w-full rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-sm text-gray-800 focus:outline-none focus:border-indigo-400 resize-y"
+                          />
+                          <div className="mt-1 flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => void handleSaveCorrection(segment, editingText)}
+                              className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs text-white"
+                            >
+                              save
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingSegmentKey(null)
+                                setEditingText('')
+                              }}
+                              className="rounded-md border border-gray-200 px-2.5 py-1 text-xs text-gray-500"
+                            >
+                              cancel
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-sm text-gray-800 leading-relaxed">{segment.text}</p>
+                          <div className="mt-1 flex items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => startEditing(segment)}
+                              className="text-[11px] text-indigo-600 underline"
+                            >
+                              edit
+                            </button>
+                            {isCorrected ? (
+                              <span className="text-[11px] text-amber-700">
+                                corrected
+                              </span>
+                            ) : null}
+                            {segment.uncertain ? (
+                              <span className="text-[11px] text-amber-600">low confidence</span>
+                            ) : null}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+
+              {editableSegments.length === 0 && <p className="text-sm text-gray-400 text-center py-8">no transcript available</p>}
+            </div>
           </div>
         )}
       </div>
@@ -352,15 +514,134 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
           {copiedWhat === 'transcript' ? 'copied!' : 'copy transcript'}
         </button>
 
-        <button
-          onClick={onNewMeeting}
-          className="h-11 w-full text-sm text-gray-400 hover:text-gray-600 transition-colors"
-        >
+        <button onClick={onNewMeeting} className="h-11 w-full text-sm text-gray-400 hover:text-gray-600 transition-colors">
           new meeting
         </button>
       </div>
     </div>
   )
+}
+
+function getSelectedSegments(segments) {
+  const list = Array.isArray(segments) ? segments : []
+  const finals = list.filter((segment) => segment?.isFinal === true)
+  return finals.length > 0 ? finals : list
+}
+
+function toEditableSegments(segments) {
+  return (Array.isArray(segments) ? segments : [])
+    .map((segment, index) => ({
+      ...segment,
+      key: buildSegmentKey(segment, index),
+      text: String(segment?.text || '').trim(),
+      startTime: toNumberOrNull(segment?.startTime),
+      endTime: toNumberOrNull(segment?.endTime),
+      correctionMeta: null,
+    }))
+    .filter((segment) => segment.text.length > 0)
+}
+
+function buildSegmentKey(segment, index) {
+  const speaker = Number(segment?.speaker)
+  const start = toNumberOrNull(segment?.startTime)
+  const end = toNumberOrNull(segment?.endTime)
+  return `${index}_${Number.isFinite(speaker) ? speaker : 0}_${start ?? 'na'}_${end ?? 'na'}`
+}
+
+function toNumberOrNull(value) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0) return null
+  return parsed
+}
+
+function findActiveSegmentIndex(segments, currentTime) {
+  const list = Array.isArray(segments) ? segments : []
+  if (!Number.isFinite(currentTime)) return -1
+
+  let bestIndex = -1
+  let bestDelta = Number.POSITIVE_INFINITY
+
+  for (let i = 0; i < list.length; i += 1) {
+    const segment = list[i]
+    const start = toNumberOrNull(segment?.startTime)
+    const end = toNumberOrNull(segment?.endTime)
+    if (start === null) continue
+
+    if (end !== null && currentTime >= start && currentTime <= end) {
+      return i
+    }
+
+    const delta = Math.abs(currentTime - start)
+    if (delta < bestDelta && delta <= 1.4) {
+      bestDelta = delta
+      bestIndex = i
+    }
+  }
+
+  return bestIndex
+}
+
+function formatTimeLabel(seconds) {
+  const value = toNumberOrNull(seconds)
+  if (value === null) return '--:--'
+  const total = Math.floor(value)
+  const minutes = Math.floor(total / 60)
+  const secs = total % 60
+  return `${minutes}:${String(secs).padStart(2, '0')}`
+}
+
+function renderMarkdownLite(text) {
+  if (!text) return null
+  return text.split('\n').map((line, i) => {
+    const trimmed = line.trim()
+
+    if (trimmed.startsWith('**') && trimmed.endsWith('**') && trimmed.length > 4) {
+      return (
+        <p key={i} className="text-sm font-semibold text-gray-900 mt-5 mb-2 first:mt-1">
+          {trimmed.slice(2, -2)}
+        </p>
+      )
+    }
+
+    if (trimmed.startsWith('->') || trimmed.startsWith('=>') || trimmed.startsWith('>')) {
+      const actionText = trimmed.replace(/^(->|=>|>)\s*/, '')
+      return (
+        <div key={i} className="flex items-start gap-2 bg-indigo-50 rounded-lg px-3 py-2 mb-1.5">
+          <span className="text-indigo-400 flex-shrink-0 mt-0.5 text-sm">-&gt;</span>
+          <span className="text-sm text-indigo-800 leading-relaxed">{actionText}</span>
+        </div>
+      )
+    }
+
+    if (trimmed.startsWith('- ')) {
+      return (
+        <div key={i} className="flex items-start gap-2 py-0.5">
+          <span className="text-gray-300 flex-shrink-0 mt-1.5 text-xs">*</span>
+          <p className="text-sm text-gray-700 leading-relaxed">{trimmed.slice(2)}</p>
+        </div>
+      )
+    }
+
+    if (!trimmed) return <div key={i} className="h-1.5" />
+
+    return (
+      <p key={i} className="text-sm text-gray-700 leading-relaxed py-0.5">
+        {line}
+      </p>
+    )
+  })
+}
+
+function getSpeakerBadgeClass(label) {
+  const labelLower = String(label).toLowerCase()
+  if (labelLower === 'you') return 'bg-indigo-100 text-indigo-700'
+  if (labelLower === 'person 1' || labelLower === 'person1') return 'bg-emerald-100 text-emerald-700'
+  if (labelLower === 'person 2' || labelLower === 'person2') return 'bg-amber-100 text-amber-700'
+  if (labelLower === 'person 3' || labelLower === 'person3') return 'bg-rose-100 text-rose-700'
+  if (labelLower === '0') return 'bg-indigo-100 text-indigo-700'
+  if (labelLower === '1') return 'bg-emerald-100 text-emerald-700'
+  if (labelLower === '2') return 'bg-amber-100 text-amber-700'
+  return 'bg-gray-100 text-gray-600'
 }
 
 function getFinalLabelMap(segments, confirmedLabelMap) {

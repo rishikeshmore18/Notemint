@@ -160,6 +160,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
 
         {activeTab === 'transcript' &&
           (() => {
+            const hasStoredAudio = Boolean(meeting.audio_path || meeting.audio_url)
             const rawSegments =
               meeting.segments && Array.isArray(meeting.segments) && meeting.segments.length > 0
                 ? meeting.segments
@@ -171,6 +172,11 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
 
               return (
                 <div className="flex flex-col gap-0">
+                  {!hasStoredAudio ? (
+                    <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      audio playback for history meetings is not available yet.
+                    </div>
+                  ) : null}
                   {blocks.map((block, i) => (
                     <div key={i} className="flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0">
                       <div className="w-10 flex-shrink-0 pt-0.5">
@@ -197,6 +203,11 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
             const parsed = parseTranscript(meeting.transcript_compressed)
             return (
               <div className="flex flex-col gap-0">
+                {!hasStoredAudio ? (
+                  <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    audio playback for history meetings is not available yet.
+                  </div>
+                ) : null}
                 {parsed.map((block, i) => (
                   <div key={i} className="flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0">
                     <div className="w-10 flex-shrink-0" />
