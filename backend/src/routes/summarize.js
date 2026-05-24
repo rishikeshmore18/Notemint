@@ -13,8 +13,12 @@ Bullet list with "- " prefix. Only firm decisions. If none: - None recorded.
 
 **Action items**
 Each line starts with ->
-Format: -> [Person] will [action] [by timeframe if mentioned]
-If none: -> None recorded.
+Format: -> [High|Medium|Low] [Person] [will|may|discussed] [action] [by timeframe if mentioned]
+Examples:
+- -> [High] [Tom] will send the report by Friday.
+- -> [Medium] [Sarah] may pull transaction data once timeframe is confirmed.
+- -> [Low] [Unclear speaker] discussed checking staffing levels.
+If none: -> [Low] None recorded.
 
 **Key discussion points**
 3 to 5 bullets with "- " prefix. Specific content, not vague descriptions.
@@ -26,7 +30,13 @@ If none: - None.
 Grounding rules:
 - Use only transcript evidence. Do not infer missing facts.
 - Do not invent names, dates, deadlines, decisions, or action owners.
+- Confidence rubric for action items:
+  - High: explicit owner + explicit action. Timeframe optional.
+  - Medium: owner/action exists but tentative language or missing key detail (timeframe/scope/dependency).
+  - Low: inferred action, unclear owner, contradictory evidence, or uncertain speaker attribution.
+- Tentative language examples: "maybe", "probably", "can you", "I'll see", "might", "we should".
 - If ownership/timeframe is unclear, write "unspecified" instead of guessing.
+- If speaker label is unconfirmed, use "Unclear speaker" or existing generic labels like "Person 2"; never guess a real name.
 - If a statement appears uncertain or contradictory, mark it as unclear.
 
 Be direct. No filler. No repetition. When speaker label is "You", refer to them as "you".`
