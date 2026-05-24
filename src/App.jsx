@@ -16,7 +16,7 @@ export default function App() {
   const [screen, setScreen] = useState('loading')
   const [enrollMode, setEnrollMode] = useState('initial')
   const [processingMessage, setProcessingMessage] = useState('')
-  const [transcriptionProvider, setTranscriptionProvider] = useState('deepgram')
+  const [transcriptionProvider, setTranscriptionProvider] = useState('assemblyai')
   const [currentUser, setCurrentUser] = useState(null)
   const [meetingSegments, setMeetingSegments] = useState([])
   const [meetingAudioBlob, setMeetingAudioBlob] = useState(null)
@@ -197,6 +197,40 @@ export default function App() {
     return 'Grok'
   }
 
+  function getProviderFallbackOrder(selectedProvider) {
+    const baseOrder = ['assemblyai', 'deepgram', 'grok']
+    return [selectedProvider, ...baseOrder.filter((provider) => provider !== selectedProvider)]
+  }
+
+  async function transcribeWithFallback(audioBlob, selectedProvider, onStatus) {
+    const providers = getProviderFallbackOrder(selectedProvider)
+    let lastError = null
+
+    for (let i = 0; i < providers.length; i += 1) {
+      const provider = providers[i]
+      const label = getTranscriptionProviderLabel(provider)
+      if (i === 0) {
+        onStatus?.(`generating transcript with ${label}...`)
+      } else {
+        onStatus?.(`${getTranscriptionProviderLabel(selectedProvider)} failed, trying ${label}...`)
+      }
+
+      try {
+        const parsed = await transcribeAudio(audioBlob, provider)
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed
+        }
+      } catch (err) {
+        lastError = err
+      }
+    }
+
+    if (lastError) {
+      throw lastError
+    }
+    return []
+  }
+
   const bestAvailableSegments = diarizedSegments.length > 0 ? diarizedSegments : meetingSegments
 
   if (screen === 'loading') {
@@ -335,7 +369,7 @@ export default function App() {
           setScreen('speaker-review')
           void (async () => {
             try {
-              const parsed = await transcribeAudio(audioBlob, transcriptionProvider)
+              const parsed = await transcribeWithFallback(audioBlob, transcriptionProvider)
               if (Array.isArray(parsed) && parsed.length > 0) {
                 setDiarizedSegments(parsed)
               } else {
@@ -350,7 +384,7 @@ export default function App() {
         }
 
         setMeetingSegments([])
-        setProcessingMessage(`generating transcript with ${getTranscriptionProviderLabel(transcriptionProvider)}...`)
+        setProcessingMessage('')
         setScreen('processing')
 
         if (!audioBlob || audioBlob.size === 0) {
@@ -359,7 +393,7 @@ export default function App() {
         }
 
         try {
-          const parsed = await transcribeAudio(audioBlob, transcriptionProvider)
+          const parsed = await transcribeWithFallback(audioBlob, transcriptionProvider, setProcessingMessage)
           if (Array.isArray(parsed) && parsed.length > 0) {
             setDiarizedSegments(parsed)
             setScreen('speaker-review')

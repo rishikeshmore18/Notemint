@@ -3,14 +3,14 @@ import WaveformVisualizer from '../components/WaveformVisualizer'
 import { getAudioStream, getFullAudioBlob, startTranscription, stopTranscription } from '../lib/gladia'
 
 const TRANSCRIPTION_PROVIDERS = [
-  { value: 'grok', label: 'Grok', detail: 'fast baseline' },
+  { value: 'assemblyai', label: 'AssemblyAI', detail: 'Universal', recommended: true },
   { value: 'deepgram', label: 'Deepgram', detail: 'Nova-3' },
-  { value: 'assemblyai', label: 'AssemblyAI', detail: 'Universal' },
+  { value: 'grok', label: 'Grok', detail: 'fast baseline' },
 ]
 
 export default function RecordScreen({
   user,
-  transcriptionProvider = 'deepgram',
+  transcriptionProvider = 'assemblyai',
   onTranscriptionProviderChange,
   onMeetingComplete,
   onSignOut,
@@ -405,6 +405,11 @@ export default function RecordScreen({
                     >
                       <span className="block text-xs font-medium">{provider.label}</span>
                       <span className="mt-0.5 block text-[10px] leading-tight opacity-75">{provider.detail}</span>
+                      {provider.recommended ? (
+                        <span className="mt-1 inline-block rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700">
+                          recommended
+                        </span>
+                      ) : null}
                     </button>
                   )
                 })}
