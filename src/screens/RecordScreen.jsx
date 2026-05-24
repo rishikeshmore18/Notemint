@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import WaveformVisualizer from '../components/WaveformVisualizer'
 import { getAudioStream, getFullAudioBlob, startTranscription, stopTranscription } from '../lib/gladia'
+import { getContextProfile, MEETING_TYPE_OPTIONS, parseTerms } from '../lib/contextProfile'
+import { supabase } from '../lib/supabase'
 
 const TRANSCRIPTION_PROVIDERS = [
   { value: 'assemblyai', label: 'AssemblyAI', detail: 'Universal', recommended: true },
   { value: 'deepgram', label: 'Deepgram', detail: 'Nova-3' },
   { value: 'grok', label: 'Grok', detail: 'fast baseline' },
 ]
+const LAST_MEETING_TYPE_KEY_PREFIX = 'last_meeting_type_'
 
 export default function RecordScreen({
   user,
@@ -26,6 +29,13 @@ export default function RecordScreen({
   const [elapsedSeconds, setElapsedSeconds] = useState(0)
   const [error, setError] = useState(null)
   const [menuOpen, setMenuOpen] = useState(false)
+  const [meetingDetailsMode, setMeetingDetailsMode] = useState('unset')
+  const [meetingTopic, setMeetingTopic] = useState('')
+  const [meetingGoal, setMeetingGoal] = useState('')
+  const [expectedParticipantsInput, setExpectedParticipantsInput] = useState('')
+  const [importantTermsInput, setImportantTermsInput] = useState('')
+  const [meetingType, setMeetingType] = useState('')
+  const [contextProfile, setContextProfile] = useState(null)
   const segmentsRef = useRef([])
   const transcriptEndRef = useRef(null)
   const menuRef = useRef(null)
@@ -41,6 +51,31 @@ export default function RecordScreen({
   useEffect(() => {
     checkMicPermission()
   }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      if (!user?.id) return
+      try {
+        const profile = await getContextProfile(supabase, user.id)
+        if (cancelled) return
+        setContextProfile(profile || null)
+        const savedMeetingType = getStoredMeetingType(user.id)
+        if (savedMeetingType && !meetingType) {
+          setMeetingType(savedMeetingType)
+        } else if (!meetingType && profile?.meeting_types?.[0]) {
+          setMeetingType(String(profile.meeting_types[0]))
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('[RecordScreen] Could not load context profile:', err?.message || err)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user?.id])
 
   useEffect(() => {
     segmentsRef.current = segments
@@ -127,6 +162,9 @@ export default function RecordScreen({
     }
 
     setError(null)
+    if (meetingDetailsMode === 'unset') {
+      setMeetingDetailsMode('skip')
+    }
     setElapsedSeconds(0)
     setSegments([])
     segmentsRef.current = []
@@ -222,7 +260,16 @@ export default function RecordScreen({
       finalSegments = []
     }
 
-    onMeetingComplete(finalSegments, audioBlob, liveTranscriptEnabled)
+    const meetingContextPayload = buildMeetingContextPayload({
+      meetingDetailsMode,
+      meetingTopic,
+      meetingGoal,
+      expectedParticipantsInput,
+      importantTermsInput,
+      meetingType,
+      contextProfile,
+    })
+    onMeetingComplete(finalSegments, audioBlob, liveTranscriptEnabled, meetingContextPayload)
   }
 
   async function startAudioOnlyRecording() {
@@ -395,6 +442,101 @@ export default function RecordScreen({
               <br />
               speakers are detected automatically.
             </p>
+            <div className="mt-5 w-full max-w-xs rounded-2xl border border-gray-100 bg-gray-50 p-3 text-left">
+              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-gray-400">meeting details</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMeetingDetailsMode('skip')}
+                  className={`rounded-xl border px-2.5 py-2 text-xs transition-colors ${
+                    meetingDetailsMode === 'skip'
+                      ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                      : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  start without details
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMeetingDetailsMode('details')}
+                  className={`rounded-xl border px-2.5 py-2 text-xs transition-colors ${
+                    meetingDetailsMode === 'details'
+                      ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
+                      : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700'
+                  }`}
+                >
+                  add meeting details
+                </button>
+              </div>
+              {meetingDetailsMode === 'details' ? (
+                <div className="mt-3 space-y-2.5">
+                  <Field
+                    label="meeting topic"
+                    value={meetingTopic}
+                    onChange={setMeetingTopic}
+                    placeholder="branch wait times review"
+                    maxLength={120}
+                  />
+                  <Field
+                    label="goal"
+                    value={meetingGoal}
+                    onChange={setMeetingGoal}
+                    placeholder="identify root causes and next actions"
+                    maxLength={180}
+                  />
+                  <Field
+                    label="expected participants"
+                    value={expectedParticipantsInput}
+                    onChange={setExpectedParticipantsInput}
+                    placeholder="Tom, Sarah, John"
+                    maxLength={200}
+                  />
+                  <Field
+                    label="important terms"
+                    value={importantTermsInput}
+                    onChange={setImportantTermsInput}
+                    placeholder="CDs, fraud hold, delinquency"
+                    maxLength={260}
+                  />
+                  <div>
+                    <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400">
+                      meeting type
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {MEETING_TYPE_OPTIONS.map((type) => {
+                        const selected = meetingType === type
+                        return (
+                          <button
+                            key={type}
+                            type="button"
+                            onClick={() => {
+                              setMeetingType(type)
+                              storeMeetingType(user?.id, type)
+                            }}
+                            className={`rounded-full px-2.5 py-1 text-[11px] transition-colors ${
+                              selected
+                                ? 'bg-indigo-600 text-white'
+                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700'
+                            }`}
+                          >
+                            {type}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  </div>
+                  {renderSuggestionChips({
+                    profile: contextProfile,
+                    onUseTerm: (term) => {
+                      setImportantTermsInput((prev) => appendCommaSeparated(prev, term))
+                    },
+                    onUseParticipant: (name) => {
+                      setExpectedParticipantsInput((prev) => appendCommaSeparated(prev, name))
+                    },
+                  })}
+                </div>
+              ) : null}
+            </div>
             <div className="mt-7 w-full max-w-xs rounded-2xl border border-gray-100 bg-gray-50 p-1">
               <p className="px-3 pb-2 pt-2 text-left text-[11px] font-medium uppercase tracking-[0.16em] text-gray-400">
                 transcript model
@@ -554,6 +696,165 @@ function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
   })
+}
+
+function buildMeetingContextPayload({
+  meetingDetailsMode,
+  meetingTopic,
+  meetingGoal,
+  expectedParticipantsInput,
+  importantTermsInput,
+  meetingType,
+  contextProfile,
+}) {
+  const expectedParticipants = parseTerms(expectedParticipantsInput)
+  const importantTerms = parseTerms(importantTermsInput)
+  const topic = String(meetingTopic || '').trim().slice(0, 120)
+  const goal = String(meetingGoal || '').trim().slice(0, 180)
+  const finalMeetingType = String(meetingType || '').trim().slice(0, 48)
+
+  const generatedKeyterms = Array.isArray(contextProfile?.generated_keyterms)
+    ? contextProfile.generated_keyterms
+    : []
+  const profileTerms = [
+    ...(Array.isArray(contextProfile?.organization_terms) ? contextProfile.organization_terms : []),
+    ...(Array.isArray(contextProfile?.custom_terms) ? contextProfile.custom_terms : []),
+    ...(Array.isArray(contextProfile?.participant_names) ? contextProfile.participant_names : []),
+    ...generatedKeyterms,
+  ]
+
+  const contextTerms = uniqueTerms([
+    ...importantTerms,
+    ...expectedParticipants,
+    ...profileTerms,
+    finalMeetingType,
+    topic,
+    goal,
+  ]).slice(0, 200)
+
+  return {
+    mode: meetingDetailsMode === 'details' ? 'details' : 'skip',
+    topic,
+    goal,
+    expectedParticipants,
+    importantTerms,
+    meetingType: finalMeetingType,
+    contextTerms,
+    summaryContext: String(contextProfile?.summary_context || ''),
+    doNotInfer: Array.isArray(contextProfile?.do_not_infer) ? contextProfile.do_not_infer : [],
+  }
+}
+
+function uniqueTerms(values) {
+  const out = []
+  const seen = new Set()
+  const list = Array.isArray(values) ? values : []
+
+  for (const raw of list) {
+    const value = String(raw || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!value) continue
+    if (value.length > 60) continue
+    if (value.split(' ').length > 8) continue
+    const key = value.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(value)
+  }
+
+  return out
+}
+
+function renderSuggestionChips({ profile, onUseTerm, onUseParticipant }) {
+  const participants = Array.isArray(profile?.participant_names) ? profile.participant_names.slice(0, 8) : []
+  const terms = uniqueTerms([
+    ...(Array.isArray(profile?.organization_terms) ? profile.organization_terms.slice(0, 8) : []),
+    ...(Array.isArray(profile?.custom_terms) ? profile.custom_terms.slice(0, 8) : []),
+    ...(Array.isArray(profile?.generated_keyterms) ? profile.generated_keyterms.slice(0, 8) : []),
+  ]).slice(0, 10)
+
+  if (participants.length === 0 && terms.length === 0) return null
+
+  return (
+    <div className="space-y-1.5">
+      {participants.length > 0 ? (
+        <div>
+          <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400">people suggestions</p>
+          <div className="flex flex-wrap gap-1.5">
+            {participants.map((name) => (
+              <button
+                key={name}
+                type="button"
+                onClick={() => onUseParticipant(name)}
+                className="rounded-full bg-white px-2.5 py-1 text-[11px] text-gray-600 border border-gray-200 hover:bg-gray-50"
+              >
+                + {name}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {terms.length > 0 ? (
+        <div>
+          <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400">term suggestions</p>
+          <div className="flex flex-wrap gap-1.5">
+            {terms.map((term) => (
+              <button
+                key={term}
+                type="button"
+                onClick={() => onUseTerm(term)}
+                className="rounded-full bg-white px-2.5 py-1 text-[11px] text-gray-600 border border-gray-200 hover:bg-gray-50"
+              >
+                + {term}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function appendCommaSeparated(previous, value) {
+  const existing = String(previous || '').trim()
+  const cleaned = String(value || '').trim()
+  if (!cleaned) return existing
+  if (!existing) return cleaned
+  const existingSet = new Set(
+    existing
+      .split(/[\n,]/g)
+      .map((part) => part.trim().toLowerCase())
+      .filter(Boolean),
+  )
+  if (existingSet.has(cleaned.toLowerCase())) return existing
+  return `${existing}, ${cleaned}`
+}
+
+function getStoredMeetingType(userId) {
+  if (!userId || typeof window === 'undefined') return ''
+  return String(localStorage.getItem(LAST_MEETING_TYPE_KEY_PREFIX + userId) || '').trim()
+}
+
+function storeMeetingType(userId, value) {
+  if (!userId || typeof window === 'undefined') return
+  const cleaned = String(value || '').trim()
+  if (!cleaned) return
+  localStorage.setItem(LAST_MEETING_TYPE_KEY_PREFIX + userId, cleaned)
+}
+
+function Field({ label, value, onChange, placeholder, maxLength }) {
+  return (
+    <div>
+      <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400">{label}</p>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value.slice(0, maxLength))}
+        placeholder={placeholder}
+        className="h-8 w-full rounded-lg border border-gray-200 bg-white px-2.5 text-xs text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+      />
+    </div>
+  )
 }
 
 function PulseRing() {

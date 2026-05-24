@@ -23,6 +23,7 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null)
   const [meetingSegments, setMeetingSegments] = useState([])
   const [meetingAudioBlob, setMeetingAudioBlob] = useState(null)
+  const [meetingContext, setMeetingContext] = useState(null)
   const [diarizedSegments, setDiarizedSegments] = useState([])
   const [confirmedLabelMap, setConfirmedLabelMap] = useState({})
   const [selectedMeeting, setSelectedMeeting] = useState(null)
@@ -211,7 +212,7 @@ export default function App() {
     return [selectedProvider, ...baseOrder.filter((provider) => provider !== selectedProvider)]
   }
 
-  async function transcribeWithFallback(audioBlob, selectedProvider, onStatus) {
+  async function transcribeWithFallback(audioBlob, selectedProvider, onStatus, options = {}) {
     const providers = getProviderFallbackOrder(selectedProvider)
     let lastError = null
 
@@ -225,7 +226,7 @@ export default function App() {
       }
 
       try {
-        const parsed = await transcribeAudio(audioBlob, provider)
+        const parsed = await transcribeAudio(audioBlob, provider, options)
         if (Array.isArray(parsed) && parsed.length > 0) {
           return parsed
         }
@@ -317,10 +318,12 @@ export default function App() {
         user={currentUser}
         segments={bestAvailableSegments}
         audioBlob={meetingAudioBlob}
+        meetingContext={meetingContext}
         confirmedLabelMap={confirmedLabelMap}
         onNewMeeting={() => {
           setMeetingSegments([])
           setMeetingAudioBlob(null)
+          setMeetingContext(null)
           setDiarizedSegments([])
           setConfirmedLabelMap({})
           setProcessingMessage('')
@@ -380,11 +383,16 @@ export default function App() {
       user={currentUser}
       transcriptionProvider={transcriptionProvider}
       onTranscriptionProviderChange={setTranscriptionProvider}
-      onMeetingComplete={async (segments, audioBlob, hadLiveTranscript = true) => {
+      onMeetingComplete={async (segments, audioBlob, hadLiveTranscript = true, meetingContextPayload = null) => {
         setMeetingAudioBlob(audioBlob)
+        setMeetingContext(meetingContextPayload)
         setConfirmedLabelMap({})
         setProcessingMessage('')
         setDiarizedSegments([])
+        const transcriptionOptions = {
+          contextTerms: Array.isArray(meetingContextPayload?.contextTerms) ? meetingContextPayload.contextTerms : [],
+          meetingContext: meetingContextPayload && typeof meetingContextPayload === 'object' ? meetingContextPayload : null,
+        }
 
         if (hadLiveTranscript) {
           setMeetingSegments(segments)
@@ -397,7 +405,12 @@ export default function App() {
           setScreen('speaker-review')
           void (async () => {
             try {
-              const parsed = await transcribeWithFallback(audioBlob, transcriptionProvider)
+              const parsed = await transcribeWithFallback(
+                audioBlob,
+                transcriptionProvider,
+                undefined,
+                transcriptionOptions,
+              )
               if (Array.isArray(parsed) && parsed.length > 0) {
                 setDiarizedSegments(parsed)
               } else {
@@ -421,7 +434,12 @@ export default function App() {
         }
 
         try {
-          const parsed = await transcribeWithFallback(audioBlob, transcriptionProvider, setProcessingMessage)
+          const parsed = await transcribeWithFallback(
+            audioBlob,
+            transcriptionProvider,
+            setProcessingMessage,
+            transcriptionOptions,
+          )
           if (Array.isArray(parsed) && parsed.length > 0) {
             setDiarizedSegments(parsed)
             setScreen('speaker-review')

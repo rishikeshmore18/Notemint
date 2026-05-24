@@ -37,7 +37,7 @@ export async function createGladiaSession() {
   return response.json()
 }
 
-export async function streamSummary(transcript, onChunk, onComplete, onError) {
+export async function streamSummary(transcript, onChunk, onComplete, onError, options = {}) {
   if (!transcript || transcript.trim().length < 20) {
     onError?.('Transcript too short to summarize')
     return
@@ -45,13 +45,18 @@ export async function streamSummary(transcript, onChunk, onComplete, onError) {
 
   try {
     const token = await getAuthToken()
+    const meetingContext =
+      options?.meetingContext && typeof options.meetingContext === 'object' ? options.meetingContext : null
     const response = await fetch(`${BASE_URL}/api/summarize`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
       },
-      body: JSON.stringify({ transcript }),
+      body: JSON.stringify({
+        transcript,
+        meeting_context: meetingContext,
+      }),
     })
 
     if (!response.ok || !response.body) {

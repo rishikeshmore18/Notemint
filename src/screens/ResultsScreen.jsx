@@ -4,7 +4,7 @@ import { groupSegmentsByTime } from '../lib/grokStt'
 import { compressTranscript, getSummary, saveMeeting, saveMeetingSpeakers } from '../lib/summary'
 import { supabase } from '../lib/supabase'
 
-export default function ResultsScreen({ user, segments, audioBlob, confirmedLabelMap, onNewMeeting }) {
+export default function ResultsScreen({ user, segments, audioBlob, meetingContext, confirmedLabelMap, onNewMeeting }) {
   const [activeTab, setActiveTab] = useState('summary')
   const [summaryText, setSummaryText] = useState('')
   const [summaryStatus, setSummaryStatus] = useState('idle')
@@ -89,6 +89,9 @@ export default function ResultsScreen({ user, segments, audioBlob, confirmedLabe
         if (!mountedRef.current) return
         setSummaryStatus('error')
         setSummaryError(errMsg)
+      },
+      {
+        meetingContext: meetingContext && typeof meetingContext === 'object' ? meetingContext : null,
       },
     )
   }

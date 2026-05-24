@@ -30,7 +30,7 @@ export function compressTranscript(segments, labelMap) {
   return result
 }
 
-export async function getSummary(compressedTranscript, onChunk, onComplete, onError) {
+export async function getSummary(compressedTranscript, onChunk, onComplete, onError, options = {}) {
   if (!compressedTranscript || compressedTranscript.length < 10) {
     onError('Recording too short to summarize - try at least 10 seconds.')
     return
@@ -38,7 +38,7 @@ export async function getSummary(compressedTranscript, onChunk, onComplete, onEr
 
   try {
     console.log('[Summary] Calling backend summary stream. Transcript chars:', compressedTranscript.length)
-    await streamSummary(compressedTranscript, onChunk, onComplete, onError)
+    await streamSummary(compressedTranscript, onChunk, onComplete, onError, options)
   } catch (err) {
     if (err.name === 'AbortError') return
     if (

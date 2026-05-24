@@ -33,6 +33,7 @@ Be direct. No filler. No repetition. When speaker label is "You", refer to them 
 
 summarizeRouter.post('/', requireAuth, async (req, res) => {
   const { transcript } = req.body || {}
+  const meetingContext = sanitizeMeetingContext(req.body?.meeting_context)
 
   if (!transcript || transcript.trim().length < 20) {
     return res.status(400).json({ error: 'Transcript too short to summarize' })
@@ -61,7 +62,12 @@ summarizeRouter.post('/', requireAuth, async (req, res) => {
         max_tokens: 1024,
         stream: true,
         system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: `Meeting transcript:\n\n${transcript}` }],
+        messages: [
+          {
+            role: 'user',
+            content: buildSummaryUserMessage(transcript, meetingContext),
+          },
+        ],
       }),
     })
 
@@ -114,3 +120,92 @@ summarizeRouter.post('/', requireAuth, async (req, res) => {
     res.end()
   }
 })
+
+function buildSummaryUserMessage(transcript, meetingContext) {
+  if (!meetingContext) {
+    return `Meeting transcript:\n\n${transcript}`
+  }
+
+  const lines = []
+  if (meetingContext.topic) lines.push(`Topic: ${meetingContext.topic}`)
+  if (meetingContext.goal) lines.push(`Goal: ${meetingContext.goal}`)
+  if (meetingContext.meetingType) lines.push(`Meeting type: ${meetingContext.meetingType}`)
+  if (meetingContext.expectedParticipants.length > 0) {
+    lines.push(`Expected participants: ${meetingContext.expectedParticipants.join(', ')}`)
+  }
+  if (meetingContext.importantTerms.length > 0) {
+    lines.push(`Important terms: ${meetingContext.importantTerms.join(', ')}`)
+  }
+  if (meetingContext.summaryContext) {
+    lines.push(`Context note: ${meetingContext.summaryContext}`)
+  }
+  if (meetingContext.doNotInfer.length > 0) {
+    lines.push(`Do-not-infer reminders: ${meetingContext.doNotInfer.join(' | ')}`)
+  }
+
+  if (lines.length === 0) {
+    return `Meeting transcript:\n\n${transcript}`
+  }
+
+  return `Meeting context (use only for terminology disambiguation, not as evidence):
+${lines.join('\n')}
+
+Meeting transcript:
+
+${transcript}`
+}
+
+function sanitizeMeetingContext(input) {
+  if (!input || typeof input !== 'object') return null
+
+  const context = {
+    topic: cleanOneLine(input.topic, 120),
+    goal: cleanOneLine(input.goal, 180),
+    meetingType: cleanOneLine(input.meetingType, 48),
+    expectedParticipants: normalizeTerms(input.expectedParticipants, { maxItems: 20, maxLen: 60, maxWords: 8 }),
+    importantTerms: normalizeTerms(input.importantTerms, { maxItems: 40, maxLen: 60, maxWords: 8 }),
+    summaryContext: cleanOneLine(input.summaryContext, 280),
+    doNotInfer: normalizeTerms(input.doNotInfer, { maxItems: 12, maxLen: 120, maxWords: 16 }),
+  }
+
+  const hasData =
+    context.topic ||
+    context.goal ||
+    context.meetingType ||
+    context.expectedParticipants.length > 0 ||
+    context.importantTerms.length > 0 ||
+    context.summaryContext ||
+    context.doNotInfer.length > 0
+
+  return hasData ? context : null
+}
+
+function normalizeTerms(input, options = {}) {
+  const maxItems = Number.isFinite(options.maxItems) ? options.maxItems : 40
+  const maxLen = Number.isFinite(options.maxLen) ? options.maxLen : 60
+  const maxWords = Number.isFinite(options.maxWords) ? options.maxWords : 8
+  const out = []
+  const seen = new Set()
+  const list = Array.isArray(input) ? input : []
+
+  for (const raw of list) {
+    const value = cleanOneLine(raw, maxLen)
+    if (!value) continue
+    if (value.split(' ').length > maxWords) continue
+    const key = value.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(value)
+    if (out.length >= maxItems) break
+  }
+
+  return out
+}
+
+function cleanOneLine(value, maxLen) {
+  const cleaned = String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned) return ''
+  return cleaned.slice(0, maxLen)
+}
