@@ -298,14 +298,25 @@ function parseGrokSegmentLevel(result) {
     .map((seg) => {
       const text = String(seg?.text || seg?.transcript || '').trim()
       if (!text) return null
+      const confidence = toConfidenceOrNull(seg?.confidence ?? seg?.avg_logprob)
+      const startTime = toNumberOrNull(seg?.start ?? seg?.start_time)
+      const endTime = toNumberOrNull(seg?.end ?? seg?.end_time)
       return {
         speaker: normalizeSpeaker(seg?.speaker),
         text,
-        startTime: toNumber(seg?.start ?? seg?.start_time),
-        endTime: toNumber(seg?.end ?? seg?.end_time),
-        confidence: toConfidence(seg?.confidence ?? seg?.avg_logprob),
+        startTime,
+        endTime,
+        confidence,
         source: 'grok',
         isFinal: true,
+        speakerConfidence: toConfidenceOrNull(seg?.speaker_confidence),
+        wordConfidence: confidence,
+        uncertain: isUncertainSegment({
+          text,
+          confidence,
+          startTime,
+          endTime,
+        }),
       }
     })
     .filter(Boolean)
@@ -319,9 +330,9 @@ function parseGrokWordLevel(result) {
     words.map((word) => ({
       speaker: normalizeSpeaker(word?.speaker),
       token: String(word?.word || word?.text || '').trim(),
-      start: toNumber(word?.start),
-      end: toNumber(word?.end),
-      confidence: toConfidence(word?.confidence),
+      start: toNumberOrNull(word?.start),
+      end: toNumberOrNull(word?.end),
+      confidence: toConfidenceOrNull(word?.confidence),
     })),
     'grok',
   )
@@ -334,14 +345,25 @@ function parseDeepgramResponse(result) {
       .map((utterance) => {
         const text = String(utterance?.transcript || '').trim()
         if (!text) return null
+        const confidence = toConfidenceOrNull(utterance?.confidence)
+        const startTime = toNumberOrNull(utterance?.start)
+        const endTime = toNumberOrNull(utterance?.end)
         return {
           speaker: normalizeSpeaker(utterance?.speaker),
           text,
-          startTime: toNumber(utterance?.start),
-          endTime: toNumber(utterance?.end),
-          confidence: toConfidence(utterance?.confidence),
+          startTime,
+          endTime,
+          confidence,
           source: 'deepgram',
           isFinal: true,
+          speakerConfidence: toConfidenceOrNull(utterance?.speaker_confidence),
+          wordConfidence: confidence,
+          uncertain: isUncertainSegment({
+            text,
+            confidence,
+            startTime,
+            endTime,
+          }),
         }
       })
       .filter(Boolean)
@@ -353,9 +375,9 @@ function parseDeepgramResponse(result) {
       words.map((word) => ({
         speaker: normalizeSpeaker(word?.speaker),
         token: String(word?.punctuated_word || word?.word || '').trim(),
-        start: toNumber(word?.start),
-        end: toNumber(word?.end),
-        confidence: toConfidence(word?.confidence),
+        start: toNumberOrNull(word?.start),
+        end: toNumberOrNull(word?.end),
+        confidence: toConfidenceOrNull(word?.confidence),
       })),
       'deepgram',
     )
@@ -372,14 +394,25 @@ function parseAssemblyAIResponse(result) {
       .map((utterance) => {
         const text = String(utterance?.text || '').trim()
         if (!text) return null
+        const confidence = toConfidenceOrNull(utterance?.confidence)
+        const startTime = toSecondsOrNull(utterance?.start)
+        const endTime = toSecondsOrNull(utterance?.end)
         return {
           speaker: normalizeSpeaker(assemblySpeakerToNumber(utterance?.speaker)),
           text,
-          startTime: toNumber(utterance?.start) / 1000,
-          endTime: toNumber(utterance?.end) / 1000,
-          confidence: toConfidence(utterance?.confidence),
+          startTime,
+          endTime,
+          confidence,
           source: 'assemblyai',
           isFinal: true,
+          speakerConfidence: toConfidenceOrNull(utterance?.speaker_confidence),
+          wordConfidence: confidence,
+          uncertain: isUncertainSegment({
+            text,
+            confidence,
+            startTime,
+            endTime,
+          }),
         }
       })
       .filter(Boolean)
@@ -391,9 +424,9 @@ function parseAssemblyAIResponse(result) {
       words.map((word) => ({
         speaker: normalizeSpeaker(assemblySpeakerToNumber(word?.speaker)),
         token: String(word?.text || '').trim(),
-        start: toNumber(word?.start) / 1000,
-        end: toNumber(word?.end) / 1000,
-        confidence: toConfidence(word?.confidence),
+        start: toSecondsOrNull(word?.start),
+        end: toSecondsOrNull(word?.end),
+        confidence: toConfidenceOrNull(word?.confidence),
       })),
       'assemblyai',
     )
@@ -417,30 +450,32 @@ function groupWordsBySpeaker(words, source) {
         words: [word.token],
         startTime: word.start,
         endTime: word.end,
-        confidenceSum: word.confidence,
-        confidenceCount: 1,
+        confidenceSum: Number.isFinite(word.confidence) ? word.confidence : 0,
+        confidenceCount: Number.isFinite(word.confidence) ? 1 : 0,
       }
       continue
     }
 
-    const gap = word.start - current.endTime
-    if (word.speaker !== current.speaker || gap > 1.5) {
+    const gap = computeGapSeconds(current.endTime, word.start)
+    if (word.speaker !== current.speaker || (Number.isFinite(gap) && gap > 1.5)) {
       segments.push(finalizeWordSegment(current, source))
       current = {
         speaker: word.speaker,
         words: [word.token],
         startTime: word.start,
         endTime: word.end,
-        confidenceSum: word.confidence,
-        confidenceCount: 1,
+        confidenceSum: Number.isFinite(word.confidence) ? word.confidence : 0,
+        confidenceCount: Number.isFinite(word.confidence) ? 1 : 0,
       }
       continue
     }
 
     current.words.push(word.token)
     current.endTime = word.end
-    current.confidenceSum += word.confidence
-    current.confidenceCount += 1
+    if (Number.isFinite(word.confidence)) {
+      current.confidenceSum += word.confidence
+      current.confidenceCount += 1
+    }
   }
 
   if (current) {
@@ -451,14 +486,30 @@ function groupWordsBySpeaker(words, source) {
 }
 
 function finalizeWordSegment(segment, source) {
+  const confidence =
+    segment.confidenceCount > 0 && Number.isFinite(segment.confidenceSum)
+      ? clamp(segment.confidenceSum / segment.confidenceCount, 0, 1)
+      : null
+  const startTime = toNumberOrNull(segment.startTime)
+  const endTime = toNumberOrNull(segment.endTime)
+  const text = segment.words.join(' ')
+
   return {
     speaker: segment.speaker,
-    text: segment.words.join(' '),
-    startTime: segment.startTime,
-    endTime: segment.endTime,
-    confidence: segment.confidenceCount > 0 ? clamp(segment.confidenceSum / segment.confidenceCount, 0, 1) : 1,
+    text,
+    startTime,
+    endTime,
+    confidence,
     source,
     isFinal: true,
+    speakerConfidence: null,
+    wordConfidence: confidence,
+    uncertain: isUncertainSegment({
+      text,
+      confidence,
+      startTime,
+      endTime,
+    }),
   }
 }
 
@@ -468,11 +519,14 @@ function transcriptToFallbackSegment(transcript, source) {
     {
       speaker: 0,
       text: transcript,
-      startTime: 0,
-      endTime: 0,
-      confidence: 1,
+      startTime: null,
+      endTime: null,
+      confidence: null,
       source,
       isFinal: true,
+      speakerConfidence: null,
+      wordConfidence: null,
+      uncertain: true,
     },
   ]
 }
@@ -621,6 +675,47 @@ function toConfidence(value) {
   if (Number.isNaN(parsed)) return 1
   if (parsed < 0) return clamp(Math.exp(parsed), 0, 1)
   return clamp(parsed, 0, 1)
+}
+
+function toNumberOrNull(value) {
+  const parsed = Number(value)
+  if (Number.isNaN(parsed) || parsed < 0) return null
+  return parsed
+}
+
+function toSecondsOrNull(value) {
+  const parsed = Number(value)
+  if (Number.isNaN(parsed) || parsed < 0) return null
+  return parsed / 1000
+}
+
+function toConfidenceOrNull(value) {
+  if (value === null || typeof value === 'undefined') return null
+  const parsed = Number(value)
+  if (Number.isNaN(parsed)) return null
+  if (parsed < 0) return clamp(Math.exp(parsed), 0, 1)
+  return clamp(parsed, 0, 1)
+}
+
+function computeGapSeconds(end, start) {
+  if (!Number.isFinite(end) || !Number.isFinite(start)) return null
+  return start - end
+}
+
+function isUncertainSegment({ text, confidence, startTime, endTime }) {
+  const cleanedText = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleanedText) return true
+
+  const wordCount = cleanedText.split(' ').filter(Boolean).length
+  const duration = Number.isFinite(startTime) && Number.isFinite(endTime) ? Math.max(0, endTime - startTime) : null
+
+  if (confidence !== null && confidence < 0.6) return true
+  if (wordCount <= 1) return true
+  if (duration !== null && duration < 0.7 && wordCount <= 3) return true
+
+  return false
 }
 
 function clamp(value, min, max) {
