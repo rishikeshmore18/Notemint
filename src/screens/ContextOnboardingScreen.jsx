@@ -8,6 +8,7 @@ import {
   upsertContextProfile,
 } from '../lib/contextProfile'
 import { supabase } from '../lib/supabase'
+import { generateContextKeyterms } from '../lib/api'
 
 export default function ContextOnboardingScreen({ user, mode = 'initial', onComplete, onSkip }) {
   const [industry, setIndustry] = useState('')
@@ -20,6 +21,7 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
+  const [generationWarning, setGenerationWarning] = useState('')
 
   const title = mode === 'edit' ? 'edit work context' : 'set your work context'
   const subtitle =
@@ -67,7 +69,30 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
     if (!user?.id) return
     setSaving(true)
     setError(null)
+    setGenerationWarning('')
     try {
+      let generatedKeyterms = []
+      let summaryContext = ''
+      let doNotInfer = []
+
+      try {
+        const generated = await generateContextKeyterms({
+          industry,
+          role,
+          meetingTypes,
+          participantNames: parsedParticipantNames,
+          organizationTerms: parsedOrganizationTerms,
+          customTerms: parsedCustomTerms,
+          correctionTerms: parsedCorrectionTerms,
+        })
+        generatedKeyterms = generated.keyterms
+        summaryContext = generated.summaryContext
+        doNotInfer = generated.doNotInfer
+      } catch (err) {
+        setGenerationWarning('could not generate smart suggestions right now; context was still saved')
+        console.warn('[ContextOnboarding] Keyterm generation failed:', err?.message || err)
+      }
+
       await upsertContextProfile(supabase, user.id, {
         industry,
         role,
@@ -76,6 +101,9 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
         organizationTerms: parsedOrganizationTerms,
         customTerms: parsedCustomTerms,
         correctionTerms: parsedCorrectionTerms,
+        generatedKeyterms,
+        summaryContext,
+        doNotInfer,
       })
       onComplete?.()
     } catch (err) {
@@ -187,6 +215,7 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
             />
 
             {error ? <p className="text-sm text-red-500">{error}</p> : null}
+            {generationWarning ? <p className="text-sm text-amber-600">{generationWarning}</p> : null}
 
             <div className="pt-2">
               <button
@@ -195,7 +224,7 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
                 disabled={saving}
                 className="w-full h-11 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {saving ? 'saving context...' : 'save context'}
+                {saving ? 'saving context and generating suggestions...' : 'save context'}
               </button>
               <button
                 type="button"

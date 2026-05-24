@@ -106,11 +106,17 @@ export async function streamSummary(transcript, onChunk, onComplete, onError) {
   }
 }
 
-export async function transcribeAudio(audioBlob, provider = 'grok') {
+export async function transcribeAudio(audioBlob, provider = 'grok', options = {}) {
   const token = await getAuthToken()
   const formData = new FormData()
   formData.append('audio', audioBlob, inferFileName(audioBlob))
   formData.append('provider', provider)
+  if (Array.isArray(options?.contextTerms) && options.contextTerms.length > 0) {
+    formData.append('context_terms', JSON.stringify(options.contextTerms))
+  }
+  if (options?.meetingContext && typeof options.meetingContext === 'object') {
+    formData.append('meeting_context', JSON.stringify(options.meetingContext))
+  }
 
   const response = await fetch(`${BASE_URL}/api/grok`, {
     method: 'POST',
@@ -131,6 +137,39 @@ export async function transcribeAudio(audioBlob, provider = 'grok') {
 
 export async function grokDiarizeAudio(audioBlob) {
   return transcribeAudio(audioBlob, 'grok')
+}
+
+export async function generateContextKeyterms(profile) {
+  const token = await getAuthToken()
+
+  const response = await fetch(`${BASE_URL}/api/context/generate-keyterms`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      industry: profile?.industry || '',
+      role: profile?.role || '',
+      meetingTypes: Array.isArray(profile?.meetingTypes) ? profile.meetingTypes : [],
+      participantNames: Array.isArray(profile?.participantNames) ? profile.participantNames : [],
+      organizationTerms: Array.isArray(profile?.organizationTerms) ? profile.organizationTerms : [],
+      customTerms: Array.isArray(profile?.customTerms) ? profile.customTerms : [],
+      correctionTerms: Array.isArray(profile?.correctionTerms) ? profile.correctionTerms : [],
+    }),
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.error || 'Could not generate keyterms')
+  }
+
+  const payload = await response.json()
+  return {
+    keyterms: Array.isArray(payload?.keyterms) ? payload.keyterms : [],
+    summaryContext: String(payload?.summary_context || ''),
+    doNotInfer: Array.isArray(payload?.do_not_infer) ? payload.do_not_infer : [],
+  }
 }
 
 export async function enrollVoice(audioBlob) {

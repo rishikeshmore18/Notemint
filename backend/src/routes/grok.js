@@ -22,7 +22,8 @@ grokRouter.post('/', requireAuth, upload.single('audio'), async (req, res) => {
   }
 
   try {
-    const segments = await transcribeAudio(req.file, provider)
+    const transcriptionHints = extractTranscriptionHints(req.body)
+    const segments = await transcribeAudio(req.file, provider, transcriptionHints)
     return res.json({ segments })
   } catch (err) {
     const status = Number(err.status || 500)
@@ -30,9 +31,9 @@ grokRouter.post('/', requireAuth, upload.single('audio'), async (req, res) => {
   }
 })
 
-async function transcribeAudio(file, provider) {
-  if (provider === 'deepgram') return transcribeWithDeepgram(file)
-  if (provider === 'assemblyai') return transcribeWithAssemblyAI(file)
+async function transcribeAudio(file, provider, hints = {}) {
+  if (provider === 'deepgram') return transcribeWithDeepgram(file, hints)
+  if (provider === 'assemblyai') return transcribeWithAssemblyAI(file, hints)
   return transcribeWithGrok(file)
 }
 
@@ -68,12 +69,12 @@ async function transcribeWithGrok(file) {
   return parseGrokResponse(result)
 }
 
-async function transcribeWithDeepgram(file) {
+async function transcribeWithDeepgram(file, hints = {}) {
   if (!process.env.DEEPGRAM_KEY) {
     throw httpError(500, 'DEEPGRAM_KEY is not configured on server')
   }
 
-  const url = `https://api.deepgram.com/v1/listen?${new URLSearchParams({
+  const baseParams = {
     model: 'nova-3',
     diarize_model: 'latest',
     utterances: 'true',
@@ -81,9 +82,12 @@ async function transcribeWithDeepgram(file) {
     punctuate: 'true',
     smart_format: 'true',
     language: 'en',
-  }).toString()}`
+  }
 
-  const response = await fetch(url, {
+  const selectedKeyterms = buildProviderKeyterms(hints.contextTerms, 'deepgram')
+  const withHintsUrl = buildDeepgramUrl(baseParams, selectedKeyterms)
+
+  let response = await fetch(withHintsUrl, {
     method: 'POST',
     headers: {
       Authorization: `Token ${process.env.DEEPGRAM_KEY}`,
@@ -92,6 +96,18 @@ async function transcribeWithDeepgram(file) {
     body: file.buffer,
     signal: AbortSignal.timeout(120000),
   })
+
+  if (!response.ok && selectedKeyterms.length > 0 && response.status >= 400 && response.status < 500) {
+    response = await fetch(buildDeepgramUrl(baseParams, []), {
+      method: 'POST',
+      headers: {
+        Authorization: `Token ${process.env.DEEPGRAM_KEY}`,
+        'Content-Type': file.mimetype || 'audio/webm',
+      },
+      body: file.buffer,
+      signal: AbortSignal.timeout(120000),
+    })
+  }
 
   if (!response.ok) {
     const text = await response.text()
@@ -102,7 +118,7 @@ async function transcribeWithDeepgram(file) {
   return parseDeepgramResponse(result)
 }
 
-async function transcribeWithAssemblyAI(file) {
+async function transcribeWithAssemblyAI(file, hints = {}) {
   if (!process.env.ASSEMBLYAI_KEY) {
     throw httpError(500, 'ASSEMBLYAI_KEY is not configured on server')
   }
@@ -127,22 +143,50 @@ async function transcribeWithAssemblyAI(file) {
     throw httpError(502, 'AssemblyAI upload did not return an upload_url')
   }
 
-  const transcriptResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
+  const selectedKeyterms = buildProviderKeyterms(hints.contextTerms, 'assemblyai')
+  const transcriptBodyWithHints = {
+    audio_url: uploadPayload.upload_url,
+    speech_models: ['universal-3-pro', 'universal-2'],
+    language_code: 'en_us',
+    speaker_labels: true,
+    punctuate: true,
+    format_text: true,
+    ...(selectedKeyterms.length > 0 ? { keyterms_prompt: selectedKeyterms } : {}),
+  }
+
+  let transcriptResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
     method: 'POST',
     headers: {
       Authorization: process.env.ASSEMBLYAI_KEY,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      audio_url: uploadPayload.upload_url,
-      speech_models: ['universal-3-pro', 'universal-2'],
-      language_code: 'en_us',
-      speaker_labels: true,
-      punctuate: true,
-      format_text: true,
-    }),
+    body: JSON.stringify(transcriptBodyWithHints),
     signal: AbortSignal.timeout(30000),
   })
+
+  if (
+    !transcriptResponse.ok &&
+    selectedKeyterms.length > 0 &&
+    transcriptResponse.status >= 400 &&
+    transcriptResponse.status < 500
+  ) {
+    transcriptResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
+      method: 'POST',
+      headers: {
+        Authorization: process.env.ASSEMBLYAI_KEY,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        audio_url: uploadPayload.upload_url,
+        speech_models: ['universal-3-pro', 'universal-2'],
+        language_code: 'en_us',
+        speaker_labels: true,
+        punctuate: true,
+        format_text: true,
+      }),
+      signal: AbortSignal.timeout(30000),
+    })
+  }
 
   if (!transcriptResponse.ok) {
     const text = await transcriptResponse.text()
@@ -395,6 +439,112 @@ function normalizeProvider(value) {
   if (provider === 'deepgram-nova-3') return 'deepgram'
   if (provider === 'assembly') return 'assemblyai'
   return provider
+}
+
+function extractTranscriptionHints(body) {
+  const contextTerms = [
+    ...parseTermsPayload(body?.context_terms),
+    ...extractTermsFromMeetingContext(parseJsonPayload(body?.meeting_context)),
+  ]
+
+  return {
+    contextTerms: dedupeTerms(contextTerms).slice(0, 200),
+  }
+}
+
+function parseJsonPayload(raw) {
+  if (raw && typeof raw === 'object') return raw
+  if (typeof raw !== 'string') return null
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return null
+  }
+}
+
+function parseTermsPayload(raw) {
+  if (Array.isArray(raw)) return raw
+  if (typeof raw === 'string') {
+    const parsed = parseJsonPayload(raw)
+    if (Array.isArray(parsed)) return parsed
+    return raw
+      .split(/[\n,]/g)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+  return []
+}
+
+function extractTermsFromMeetingContext(context) {
+  if (!context || typeof context !== 'object') return []
+  const terms = []
+
+  const topic = String(context.topic || '').trim()
+  if (topic) terms.push(topic)
+
+  const goal = String(context.goal || '').trim()
+  if (goal) terms.push(goal)
+
+  const expectedParticipants = parseTermsPayload(context.expectedParticipants)
+  const importantTerms = parseTermsPayload(context.importantTerms)
+  const meetingType = String(context.meetingType || '').trim()
+  if (meetingType) terms.push(meetingType)
+
+  return [...terms, ...expectedParticipants, ...importantTerms]
+}
+
+function dedupeTerms(rawTerms) {
+  const out = []
+  const seen = new Set()
+
+  for (const raw of rawTerms) {
+    const cleaned = String(raw || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!cleaned) continue
+    if (cleaned.length > 50) continue
+    if (cleaned.split(' ').length > 6) continue
+    const key = cleaned.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(cleaned)
+  }
+
+  return out
+}
+
+function buildProviderKeyterms(contextTerms, provider) {
+  const deduped = dedupeTerms(contextTerms)
+  if (deduped.length === 0) return []
+
+  if (provider === 'deepgram') {
+    const out = []
+    let words = 0
+    for (const term of deduped) {
+      const nextWords = term.split(' ').length
+      if (out.length >= 100) break
+      if (words + nextWords > 450) break
+      out.push(term)
+      words += nextWords
+    }
+    return out
+  }
+
+  if (provider === 'assemblyai') {
+    return deduped.slice(0, 200)
+  }
+
+  return []
+}
+
+function buildDeepgramUrl(baseParams, keyterms) {
+  const params = new URLSearchParams(baseParams)
+  for (const term of keyterms) {
+    params.append('keyterm', term)
+  }
+  return `https://api.deepgram.com/v1/listen?${params.toString()}`
 }
 
 function normalizeSpeaker(value) {

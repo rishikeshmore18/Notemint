@@ -9,6 +9,7 @@ create table if not exists user_context_profiles (
   custom_terms jsonb default '[]'::jsonb,
   generated_keyterms jsonb default '[]'::jsonb,
   correction_terms jsonb default '[]'::jsonb,
+  do_not_infer jsonb default '[]'::jsonb,
   summary_context text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
