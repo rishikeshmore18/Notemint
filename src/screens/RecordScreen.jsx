@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import WaveformVisualizer from '../components/WaveformVisualizer'
 import { getAudioStream, getFullAudioBlob, startTranscription, stopTranscription } from '../lib/gladia'
-import { getContextProfile, MEETING_TYPE_OPTIONS, parseTerms } from '../lib/contextProfile'
+import { getContextProfile, getCorrectionMemory, MEETING_TYPE_OPTIONS, parseTerms } from '../lib/contextProfile'
 import { supabase } from '../lib/supabase'
 
 const TRANSCRIPTION_PROVIDERS = [
@@ -39,6 +39,7 @@ export default function RecordScreen({
   const [importantTermsInput, setImportantTermsInput] = useState('')
   const [meetingType, setMeetingType] = useState('')
   const [contextProfile, setContextProfile] = useState(null)
+  const [correctionMemory, setCorrectionMemory] = useState({ boostTerms: [], confusionPairs: [] })
   const segmentsRef = useRef([])
   const transcriptEndRef = useRef(null)
   const menuRef = useRef(null)
@@ -61,8 +62,13 @@ export default function RecordScreen({
       if (!user?.id) return
       try {
         const profile = await getContextProfile(supabase, user.id)
+        const correction = await getCorrectionMemory(supabase, user.id).catch(() => ({
+          boostTerms: [],
+          confusionPairs: [],
+        }))
         if (cancelled) return
         setContextProfile(profile || null)
+        setCorrectionMemory(correction)
         const savedMeetingType = getStoredMeetingType(user.id)
         if (savedMeetingType && !meetingType) {
           setMeetingType(savedMeetingType)
@@ -271,6 +277,7 @@ export default function RecordScreen({
       importantTermsInput,
       meetingType,
       contextProfile,
+      correctionMemory,
     })
     onMeetingComplete(finalSegments, audioBlob, liveTranscriptEnabled, meetingContextPayload)
   }
@@ -735,6 +742,7 @@ function buildMeetingContextPayload({
   importantTermsInput,
   meetingType,
   contextProfile,
+  correctionMemory,
 }) {
   const expectedParticipants = parseTerms(expectedParticipantsInput)
   const importantTerms = parseTerms(importantTermsInput)
@@ -752,10 +760,14 @@ function buildMeetingContextPayload({
     ...generatedKeyterms,
   ]
 
+  const correctionBoostTerms = Array.isArray(correctionMemory?.boostTerms) ? correctionMemory.boostTerms : []
+  const correctionPairs = Array.isArray(correctionMemory?.confusionPairs) ? correctionMemory.confusionPairs : []
+
   const contextTerms = uniqueTerms([
     ...importantTerms,
     ...expectedParticipants,
     ...profileTerms,
+    ...correctionBoostTerms,
     finalMeetingType,
     topic,
     goal,
@@ -771,6 +783,16 @@ function buildMeetingContextPayload({
     contextTerms,
     summaryContext: String(contextProfile?.summary_context || ''),
     doNotInfer: Array.isArray(contextProfile?.do_not_infer) ? contextProfile.do_not_infer : [],
+    confusionPairs: correctionPairs
+      .map((pair) => ({
+        original: String(pair?.original || '').trim(),
+        corrected: String(pair?.corrected || '').trim(),
+        confidence: Number(pair?.confidence || 0),
+        count: Number(pair?.count || 0),
+        ambiguous: Boolean(pair?.ambiguous),
+      }))
+      .filter((pair) => pair.original && pair.corrected)
+      .slice(0, 20),
   }
 }
 

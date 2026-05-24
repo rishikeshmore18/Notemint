@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { matchSpeakers } from '../lib/enrollment'
+import { generateContextKeyterms } from '../lib/api'
+import { getContextProfile, getCorrectionMemory, upsertContextProfile } from '../lib/contextProfile'
 import {
   compressTranscript,
   getSummary,
@@ -32,10 +34,17 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
   const audioRef = useRef(null)
   const lineRefs = useRef({})
   const correctionSaveKeyRef = useRef(new Set())
+  const contextRefreshTimerRef = useRef(null)
+  const contextRefreshInFlightRef = useRef(false)
+  const contextRefreshQueuedRef = useRef(false)
 
   useEffect(() => {
     return () => {
       mountedRef.current = false
+      if (contextRefreshTimerRef.current) {
+        clearTimeout(contextRefreshTimerRef.current)
+        contextRefreshTimerRef.current = null
+      }
     }
   }, [])
 
@@ -213,8 +222,76 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
         corrections: [{ originalText, correctedText }],
         contextTermsUsed: Array.isArray(meetingContext?.contextTerms) ? meetingContext.contextTerms : [],
       })
+      scheduleContextRefresh()
     } catch (err) {
       console.warn('[Results] Could not save transcript correction:', err?.message || err)
+    }
+  }
+
+  function scheduleContextRefresh() {
+    if (!user?.id) return
+    if (contextRefreshTimerRef.current) {
+      clearTimeout(contextRefreshTimerRef.current)
+    }
+    contextRefreshTimerRef.current = setTimeout(() => {
+      contextRefreshTimerRef.current = null
+      void refreshContextFromCorrections()
+    }, 1200)
+  }
+
+  async function refreshContextFromCorrections() {
+    if (!user?.id) return
+
+    if (contextRefreshInFlightRef.current) {
+      contextRefreshQueuedRef.current = true
+      return
+    }
+
+    contextRefreshInFlightRef.current = true
+    try {
+      const profile = await getContextProfile(supabase, user.id)
+      if (!profile) return
+
+      const correctionMemory = await getCorrectionMemory(supabase, user.id, { limit: 250 }).catch(() => ({
+        boostTerms: [],
+        confusionPairs: [],
+      }))
+
+      const correctionTerms = uniqueList([
+        ...toStringList(profile.correction_terms),
+        ...toStringList(correctionMemory.boostTerms),
+      ]).slice(0, 200)
+
+      const generated = await generateContextKeyterms({
+        industry: profile.industry || '',
+        role: profile.role || '',
+        meetingTypes: toStringList(profile.meeting_types),
+        participantNames: toStringList(profile.participant_names),
+        organizationTerms: toStringList(profile.organization_terms),
+        customTerms: toStringList(profile.custom_terms),
+        correctionTerms,
+      })
+
+      await upsertContextProfile(supabase, user.id, {
+        industry: profile.industry || '',
+        role: profile.role || '',
+        meetingTypes: toStringList(profile.meeting_types),
+        participantNames: toStringList(profile.participant_names),
+        organizationTerms: toStringList(profile.organization_terms),
+        customTerms: toStringList(profile.custom_terms),
+        correctionTerms,
+        generatedKeyterms: Array.isArray(generated?.keyterms) ? generated.keyterms : toStringList(profile.generated_keyterms),
+        summaryContext: String(generated?.summaryContext || profile.summary_context || ''),
+        doNotInfer: Array.isArray(generated?.doNotInfer) ? generated.doNotInfer : toStringList(profile.do_not_infer),
+      })
+    } catch (err) {
+      console.warn('[Results] Could not refresh context keyterms after correction:', err?.message || err)
+    } finally {
+      contextRefreshInFlightRef.current = false
+      if (contextRefreshQueuedRef.current) {
+        contextRefreshQueuedRef.current = false
+        scheduleContextRefresh()
+      }
     }
   }
 
@@ -649,4 +726,29 @@ function getFinalLabelMap(segments, confirmedLabelMap) {
     return confirmedLabelMap
   }
   return matchSpeakers(segments)
+}
+
+function toStringList(value) {
+  return Array.isArray(value)
+    ? value
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+    : []
+}
+
+function uniqueList(values) {
+  const list = Array.isArray(values) ? values : []
+  const out = []
+  const seen = new Set()
+  for (const raw of list) {
+    const value = String(raw || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!value) continue
+    const key = value.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(value)
+  }
+  return out
 }

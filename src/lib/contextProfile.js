@@ -152,6 +152,29 @@ export async function upsertContextProfile(supabase, userId, profile) {
   return fallbackData
 }
 
+export async function getCorrectionMemory(supabase, userId, options = {}) {
+  if (!userId) {
+    return {
+      boostTerms: [],
+      confusionPairs: [],
+    }
+  }
+
+  const limit = Number.isFinite(options.limit) ? Math.max(20, Math.min(500, options.limit)) : 200
+  const { data, error } = await supabase
+    .from('transcript_corrections')
+    .select('original_text, corrected_text, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(limit)
+
+  if (error) {
+    throw new Error(error.message || 'Could not load correction memory')
+  }
+
+  return buildCorrectionMemory(data)
+}
+
 export function parseTerms(value) {
   return normalizeList(
     String(value || '')
@@ -191,6 +214,105 @@ function normalizeList(values, options = {}) {
   }
 
   return deduped
+}
+
+function buildCorrectionMemory(rows) {
+  const list = Array.isArray(rows) ? rows : []
+  const pairCounts = new Map()
+  const originalTotals = new Map()
+  const correctedTotals = new Map()
+
+  for (const row of list) {
+    const original = sanitizeCorrectionTerm(row?.original_text)
+    const corrected = sanitizeCorrectionTerm(row?.corrected_text)
+    if (!original || !corrected) continue
+    if (looksSensitive(original) || looksSensitive(corrected)) continue
+    if (original.toLowerCase() === corrected.toLowerCase()) continue
+
+    const pairKey = `${original.toLowerCase()}=>${corrected.toLowerCase()}`
+    pairCounts.set(pairKey, (pairCounts.get(pairKey) || 0) + 1)
+    originalTotals.set(original.toLowerCase(), (originalTotals.get(original.toLowerCase()) || 0) + 1)
+    correctedTotals.set(corrected, (correctedTotals.get(corrected) || 0) + 1)
+  }
+
+  const confusionPairs = []
+  const boostTerms = []
+  const bestPerOriginal = new Map()
+
+  for (const [pairKey, count] of pairCounts.entries()) {
+    const [originalKey, correctedKey] = pairKey.split('=>')
+    if (!originalKey || !correctedKey) continue
+    const totalForOriginal = originalTotals.get(originalKey) || count
+    const confidence = clamp(count / totalForOriginal, 0, 1)
+
+    const original = restoreFromKey(list, 'original_text', originalKey)
+    const corrected = restoreFromKey(list, 'corrected_text', correctedKey)
+    if (!original || !corrected) continue
+
+    confusionPairs.push({
+      original,
+      corrected,
+      count,
+      confidence,
+      ambiguous: totalForOriginal >= 2 && confidence < 0.65,
+    })
+
+    const previous = bestPerOriginal.get(originalKey)
+    if (!previous || previous.count < count) {
+      bestPerOriginal.set(originalKey, { original, corrected, count, confidence, totalForOriginal })
+    }
+  }
+
+  for (const pair of bestPerOriginal.values()) {
+    if (pair.totalForOriginal >= 2 && pair.confidence < 0.65) continue
+    if (pair.corrected.length < 3) continue
+    boostTerms.push(pair.corrected)
+  }
+
+  for (const [term, count] of correctedTotals.entries()) {
+    if (count < 2) continue
+    if (term.length < 3) continue
+    boostTerms.push(term)
+  }
+
+  return {
+    boostTerms: normalizeList(boostTerms, { maxWords: 8, maxLength: 60, maxItems: 120 }),
+    confusionPairs: confusionPairs
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 40),
+  }
+}
+
+function sanitizeCorrectionTerm(value) {
+  const cleaned = String(value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned) return ''
+  if (cleaned.length > 80) return ''
+  if (cleaned.split(' ').length > 10) return ''
+  return cleaned
+}
+
+function restoreFromKey(rows, field, key) {
+  const list = Array.isArray(rows) ? rows : []
+  for (const row of list) {
+    const value = sanitizeCorrectionTerm(row?.[field])
+    if (value && value.toLowerCase() === key) return value
+  }
+  return ''
+}
+
+function looksSensitive(value) {
+  const text = String(value || '').trim()
+  if (!text) return false
+  if (/@/.test(text)) return true
+  if (/\b(?:\+?\d[\d\s().-]{8,}\d)\b/.test(text)) return true
+  if (/\b\d{9,}\b/.test(text)) return true
+  return false
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value))
 }
 
 function emptyToNull(value) {

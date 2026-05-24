@@ -142,6 +142,12 @@ function buildSummaryUserMessage(transcript, meetingContext) {
   if (meetingContext.doNotInfer.length > 0) {
     lines.push(`Do-not-infer reminders: ${meetingContext.doNotInfer.join(' | ')}`)
   }
+  if (meetingContext.confusionPairs.length > 0) {
+    const hints = meetingContext.confusionPairs
+      .map((pair) => `${pair.original} -> ${pair.corrected}`)
+      .join(' | ')
+    lines.push(`Known transcription confusions (hint only): ${hints}`)
+  }
 
   if (lines.length === 0) {
     return `Meeting transcript:\n\n${transcript}`
@@ -166,6 +172,7 @@ function sanitizeMeetingContext(input) {
     importantTerms: normalizeTerms(input.importantTerms, { maxItems: 40, maxLen: 60, maxWords: 8 }),
     summaryContext: cleanOneLine(input.summaryContext, 280),
     doNotInfer: normalizeTerms(input.doNotInfer, { maxItems: 12, maxLen: 120, maxWords: 16 }),
+    confusionPairs: normalizeConfusionPairs(input.confusionPairs),
   }
 
   const hasData =
@@ -175,9 +182,30 @@ function sanitizeMeetingContext(input) {
     context.expectedParticipants.length > 0 ||
     context.importantTerms.length > 0 ||
     context.summaryContext ||
-    context.doNotInfer.length > 0
+    context.doNotInfer.length > 0 ||
+    context.confusionPairs.length > 0
 
   return hasData ? context : null
+}
+
+function normalizeConfusionPairs(input) {
+  const list = Array.isArray(input) ? input : []
+  const out = []
+  const seen = new Set()
+
+  for (const item of list) {
+    const original = cleanOneLine(item?.original, 80)
+    const corrected = cleanOneLine(item?.corrected, 80)
+    if (!original || !corrected) continue
+    if (original.toLowerCase() === corrected.toLowerCase()) continue
+    const key = `${original.toLowerCase()}=>${corrected.toLowerCase()}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push({ original, corrected })
+    if (out.length >= 15) break
+  }
+
+  return out
 }
 
 function normalizeTerms(input, options = {}) {
