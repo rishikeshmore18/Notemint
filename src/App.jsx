@@ -15,6 +15,7 @@ import { streamSummary, transcribeAudio, transcribeAudioDetailed } from './lib/a
 import { rememberSpeakerLabels } from './lib/speakerMemory'
 import { hasContextProfile, setContextOnboardingCompleted } from './lib/contextProfile'
 import { compressTranscript } from './lib/summary'
+import { repairSpeakerTurns } from './lib/speakerTurnRepair'
 
 export default function App() {
   const [screen, setScreen] = useState('loading')
@@ -236,7 +237,7 @@ export default function App() {
       try {
         const parsed = await transcribeAudio(audioBlob, provider, options)
         if (Array.isArray(parsed) && parsed.length > 0) {
-          return parsed
+          return repairSpeakerTurns(parsed)
         }
       } catch (err) {
         lastError = err
@@ -289,7 +290,7 @@ export default function App() {
       try {
         updateCompareProvider(provider, { status: 'transcribing' }, runId)
         const stt = await transcribeAudioDetailed(audioBlob, provider, transcriptionOptions)
-        const segments = Array.isArray(stt?.segments) ? stt.segments : []
+        const segments = Array.isArray(stt?.segments) ? repairSpeakerTurns(stt.segments) : []
         const speakerCount = new Set(segments.map((segment) => segment?.speaker).filter((x) => Number.isFinite(Number(x)))).size
         updateCompareProvider(
           provider,
