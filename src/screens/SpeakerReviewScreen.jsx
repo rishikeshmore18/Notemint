@@ -10,6 +10,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
   const [playingSpeaker, setPlayingSpeaker] = useState(null)
   const [identifyingStatus, setIdentifyingStatus] = useState('idle')
   const [autoLabelMeta, setAutoLabelMeta] = useState({})
+  const [reviewStateMap, setReviewStateMap] = useState({})
   const [nameSuggestions, setNameSuggestions] = useState([])
 
   const audioRefs = useRef({})
@@ -98,62 +99,183 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
 
         const nextAutoLabels = {}
         const nextAutoMeta = {}
+        const nextReviewState = {}
+        const speakerStatsMap = {}
+        const hasManySpeakers = allSpeakers.length >= 4
+        const selfThreshold = hasManySpeakers ? 0.86 : 0.78
+        const contactThreshold = hasManySpeakers ? 0.88 : 0.8
+
+        for (const speakerId of allSpeakers) {
+          const stats = getSpeakerStats(segments, speakerId)
+          speakerStatsMap[speakerId] = stats
+          nextReviewState[speakerId] = 'needs review'
+
+          if (!snippetMap[speakerId]?.blob) {
+            nextReviewState[speakerId] = 'low confidence'
+            nextAutoMeta[speakerId] = {
+              source: 'none',
+              confidence: null,
+              reason: 'no_clean_audio',
+            }
+            continue
+          }
+
+          if (isTinySpeaker(stats)) {
+            nextReviewState[speakerId] = 'low confidence'
+            nextAutoMeta[speakerId] = {
+              source: 'none',
+              confidence: null,
+              reason: 'tiny_turn',
+            }
+          }
+        }
 
         if (status?.enrolled) {
-          let bestSelfMatch = null
+          const selfMatches = []
           for (const speakerId of allSpeakers) {
             const snippet = snippetMap[speakerId]
             if (!snippet?.blob) continue
+            if (isTinySpeaker(speakerStatsMap[speakerId])) continue
 
             const result = await identifyVoice(snippet.blob)
             if (cancelled) return
 
             if (result?.identified_profile === 'self' && result?.is_confident) {
               const confidence = Number(result.confidence || 0)
-              if (!bestSelfMatch || confidence > bestSelfMatch.confidence) {
-                bestSelfMatch = { speakerId, confidence }
+              selfMatches.push({ speakerId, confidence })
+            }
+          }
+
+          const strongSelfMatches = selfMatches
+            .filter((match) => match.confidence >= selfThreshold)
+            .sort((a, b) => b.confidence - a.confidence)
+
+          if (strongSelfMatches.length > 0) {
+            const top = strongSelfMatches[0]
+            const second = strongSelfMatches[1]
+            const clearWinner = !second || top.confidence - second.confidence >= 0.08
+
+            if (clearWinner) {
+              nextAutoLabels[top.speakerId] = 'You'
+              nextReviewState[top.speakerId] = 'auto-detected'
+              nextAutoMeta[top.speakerId] = {
+                source: 'self',
+                confidence: top.confidence,
+              }
+            } else {
+              nextReviewState[top.speakerId] = 'needs review'
+              nextAutoMeta[top.speakerId] = {
+                source: 'self',
+                confidence: top.confidence,
+                reason: 'self_conflict',
+              }
+              nextReviewState[second.speakerId] = 'needs review'
+              nextAutoMeta[second.speakerId] = {
+                source: 'self',
+                confidence: second.confidence,
+                reason: 'self_conflict',
+              }
+            }
+          } else {
+            for (const match of selfMatches) {
+              if (nextReviewState[match.speakerId] === 'low confidence') continue
+              nextReviewState[match.speakerId] = 'low confidence'
+              nextAutoMeta[match.speakerId] = {
+                source: 'self',
+                confidence: match.confidence,
+                reason: 'below_self_threshold',
               }
             }
           }
+        }
 
-          if (bestSelfMatch) {
-            nextAutoLabels[bestSelfMatch.speakerId] = 'You'
-            nextAutoMeta[bestSelfMatch.speakerId] = {
+        const contactMatches = []
+        for (const speakerId of allSpeakers) {
+          const snippet = snippetMap[speakerId]
+          if (!snippet?.blob) continue
+          if (isTinySpeaker(speakerStatsMap[speakerId])) continue
+
+          const result = await identifyContactVoice(snippet.blob)
+          if (cancelled) return
+          if (!result?.display_name) continue
+
+          const confidence = Number(result.confidence || 0)
+          const isConfident = Boolean(result?.is_confident) && confidence >= contactThreshold
+          contactMatches.push({
+            speakerId,
+            displayName: String(result.display_name).trim(),
+            confidence,
+            isConfident,
+          })
+        }
+
+        const usedContactNames = new Map()
+        for (const match of contactMatches) {
+          if (!match.displayName || match.displayName.toLowerCase() === 'you') continue
+
+          const hasSelfLabel = nextAutoLabels[match.speakerId] === 'You'
+          if (hasSelfLabel && match.isConfident) {
+            nextReviewState[match.speakerId] = 'needs review'
+            delete nextAutoLabels[match.speakerId]
+            nextAutoMeta[match.speakerId] = {
               source: 'self',
-              confidence: bestSelfMatch.confidence,
+              confidence: match.confidence,
+              reason: 'self_contact_conflict',
+            }
+            continue
+          }
+
+          if (!match.isConfident) {
+            if (nextReviewState[match.speakerId] !== 'low confidence') {
+              nextReviewState[match.speakerId] = 'low confidence'
+              nextAutoMeta[match.speakerId] = {
+                source: 'contact',
+                confidence: match.confidence,
+                reason: 'below_contact_threshold',
+              }
+            }
+            continue
+          }
+
+          const key = match.displayName.toLowerCase()
+          const existingSpeaker = usedContactNames.get(key)
+          if (typeof existingSpeaker !== 'undefined' && existingSpeaker !== match.speakerId) {
+            nextReviewState[existingSpeaker] = 'needs review'
+            nextReviewState[match.speakerId] = 'needs review'
+            delete nextAutoLabels[existingSpeaker]
+            delete nextAutoLabels[match.speakerId]
+            nextAutoMeta[existingSpeaker] = {
+              source: 'contact',
+              confidence: match.confidence,
+              reason: 'duplicate_contact_match',
+            }
+            nextAutoMeta[match.speakerId] = {
+              source: 'contact',
+              confidence: match.confidence,
+              reason: 'duplicate_contact_match',
+            }
+            continue
+          }
+
+          usedContactNames.set(key, match.speakerId)
+          if (!nextAutoLabels[match.speakerId]) {
+            nextAutoLabels[match.speakerId] = match.displayName
+            nextReviewState[match.speakerId] = 'auto-detected'
+            nextAutoMeta[match.speakerId] = {
+              source: 'contact',
+              confidence: match.confidence,
             }
           }
         }
 
-        const usedContactNames = new Set(
-          Object.values(nextAutoLabels)
-            .map((name) => String(name || '').trim().toLowerCase())
-            .filter((name) => name && name !== 'you'),
-        )
-
         for (const speakerId of allSpeakers) {
-          const snippet = snippetMap[speakerId]
-          if (!snippet?.blob) continue
-          if (nextAutoLabels[speakerId] === 'You') continue
-
-          const result = await identifyContactVoice(snippet.blob)
-          if (cancelled) return
-
-          if (!result?.is_confident || !result?.display_name) continue
-
-          const suggestedName = String(result.display_name).trim()
-          const key = suggestedName.toLowerCase()
-          if (!suggestedName || usedContactNames.has(key) || key === 'you') continue
-
-          nextAutoLabels[speakerId] = suggestedName
-          nextAutoMeta[speakerId] = {
-            source: 'contact',
-            confidence: Number(result.confidence || 0),
+          if (nextReviewState[speakerId] !== 'auto-detected' && nextReviewState[speakerId] !== 'low confidence') {
+            nextReviewState[speakerId] = 'needs review'
           }
-          usedContactNames.add(key)
         }
 
         setAutoLabelMeta(nextAutoMeta)
+        setReviewStateMap(nextReviewState)
         setSpeakerNames((prev) => {
           const next = { ...prev }
           for (const [speakerId, name] of Object.entries(nextAutoLabels)) {
@@ -163,6 +285,13 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
         })
       } catch (err) {
         console.warn('[SpeakerReview] Voice status/identify skipped:', err)
+        setReviewStateMap((prev) => {
+          const next = { ...prev }
+          for (const speakerId of allSpeakers) {
+            if (!next[speakerId]) next[speakerId] = 'needs review'
+          }
+          return next
+        })
       } finally {
         if (!cancelled) setIdentifyingStatus('done')
       }
@@ -323,6 +452,13 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
               return String(speakerName || '').trim().toLowerCase() === normalized
             })
           })
+          const reviewState = reviewStateMap[sp] || 'needs review'
+          const reviewPillClass =
+            reviewState === 'auto-detected'
+              ? 'bg-emerald-100 text-emerald-700'
+              : reviewState === 'low confidence'
+                ? 'bg-amber-100 text-amber-700'
+                : 'bg-gray-100 text-gray-600'
 
           return (
             <div key={sp} className="border border-gray-100 rounded-2xl p-4">
@@ -340,6 +476,9 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
                       {autoInfo.source === 'self' ? 'auto self' : 'auto match'} {autoInfo.confidence.toFixed(2)}
                     </span>
                   ) : null}
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full ${reviewPillClass}`}>
+                    {reviewState}
+                  </span>
                 </div>
 
                 <button
@@ -478,6 +617,45 @@ function findBestSegmentForSpeaker(segments, speakerId) {
     const curDur = Number(current?.endTime || 0) - Number(current?.startTime || 0)
     return curDur > bestDur ? current : best
   }, candidates[0])
+}
+
+function getSpeakerStats(segments, speakerId) {
+  const matches = (Array.isArray(segments) ? segments : []).filter(
+    (segment) => Number(segment?.speaker) === Number(speakerId),
+  )
+  const finals = matches.filter((segment) => segment?.isFinal === true)
+  const source = finals.length > 0 ? finals : matches
+
+  let totalDuration = 0
+  let durationCount = 0
+  let totalWords = 0
+
+  for (const segment of source) {
+    const text = String(segment?.text || '').trim()
+    if (text) totalWords += text.split(/\s+/g).filter(Boolean).length
+    const start = Number(segment?.startTime)
+    const end = Number(segment?.endTime)
+    if (Number.isFinite(start) && Number.isFinite(end) && end >= start) {
+      totalDuration += end - start
+      durationCount += 1
+    }
+  }
+
+  return {
+    segmentCount: source.length,
+    totalDuration: durationCount > 0 ? totalDuration : null,
+    totalWords,
+  }
+}
+
+function isTinySpeaker(stats) {
+  if (!stats) return true
+  if (stats.segmentCount <= 1) {
+    const shortByDuration = Number.isFinite(stats.totalDuration) && stats.totalDuration < 1.2
+    const shortByWords = stats.totalWords <= 4
+    if (shortByDuration || shortByWords) return true
+  }
+  return false
 }
 
 function shouldRememberContactName(name) {

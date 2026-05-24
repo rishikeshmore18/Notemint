@@ -12,22 +12,38 @@ export default function CompareResultsScreen({
   bestSummaryProvider,
   onSelectBestTranscript,
   onSelectBestSummary,
+  onContinueWithProvider,
   onNewMeeting,
 }) {
   const list = Array.isArray(results) ? results : []
   const hasPending = list.some((item) => item.status === 'queued' || item.status === 'transcribing' || item.status === 'summarizing')
+  const doneProviders = list.filter((item) => item.status === 'done')
+  const selectedProvider =
+    doneProviders.find((item) => item.provider === bestTranscriptProvider)?.provider ||
+    doneProviders[0]?.provider ||
+    ''
 
   return (
     <div className="min-h-screen bg-white max-w-6xl mx-auto px-4 md:px-8 py-5">
       <header className="mb-4 flex items-center justify-between">
         <h1 className="text-sm font-medium text-gray-900">compare models (internal)</h1>
-        <button
-          type="button"
-          onClick={onNewMeeting}
-          className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
-        >
-          new meeting
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => selectedProvider && onContinueWithProvider?.(selectedProvider)}
+            disabled={!selectedProvider}
+            className="rounded-lg border border-indigo-200 px-2.5 py-1.5 text-xs text-indigo-700 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            continue with selected transcript
+          </button>
+          <button
+            type="button"
+            onClick={onNewMeeting}
+            className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
+          >
+            new meeting
+          </button>
+        </div>
       </header>
 
       <div className="mb-4 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2">

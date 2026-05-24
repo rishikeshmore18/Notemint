@@ -518,6 +518,15 @@ export default function App() {
             })),
           )
         }}
+        onContinueWithProvider={(provider) => {
+          const selected = compareResults.find((item) => item.provider === provider && item.status === 'done')
+          if (!selected) return
+          const segments = Array.isArray(selected.segments) ? selected.segments : []
+          setMeetingSegments([])
+          setDiarizedSegments(segments)
+          setConfirmedLabelMap({})
+          setScreen('speaker-review')
+        }}
         onNewMeeting={() => {
           setMeetingSegments([])
           setMeetingAudioBlob(null)
