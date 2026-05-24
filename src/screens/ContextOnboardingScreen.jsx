@@ -3,6 +3,7 @@ import {
   INDUSTRY_OPTIONS,
   MEETING_TYPE_OPTIONS,
   ROLE_OPTIONS,
+  getCorrectionMemory,
   getContextProfile,
   parseTerms,
   upsertContextProfile,
@@ -18,15 +19,23 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
   const [organizationTermsInput, setOrganizationTermsInput] = useState('')
   const [customTermsInput, setCustomTermsInput] = useState('')
   const [correctionTermsInput, setCorrectionTermsInput] = useState('')
+  const [generatedKeyterms, setGeneratedKeyterms] = useState([])
+  const [generatedSummaryContext, setGeneratedSummaryContext] = useState('')
+  const [generatedDoNotInfer, setGeneratedDoNotInfer] = useState([])
+  const [newKeytermInput, setNewKeytermInput] = useState('')
+  const [recentCorrections, setRecentCorrections] = useState([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
   const [error, setError] = useState(null)
   const [generationWarning, setGenerationWarning] = useState('')
 
-  const title = mode === 'edit' ? 'edit work context' : 'set your work context'
+  const title = mode === 'edit' ? 'edit work context' : mode === 'dictionary' ? 'correction dictionary' : 'set your work context'
   const subtitle =
     mode === 'edit'
       ? 'update this anytime to improve transcript accuracy.'
+      : mode === 'dictionary'
+        ? 'review corrections and refresh term suggestions from real edits.'
       : 'helps improve names, domain terms, and meeting summaries.'
 
   useEffect(() => {
@@ -44,6 +53,15 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
         setOrganizationTermsInput(listToInput(existing.organization_terms))
         setCustomTermsInput(listToInput(existing.custom_terms))
         setCorrectionTermsInput(listToInput(existing.correction_terms))
+        setGeneratedKeyterms(Array.isArray(existing.generated_keyterms) ? existing.generated_keyterms : [])
+        setGeneratedSummaryContext(String(existing.summary_context || ''))
+        setGeneratedDoNotInfer(Array.isArray(existing.do_not_infer) ? existing.do_not_infer : [])
+        const memory = await getCorrectionMemory(supabase, user?.id, { limit: 250 }).catch(() => ({
+          confusionPairs: [],
+        }))
+        if (!cancelled) {
+          setRecentCorrections(Array.isArray(memory?.confusionPairs) ? memory.confusionPairs : [])
+        }
       } catch (err) {
         if (!cancelled) {
           setError(err.message || 'Could not load context profile')
@@ -64,6 +82,46 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
   const parsedOrganizationTerms = useMemo(() => parseTerms(organizationTermsInput), [organizationTermsInput])
   const parsedCustomTerms = useMemo(() => parseTerms(customTermsInput), [customTermsInput])
   const parsedCorrectionTerms = useMemo(() => parseTerms(correctionTermsInput), [correctionTermsInput])
+  const normalizedGeneratedKeyterms = useMemo(
+    () =>
+      uniqueTerms(generatedKeyterms)
+        .filter((term) => term.split(' ').length <= 6)
+        .slice(0, 200),
+    [generatedKeyterms],
+  )
+
+  async function runRegenerateSuggestions() {
+    setRegenerating(true)
+    setGenerationWarning('')
+    try {
+      const generated = await generateContextKeyterms({
+        industry,
+        role,
+        meetingTypes,
+        participantNames: parsedParticipantNames,
+        organizationTerms: parsedOrganizationTerms,
+        customTerms: parsedCustomTerms,
+        correctionTerms: parsedCorrectionTerms,
+      })
+      const nextKeyterms = Array.isArray(generated?.keyterms) ? generated.keyterms : []
+      const nextSummaryContext = String(generated?.summaryContext || '')
+      const nextDoNotInfer = Array.isArray(generated?.doNotInfer) ? generated.doNotInfer : []
+      setGeneratedKeyterms(nextKeyterms)
+      setGeneratedSummaryContext(nextSummaryContext)
+      setGeneratedDoNotInfer(nextDoNotInfer)
+      return {
+        keyterms: nextKeyterms,
+        summaryContext: nextSummaryContext,
+        doNotInfer: nextDoNotInfer,
+      }
+    } catch (err) {
+      setGenerationWarning('could not regenerate suggestions right now')
+      console.warn('[ContextOnboarding] Keyterm regeneration failed:', err?.message || err)
+      return null
+    } finally {
+      setRegenerating(false)
+    }
+  }
 
   async function handleSave() {
     if (!user?.id) return
@@ -71,26 +129,19 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
     setError(null)
     setGenerationWarning('')
     try {
-      let generatedKeyterms = []
-      let summaryContext = ''
-      let doNotInfer = []
+      let finalGeneratedKeyterms = normalizedGeneratedKeyterms
+      let finalSummaryContext = generatedSummaryContext
+      let finalDoNotInfer = generatedDoNotInfer
 
-      try {
-        const generated = await generateContextKeyterms({
-          industry,
-          role,
-          meetingTypes,
-          participantNames: parsedParticipantNames,
-          organizationTerms: parsedOrganizationTerms,
-          customTerms: parsedCustomTerms,
-          correctionTerms: parsedCorrectionTerms,
-        })
-        generatedKeyterms = generated.keyterms
-        summaryContext = generated.summaryContext
-        doNotInfer = generated.doNotInfer
-      } catch (err) {
-        setGenerationWarning('could not generate smart suggestions right now; context was still saved')
-        console.warn('[ContextOnboarding] Keyterm generation failed:', err?.message || err)
+      if (mode === 'initial' && finalGeneratedKeyterms.length === 0 && !regenerating) {
+        const regenerated = await runRegenerateSuggestions()
+        if (regenerated) {
+          finalGeneratedKeyterms = uniqueTerms(regenerated.keyterms)
+            .filter((term) => term.split(' ').length <= 6)
+            .slice(0, 200)
+          finalSummaryContext = String(regenerated.summaryContext || '')
+          finalDoNotInfer = Array.isArray(regenerated.doNotInfer) ? regenerated.doNotInfer : []
+        }
       }
 
       await upsertContextProfile(supabase, user.id, {
@@ -101,9 +152,9 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
         organizationTerms: parsedOrganizationTerms,
         customTerms: parsedCustomTerms,
         correctionTerms: parsedCorrectionTerms,
-        generatedKeyterms,
-        summaryContext,
-        doNotInfer,
+        generatedKeyterms: finalGeneratedKeyterms,
+        summaryContext: finalSummaryContext,
+        doNotInfer: finalDoNotInfer,
       })
       onComplete?.()
     } catch (err) {
@@ -118,6 +169,20 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
       if (prev.includes(type)) return prev.filter((item) => item !== type)
       return [...prev, type]
     })
+  }
+
+  function handleAddKeyterm() {
+    const term = String(newKeytermInput || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!term) return
+    setGeneratedKeyterms((prev) => uniqueTerms([...prev, term]).slice(0, 200))
+    setNewKeytermInput('')
+  }
+
+  function handleRemoveKeyterm(term) {
+    const key = String(term || '').trim().toLowerCase()
+    setGeneratedKeyterms((prev) => prev.filter((item) => String(item || '').trim().toLowerCase() !== key))
   }
 
   return (
@@ -214,6 +279,67 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
               helper="comma or new line separated"
             />
 
+            <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs font-medium text-gray-700">generated keyterms</p>
+                <button
+                  type="button"
+                  onClick={() => void runRegenerateSuggestions()}
+                  disabled={regenerating}
+                  className="text-xs text-indigo-600 underline disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {regenerating ? 'regenerating...' : 'regenerate suggestions'}
+                </button>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {normalizedGeneratedKeyterms.length > 0 ? (
+                  normalizedGeneratedKeyterms.map((term) => (
+                    <button
+                      key={term}
+                      type="button"
+                      onClick={() => handleRemoveKeyterm(term)}
+                      className="rounded-full bg-white border border-gray-200 px-2.5 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
+                      title="remove term"
+                    >
+                      {term} ×
+                    </button>
+                  ))
+                ) : (
+                  <p className="text-xs text-gray-400">no generated keyterms yet</p>
+                )}
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  value={newKeytermInput}
+                  onChange={(event) => setNewKeytermInput(event.target.value)}
+                  placeholder="add important term"
+                  className="h-8 flex-1 rounded-lg border border-gray-200 bg-white px-2.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddKeyterm}
+                  className="h-8 rounded-lg border border-gray-200 bg-white px-2.5 text-xs text-gray-600 hover:bg-gray-100"
+                >
+                  add
+                </button>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
+              <p className="text-xs font-medium text-gray-700">recent corrections</p>
+              <div className="mt-2 space-y-1.5">
+                {recentCorrections.length > 0 ? (
+                  recentCorrections.slice(0, 12).map((pair) => (
+                    <p key={`${pair.original}=>${pair.corrected}`} className="text-xs text-gray-600">
+                      "{pair.original}" → "{pair.corrected}" ({Number(pair.count || 0)}x)
+                    </p>
+                  ))
+                ) : (
+                  <p className="text-xs text-gray-400">no correction history yet</p>
+                )}
+              </div>
+            </div>
+
             {error ? <p className="text-sm text-red-500">{error}</p> : null}
             {generationWarning ? <p className="text-sm text-amber-600">{generationWarning}</p> : null}
 
@@ -221,10 +347,10 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
               <button
                 type="button"
                 onClick={handleSave}
-                disabled={saving}
+                disabled={saving || regenerating}
                 className="w-full h-11 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {saving ? 'saving context and generating suggestions...' : 'save context'}
+                {saving ? 'saving context...' : 'save context'}
               </button>
               <button
                 type="button"
@@ -265,4 +391,26 @@ function Field({ label, value, onChange, placeholder, helper }) {
 function listToInput(list) {
   if (!Array.isArray(list) || list.length === 0) return ''
   return list.join(', ')
+}
+
+function uniqueTerms(values) {
+  const list = Array.isArray(values) ? values : []
+  const out = []
+  const seen = new Set()
+
+  for (const raw of list) {
+    const value = String(raw || '')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (!value) continue
+    if (value.length > 60) continue
+    if (value.split(' ').length > 8) continue
+    const key = value.toLowerCase()
+    if (seen.has(key)) continue
+    seen.add(key)
+    out.push(value)
+    if (out.length >= 200) break
+  }
+
+  return out
 }

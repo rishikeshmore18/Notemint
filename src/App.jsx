@@ -678,6 +678,10 @@ export default function App() {
         setContextMode('edit')
         setScreen('context-onboarding')
       }}
+      onOpenCorrectionDictionary={() => {
+        setContextMode('dictionary')
+        setScreen('context-onboarding')
+      }}
       onViewHistory={() => setScreen('history')}
       onSignOut={handleSignOut}
     />

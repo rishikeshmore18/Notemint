@@ -23,6 +23,7 @@ export default function RecordScreen({
   onViewHistory,
   onReEnrollVoice,
   onEditContext,
+  onOpenCorrectionDictionary,
 }) {
   const [isRecording, setIsRecording] = useState(false)
   const liveTranscriptEnabled = false
@@ -409,11 +410,35 @@ export default function RecordScreen({
                     type="button"
                     onClick={() => {
                       setMenuOpen(false)
+                      onOpenCorrectionDictionary?.()
+                    }}
+                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors border-t border-gray-100"
+                  >
+                    correction dictionary
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpen(false)
                       onReEnrollVoice?.()
                     }}
                     className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors border-t border-gray-100"
                   >
                     re-enroll voice
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!compareModeAvailable) return
+                      onCompareModeChange?.(!compareModeEnabled)
+                    }}
+                    className={`w-full text-left px-3 py-2 text-sm transition-colors border-t border-gray-100 ${
+                      compareModeAvailable
+                        ? 'text-gray-700 hover:bg-gray-50'
+                        : 'text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    testing mode: {compareModeAvailable ? (compareModeEnabled ? 'on' : 'off') : 'unavailable'}
                   </button>
                   <button
                     type="button"
@@ -579,30 +604,9 @@ export default function RecordScreen({
               </div>
             </div>
             {compareModeAvailable ? (
-              <div className="mt-3 w-full max-w-xs rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
-                <div className="flex items-center justify-between">
-                  <div className="text-left">
-                    <p className="text-xs font-medium text-amber-800">compare models</p>
-                    <p className="text-[11px] text-amber-700">internal testing only</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onCompareModeChange?.(!compareModeEnabled)}
-                    className={`relative h-6 w-11 rounded-full transition-colors ${
-                      compareModeEnabled ? 'bg-amber-500' : 'bg-amber-200'
-                    }`}
-                    role="switch"
-                    aria-checked={compareModeEnabled}
-                    aria-label="Toggle compare mode"
-                  >
-                    <span
-                      className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-                        compareModeEnabled ? 'translate-x-5' : 'translate-x-0.5'
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
+              <p className="mt-2 text-[11px] text-gray-400">
+                testing mode is available in the profile menu.
+              </p>
             ) : null}
             {false ? (
               <>
