@@ -22,12 +22,30 @@ grokRouter.post('/', requireAuth, upload.single('audio'), async (req, res) => {
   }
 
   try {
+    const startedAt = Date.now()
     const transcriptionHints = extractTranscriptionHints(req.body)
-    const segments = await transcribeAudio(req.file, provider, transcriptionHints)
-    return res.json({ segments })
+    const result = await transcribeAudio(req.file, provider, transcriptionHints)
+    const durationMs = Date.now() - startedAt
+    const segments = ensureSegments(result.segments, provider)
+
+    return res.json({
+      segments,
+      provider: result.provider,
+      model: result.model,
+      usedKeyterms: Boolean(result.usedKeyterms),
+      keytermCount: Number(result.keytermCount || 0),
+      durationMs: Math.max(0, Math.floor(durationMs)),
+      compareMode: Boolean(transcriptionHints.compareMode),
+    })
   } catch (err) {
-    const status = Number(err.status || 500)
-    return res.status(status).json({ error: err.message || 'Transcription failed' })
+    const status = normalizeErrorStatus(err?.status)
+    const safeMessage = sanitizeErrorMessage(status)
+    console.warn('[STT] provider request failed:', {
+      provider,
+      status,
+      detail: err?.message || 'unknown error',
+    })
+    return res.status(status).json({ error: safeMessage })
   }
 })
 
@@ -62,11 +80,17 @@ async function transcribeWithGrok(file) {
 
   if (!response.ok) {
     const text = await response.text()
-    throw httpError(response.status, `xAI STT failed: ${text}`)
+    throw providerError('grok', response.status, `xAI STT failed: ${text}`)
   }
 
   const result = await response.json()
-  return parseGrokResponse(result)
+  return {
+    provider: 'grok',
+    model: 'grok-stt',
+    usedKeyterms: false,
+    keytermCount: 0,
+    segments: parseGrokResponse(result),
+  }
 }
 
 async function transcribeWithDeepgram(file, hints = {}) {
@@ -85,6 +109,8 @@ async function transcribeWithDeepgram(file, hints = {}) {
   }
 
   const selectedKeyterms = buildProviderKeyterms(hints.contextTerms, 'deepgram')
+  let usedKeyterms = selectedKeyterms.length > 0
+  let keytermCount = selectedKeyterms.length
   const withHintsUrl = buildDeepgramUrl(baseParams, selectedKeyterms)
 
   let response = await fetch(withHintsUrl, {
@@ -98,6 +124,8 @@ async function transcribeWithDeepgram(file, hints = {}) {
   })
 
   if (!response.ok && selectedKeyterms.length > 0 && response.status >= 400 && response.status < 500) {
+    usedKeyterms = false
+    keytermCount = 0
     response = await fetch(buildDeepgramUrl(baseParams, []), {
       method: 'POST',
       headers: {
@@ -111,11 +139,17 @@ async function transcribeWithDeepgram(file, hints = {}) {
 
   if (!response.ok) {
     const text = await response.text()
-    throw httpError(response.status, `Deepgram STT failed: ${text}`)
+    throw providerError('deepgram', response.status, `Deepgram STT failed: ${text}`)
   }
 
   const result = await response.json()
-  return parseDeepgramResponse(result)
+  return {
+    provider: 'deepgram',
+    model: 'nova-3',
+    usedKeyterms,
+    keytermCount,
+    segments: parseDeepgramResponse(result),
+  }
 }
 
 async function transcribeWithAssemblyAI(file, hints = {}) {
@@ -135,15 +169,17 @@ async function transcribeWithAssemblyAI(file, hints = {}) {
 
   if (!uploadResponse.ok) {
     const text = await uploadResponse.text()
-    throw httpError(uploadResponse.status, `AssemblyAI upload failed: ${text}`)
+    throw providerError('assemblyai', uploadResponse.status, `AssemblyAI upload failed: ${text}`)
   }
 
   const uploadPayload = await uploadResponse.json()
   if (!uploadPayload?.upload_url) {
-    throw httpError(502, 'AssemblyAI upload did not return an upload_url')
+    throw providerError('assemblyai', 502, 'AssemblyAI upload did not return an upload_url')
   }
 
   const selectedKeyterms = buildProviderKeyterms(hints.contextTerms, 'assemblyai')
+  let usedKeyterms = selectedKeyterms.length > 0
+  let keytermCount = selectedKeyterms.length
   const transcriptBodyWithHints = {
     audio_url: uploadPayload.upload_url,
     speech_models: ['universal-3-pro', 'universal-2'],
@@ -170,6 +206,8 @@ async function transcribeWithAssemblyAI(file, hints = {}) {
     transcriptResponse.status >= 400 &&
     transcriptResponse.status < 500
   ) {
+    usedKeyterms = false
+    keytermCount = 0
     transcriptResponse = await fetch('https://api.assemblyai.com/v2/transcript', {
       method: 'POST',
       headers: {
@@ -190,16 +228,22 @@ async function transcribeWithAssemblyAI(file, hints = {}) {
 
   if (!transcriptResponse.ok) {
     const text = await transcriptResponse.text()
-    throw httpError(transcriptResponse.status, `AssemblyAI transcript request failed: ${text}`)
+    throw providerError('assemblyai', transcriptResponse.status, `AssemblyAI transcript request failed: ${text}`)
   }
 
   const transcriptPayload = await transcriptResponse.json()
   if (!transcriptPayload?.id) {
-    throw httpError(502, 'AssemblyAI transcript request did not return an id')
+    throw providerError('assemblyai', 502, 'AssemblyAI transcript request did not return an id')
   }
 
   const result = await pollAssemblyAITranscript(transcriptPayload.id)
-  return parseAssemblyAIResponse(result)
+  return {
+    provider: 'assemblyai',
+    model: 'universal-3-pro,universal-2',
+    usedKeyterms,
+    keytermCount,
+    segments: parseAssemblyAIResponse(result),
+  }
 }
 
 async function pollAssemblyAITranscript(transcriptId) {
@@ -218,19 +262,19 @@ async function pollAssemblyAITranscript(transcriptId) {
 
     if (!response.ok) {
       const text = await response.text()
-      throw httpError(response.status, `AssemblyAI polling failed: ${text}`)
+      throw providerError('assemblyai', response.status, `AssemblyAI polling failed: ${text}`)
     }
 
     const payload = await response.json()
     if (payload.status === 'completed') return payload
     if (payload.status === 'error') {
-      throw httpError(502, `AssemblyAI transcription failed: ${payload.error || 'unknown error'}`)
+      throw providerError('assemblyai', 502, `AssemblyAI transcription failed: ${payload.error || 'unknown error'}`)
     }
 
     await delay(pollIntervalMs)
   }
 
-  throw httpError(504, 'AssemblyAI transcription timed out')
+  throw providerError('assemblyai', 504, 'AssemblyAI transcription timed out')
 }
 
 function parseGrokResponse(result) {
@@ -449,6 +493,7 @@ function extractTranscriptionHints(body) {
 
   return {
     contextTerms: dedupeTerms(contextTerms).slice(0, 200),
+    compareMode: parseBoolean(body?.compare_mode),
   }
 }
 
@@ -600,4 +645,44 @@ function httpError(status, message) {
   const err = new Error(message)
   err.status = status
   return err
+}
+
+function providerError(provider, status, detail) {
+  const err = httpError(status, detail)
+  err.provider = provider
+  return err
+}
+
+function normalizeErrorStatus(status) {
+  const parsed = Number(status)
+  if (!Number.isFinite(parsed)) return 500
+  if (parsed < 400) return 500
+  if (parsed > 599) return 500
+  return Math.floor(parsed)
+}
+
+function sanitizeErrorMessage(status) {
+  if (status === 400) return 'Transcription request was rejected. Check audio format or meeting terms.'
+  if (status === 401 || status === 403) return 'Transcription provider authentication failed.'
+  if (status === 408 || status === 504) return 'Transcription timed out. Please retry.'
+  if (status === 413) return 'Audio file is too large.'
+  if (status === 415) return 'Unsupported audio format.'
+  if (status === 429) return 'Transcription rate limit reached. Please try again shortly.'
+  if (status >= 500) return 'Transcription provider is temporarily unavailable.'
+  return 'Transcription failed.'
+}
+
+function ensureSegments(segments, provider) {
+  if (Array.isArray(segments) && segments.length > 0) {
+    return segments
+  }
+  return transcriptToFallbackSegment('', provider)
+}
+
+function parseBoolean(value) {
+  if (typeof value === 'boolean') return value
+  const str = String(value || '')
+    .trim()
+    .toLowerCase()
+  return str === '1' || str === 'true' || str === 'yes' || str === 'on'
 }

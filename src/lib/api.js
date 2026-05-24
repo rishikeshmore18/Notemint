@@ -122,6 +122,9 @@ export async function transcribeAudio(audioBlob, provider = 'grok', options = {}
   if (options?.meetingContext && typeof options.meetingContext === 'object') {
     formData.append('meeting_context', JSON.stringify(options.meetingContext))
   }
+  if (typeof options?.compareMode !== 'undefined') {
+    formData.append('compare_mode', options.compareMode ? 'true' : 'false')
+  }
 
   const response = await fetch(`${BASE_URL}/api/grok`, {
     method: 'POST',
