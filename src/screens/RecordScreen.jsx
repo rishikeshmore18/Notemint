@@ -15,6 +15,9 @@ export default function RecordScreen({
   user,
   transcriptionProvider = 'assemblyai',
   onTranscriptionProviderChange,
+  compareModeAvailable = false,
+  compareModeEnabled = false,
+  onCompareModeChange,
   onMeetingComplete,
   onSignOut,
   onViewHistory,
@@ -568,6 +571,32 @@ export default function RecordScreen({
                 })}
               </div>
             </div>
+            {compareModeAvailable ? (
+              <div className="mt-3 w-full max-w-xs rounded-xl border border-amber-200 bg-amber-50 px-3 py-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-left">
+                    <p className="text-xs font-medium text-amber-800">compare models</p>
+                    <p className="text-[11px] text-amber-700">internal testing only</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onCompareModeChange?.(!compareModeEnabled)}
+                    className={`relative h-6 w-11 rounded-full transition-colors ${
+                      compareModeEnabled ? 'bg-amber-500' : 'bg-amber-200'
+                    }`}
+                    role="switch"
+                    aria-checked={compareModeEnabled}
+                    aria-label="Toggle compare mode"
+                  >
+                    <span
+                      className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
+                        compareModeEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+            ) : null}
             {false ? (
               <>
               <div className="mt-8 w-full max-w-xs bg-gray-50 rounded-2xl px-4 py-3.5 flex items-center justify-between">

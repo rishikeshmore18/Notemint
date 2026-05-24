@@ -111,7 +111,7 @@ export async function streamSummary(transcript, onChunk, onComplete, onError, op
   }
 }
 
-export async function transcribeAudio(audioBlob, provider = 'grok', options = {}) {
+export async function transcribeAudioDetailed(audioBlob, provider = 'grok', options = {}) {
   const token = await getAuthToken()
   const formData = new FormData()
   formData.append('audio', audioBlob, inferFileName(audioBlob))
@@ -140,7 +140,20 @@ export async function transcribeAudio(audioBlob, provider = 'grok', options = {}
   }
 
   const payload = await response.json()
-  return Array.isArray(payload?.segments) ? payload.segments : []
+  return {
+    segments: Array.isArray(payload?.segments) ? payload.segments : [],
+    provider: String(payload?.provider || provider),
+    model: String(payload?.model || ''),
+    usedKeyterms: Boolean(payload?.usedKeyterms),
+    keytermCount: Number(payload?.keytermCount || 0),
+    durationMs: Number(payload?.durationMs || 0),
+    compareMode: Boolean(payload?.compareMode),
+  }
+}
+
+export async function transcribeAudio(audioBlob, provider = 'grok', options = {}) {
+  const payload = await transcribeAudioDetailed(audioBlob, provider, options)
+  return payload.segments
 }
 
 export async function grokDiarizeAudio(audioBlob) {
