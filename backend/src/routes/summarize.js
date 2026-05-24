@@ -29,6 +29,8 @@ If none: - None.
 
 Grounding rules:
 - Use only transcript evidence. Do not infer missing facts.
+- Meeting context is for terminology disambiguation only.
+- If transcript conflicts with context, trust transcript.
 - Do not invent names, dates, deadlines, decisions, or action owners.
 - Confidence rubric for action items:
   - High: explicit owner + explicit action. Timeframe optional.
@@ -137,9 +139,16 @@ function buildSummaryUserMessage(transcript, meetingContext) {
   }
 
   const lines = []
+  if (meetingContext.industry) lines.push(`Industry: ${meetingContext.industry}`)
   if (meetingContext.topic) lines.push(`Topic: ${meetingContext.topic}`)
   if (meetingContext.goal) lines.push(`Goal: ${meetingContext.goal}`)
   if (meetingContext.meetingType) lines.push(`Meeting type: ${meetingContext.meetingType}`)
+  if (meetingContext.knownParticipants.length > 0) {
+    lines.push(`Known participants: ${meetingContext.knownParticipants.join(', ')}`)
+  }
+  if (meetingContext.knownTerms.length > 0) {
+    lines.push(`Known terms: ${meetingContext.knownTerms.join(', ')}`)
+  }
   if (meetingContext.expectedParticipants.length > 0) {
     lines.push(`Expected participants: ${meetingContext.expectedParticipants.join(', ')}`)
   }
@@ -175,9 +184,12 @@ function sanitizeMeetingContext(input) {
   if (!input || typeof input !== 'object') return null
 
   const context = {
+    industry: cleanOneLine(input.industry, 48),
     topic: cleanOneLine(input.topic, 120),
     goal: cleanOneLine(input.goal, 180),
     meetingType: cleanOneLine(input.meetingType, 48),
+    knownParticipants: normalizeTerms(input.knownParticipants, { maxItems: 20, maxLen: 60, maxWords: 8 }),
+    knownTerms: normalizeTerms(input.knownTerms, { maxItems: 50, maxLen: 60, maxWords: 8 }),
     expectedParticipants: normalizeTerms(input.expectedParticipants, { maxItems: 20, maxLen: 60, maxWords: 8 }),
     importantTerms: normalizeTerms(input.importantTerms, { maxItems: 40, maxLen: 60, maxWords: 8 }),
     summaryContext: cleanOneLine(input.summaryContext, 280),
@@ -186,9 +198,12 @@ function sanitizeMeetingContext(input) {
   }
 
   const hasData =
+    context.industry ||
     context.topic ||
     context.goal ||
     context.meetingType ||
+    context.knownParticipants.length > 0 ||
+    context.knownTerms.length > 0 ||
     context.expectedParticipants.length > 0 ||
     context.importantTerms.length > 0 ||
     context.summaryContext ||
@@ -207,6 +222,7 @@ function normalizeConfusionPairs(input) {
     const original = cleanOneLine(item?.original, 80)
     const corrected = cleanOneLine(item?.corrected, 80)
     if (!original || !corrected) continue
+    if (looksSensitive(original) || looksSensitive(corrected)) continue
     if (original.toLowerCase() === corrected.toLowerCase()) continue
     const key = `${original.toLowerCase()}=>${corrected.toLowerCase()}`
     if (seen.has(key)) continue
@@ -229,6 +245,7 @@ function normalizeTerms(input, options = {}) {
   for (const raw of list) {
     const value = cleanOneLine(raw, maxLen)
     if (!value) continue
+    if (looksSensitive(value)) continue
     if (value.split(' ').length > maxWords) continue
     const key = value.toLowerCase()
     if (seen.has(key)) continue
@@ -245,5 +262,15 @@ function cleanOneLine(value, maxLen) {
     .replace(/\s+/g, ' ')
     .trim()
   if (!cleaned) return ''
+  if (looksSensitive(cleaned)) return ''
   return cleaned.slice(0, maxLen)
+}
+
+function looksSensitive(value) {
+  const text = String(value || '').trim()
+  if (!text) return false
+  if (/@/.test(text)) return true
+  if (/\b(?:\+?\d[\d\s().-]{8,}\d)\b/.test(text)) return true
+  if (/\b\d{9,}\b/.test(text)) return true
+  return false
 }

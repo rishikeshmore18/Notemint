@@ -749,6 +749,7 @@ function buildMeetingContextPayload({
   const topic = String(meetingTopic || '').trim().slice(0, 120)
   const goal = String(meetingGoal || '').trim().slice(0, 180)
   const finalMeetingType = String(meetingType || '').trim().slice(0, 48)
+  const industry = String(contextProfile?.industry || '').trim().slice(0, 48)
 
   const generatedKeyterms = Array.isArray(contextProfile?.generated_keyterms)
     ? contextProfile.generated_keyterms
@@ -773,6 +774,19 @@ function buildMeetingContextPayload({
     goal,
   ]).slice(0, 200)
 
+  const knownParticipants = uniqueTerms([
+    ...expectedParticipants,
+    ...(Array.isArray(contextProfile?.participant_names) ? contextProfile.participant_names : []),
+  ]).slice(0, 20)
+
+  const knownTerms = uniqueTerms([
+    ...importantTerms,
+    ...(Array.isArray(contextProfile?.organization_terms) ? contextProfile.organization_terms : []),
+    ...(Array.isArray(contextProfile?.custom_terms) ? contextProfile.custom_terms : []),
+    ...generatedKeyterms,
+    ...correctionBoostTerms,
+  ]).slice(0, 50)
+
   return {
     mode: meetingDetailsMode === 'details' ? 'details' : 'skip',
     topic,
@@ -780,6 +794,9 @@ function buildMeetingContextPayload({
     expectedParticipants,
     importantTerms,
     meetingType: finalMeetingType,
+    industry,
+    knownParticipants,
+    knownTerms,
     contextTerms,
     summaryContext: String(contextProfile?.summary_context || ''),
     doNotInfer: Array.isArray(contextProfile?.do_not_infer) ? contextProfile.do_not_infer : [],
