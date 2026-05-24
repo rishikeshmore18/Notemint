@@ -14,7 +14,7 @@ import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supaba
 import { streamSummary, transcribeAudio, transcribeAudioDetailed } from './lib/api'
 import { rememberSpeakerLabels } from './lib/speakerMemory'
 import { hasContextProfile, setContextOnboardingCompleted } from './lib/contextProfile'
-import { compressTranscript } from './lib/summary'
+import { compressTranscript, getRecentTranscriptionEvaluations, saveTranscriptionEvaluations } from './lib/summary'
 import { repairSpeakerTurns } from './lib/speakerTurnRepair'
 
 export default function App() {
@@ -29,6 +29,7 @@ export default function App() {
   const [meetingContext, setMeetingContext] = useState(null)
   const [compareModeEnabled, setCompareModeEnabled] = useState(false)
   const [compareResults, setCompareResults] = useState([])
+  const [compareHistory, setCompareHistory] = useState([])
   const [bestTranscriptProvider, setBestTranscriptProvider] = useState('')
   const [bestSummaryProvider, setBestSummaryProvider] = useState('')
   const [diarizedSegments, setDiarizedSegments] = useState([])
@@ -44,6 +45,29 @@ export default function App() {
   const redirectTimeoutRef = useRef(null)
   const compareRunRef = useRef(0)
   const compareModeAvailable = getCompareModeAvailability()
+
+  useEffect(() => {
+    let cancelled = false
+    if (screen !== 'compare-results' || !currentUser?.id) return () => {}
+
+    ;(async () => {
+      try {
+        const history = await getRecentTranscriptionEvaluations(supabase, currentUser.id, 80)
+        if (!cancelled) {
+          setCompareHistory(history)
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setCompareHistory([])
+          console.warn('[App] Could not load compare history:', err?.message || err)
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [screen, currentUser?.id])
 
   useEffect(() => {
     let isMounted = true
@@ -273,6 +297,11 @@ export default function App() {
       status: 'queued',
       error: '',
       userRating: { bestTranscript: false, bestSummary: false },
+      notes: '',
+      transcriptRating: null,
+      summaryRating: null,
+      correctionCount: 0,
+      manualSpeakerFixes: 0,
     }))
 
     setCompareResults(initial)
@@ -345,6 +374,44 @@ export default function App() {
     })
 
     await Promise.allSettled(tasks)
+  }
+
+  function buildCompareEvaluationRows() {
+    return compareResults.map((item) => ({
+      provider: item.provider,
+      model: item.model || null,
+      segments: Array.isArray(item.segments) ? item.segments : [],
+      summary: item.summary || '',
+      durationMs: Number(item.durationMs || 0),
+      speakerCount: Number(item.speakerCount || 0),
+      segmentCount: Number(item.segmentCount || 0),
+      correctionCount: Number(item.correctionCount || 0),
+      transcriptRating: item.transcriptRating,
+      summaryRating: item.summaryRating,
+      notes: item.notes || (item.error ? `provider_error: ${item.error}` : ''),
+      manualSpeakerFixes: Number(item.manualSpeakerFixes || 0),
+      bestTranscript: bestTranscriptProvider === item.provider,
+      bestSummary: bestSummaryProvider === item.provider,
+    }))
+  }
+
+  async function persistCompareEvaluations(meetingId = null) {
+    if (!currentUser?.id || compareResults.length === 0) return
+    const rows = buildCompareEvaluationRows()
+    try {
+      await saveTranscriptionEvaluations(supabase, {
+        userId: currentUser.id,
+        meetingId,
+        evaluations: rows,
+        compareRunId: compareRunRef.current ? String(compareRunRef.current) : null,
+      })
+      if (screen === 'compare-results') {
+        const history = await getRecentTranscriptionEvaluations(supabase, currentUser.id, 80)
+        setCompareHistory(history)
+      }
+    } catch (err) {
+      console.warn('[App] Could not persist compare evaluations:', err?.message || err)
+    }
   }
 
   const bestAvailableSegments = diarizedSegments.length > 0 ? diarizedSegments : meetingSegments
@@ -492,6 +559,7 @@ export default function App() {
     return (
       <CompareResultsScreen
         results={compareResults}
+        history={compareHistory}
         bestTranscriptProvider={bestTranscriptProvider}
         bestSummaryProvider={bestSummaryProvider}
         onSelectBestTranscript={(provider) => {
@@ -521,13 +589,47 @@ export default function App() {
         onContinueWithProvider={(provider) => {
           const selected = compareResults.find((item) => item.provider === provider && item.status === 'done')
           if (!selected) return
+          void persistCompareEvaluations(null)
           const segments = Array.isArray(selected.segments) ? selected.segments : []
           setMeetingSegments([])
           setDiarizedSegments(segments)
           setConfirmedLabelMap({})
           setScreen('speaker-review')
         }}
+        onUpdateProviderRating={(provider, patch) => {
+          setCompareResults((prev) =>
+            prev.map((item) =>
+              item.provider === provider
+                ? {
+                    ...item,
+                    transcriptRating:
+                      patch && Object.prototype.hasOwnProperty.call(patch, 'transcriptRating')
+                        ? patch.transcriptRating
+                        : item.transcriptRating,
+                    summaryRating:
+                      patch && Object.prototype.hasOwnProperty.call(patch, 'summaryRating')
+                        ? patch.summaryRating
+                        : item.summaryRating,
+                    notes:
+                      patch && Object.prototype.hasOwnProperty.call(patch, 'notes')
+                        ? String(patch.notes || '').slice(0, 300)
+                        : item.notes,
+                    correctionCount:
+                      patch && Object.prototype.hasOwnProperty.call(patch, 'correctionCount')
+                        ? Math.max(0, Number(patch.correctionCount) || 0)
+                        : item.correctionCount,
+                    manualSpeakerFixes:
+                      patch && Object.prototype.hasOwnProperty.call(patch, 'manualSpeakerFixes')
+                        ? Math.max(0, Number(patch.manualSpeakerFixes) || 0)
+                        : item.manualSpeakerFixes,
+                  }
+                : item,
+            ),
+          )
+        }}
+        onSaveEvaluations={() => void persistCompareEvaluations(null)}
         onNewMeeting={() => {
+          void persistCompareEvaluations(null)
           setMeetingSegments([])
           setMeetingAudioBlob(null)
           setMeetingContext(null)
@@ -578,6 +680,11 @@ export default function App() {
                 status: 'failed',
                 error: 'No audio captured.',
                 userRating: { bestTranscript: false, bestSummary: false },
+                notes: '',
+                transcriptRating: null,
+                summaryRating: null,
+                correctionCount: 0,
+                manualSpeakerFixes: 0,
               },
               {
                 provider: 'deepgram',
@@ -590,6 +697,11 @@ export default function App() {
                 status: 'failed',
                 error: 'No audio captured.',
                 userRating: { bestTranscript: false, bestSummary: false },
+                notes: '',
+                transcriptRating: null,
+                summaryRating: null,
+                correctionCount: 0,
+                manualSpeakerFixes: 0,
               },
               {
                 provider: 'grok',
@@ -602,6 +714,11 @@ export default function App() {
                 status: 'failed',
                 error: 'No audio captured.',
                 userRating: { bestTranscript: false, bestSummary: false },
+                notes: '',
+                transcriptRating: null,
+                summaryRating: null,
+                correctionCount: 0,
+                manualSpeakerFixes: 0,
               },
             ])
             setScreen('compare-results')

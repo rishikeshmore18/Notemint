@@ -204,6 +204,112 @@ export async function saveTranscriptCorrections(
   return true
 }
 
+export async function saveTranscriptionEvaluations(
+  supabase,
+  { userId, meetingId = null, evaluations = [], compareRunId = null },
+) {
+  const list = Array.isArray(evaluations) ? evaluations : []
+  if (!userId || list.length === 0) return 0
+
+  const rows = list
+    .map((item) => {
+      const provider = String(item?.provider || '').trim()
+      if (!provider) return null
+      const segments = Array.isArray(item?.segments) ? item.segments : []
+
+      return {
+        user_id: userId,
+        meeting_id: meetingId || null,
+        provider,
+        model: String(item?.model || '').trim() || null,
+        segments: segments.slice(0, 500),
+        summary: String(item?.summary || '').trim() || null,
+        duration_ms: toIntOrNull(item?.durationMs),
+        speaker_count: toIntOrNull(item?.speakerCount),
+        segment_count: toIntOrNull(item?.segmentCount),
+        correction_count: toIntOrZero(item?.correctionCount),
+        transcript_rating: normalizeRating(item?.transcriptRating),
+        summary_rating: normalizeRating(item?.summaryRating),
+        notes: String(item?.notes || '').trim() || null,
+        manual_speaker_fixes: toIntOrZero(item?.manualSpeakerFixes),
+        best_transcript: Boolean(item?.bestTranscript),
+        best_summary: Boolean(item?.bestSummary),
+        compare_run_id: compareRunId ? String(compareRunId) : null,
+        created_at: new Date().toISOString(),
+      }
+    })
+    .filter(Boolean)
+
+  if (rows.length === 0) return 0
+
+  const { error } = await supabase.from('transcription_evaluations').insert(rows)
+  if (!error) {
+    return rows.length
+  }
+
+  // Backward compatibility for the base schema without extended columns.
+  const fallbackRows = rows.map((row) => ({
+    user_id: row.user_id,
+    meeting_id: row.meeting_id,
+    provider: row.provider,
+    model: row.model,
+    segments: row.segments,
+    summary: row.summary,
+    duration_ms: row.duration_ms,
+    speaker_count: row.speaker_count,
+    segment_count: row.segment_count,
+    correction_count: row.correction_count,
+    transcript_rating: row.transcript_rating,
+    summary_rating: row.summary_rating,
+    notes:
+      row.notes ||
+      JSON.stringify({
+        best_transcript: row.best_transcript,
+        best_summary: row.best_summary,
+        manual_speaker_fixes: row.manual_speaker_fixes,
+        compare_run_id: row.compare_run_id,
+      }),
+    created_at: row.created_at,
+  }))
+
+  const fallback = await supabase.from('transcription_evaluations').insert(fallbackRows)
+  if (fallback.error) {
+    throw new Error(fallback.error.message || 'Could not save transcription evaluations')
+  }
+
+  return fallbackRows.length
+}
+
+export async function getRecentTranscriptionEvaluations(supabase, userId, limit = 60) {
+  if (!userId) return []
+
+  const safeLimit = Math.max(10, Math.min(200, Number(limit) || 60))
+  const selectWithExtended =
+    'id, provider, model, duration_ms, speaker_count, segment_count, correction_count, transcript_rating, summary_rating, notes, manual_speaker_fixes, best_transcript, best_summary, compare_run_id, created_at'
+
+  const primary = await supabase
+    .from('transcription_evaluations')
+    .select(selectWithExtended)
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(safeLimit)
+
+  if (!primary.error) return Array.isArray(primary.data) ? primary.data : []
+
+  const fallback = await supabase
+    .from('transcription_evaluations')
+    .select('id, provider, model, duration_ms, speaker_count, segment_count, correction_count, transcript_rating, summary_rating, notes, created_at')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+    .limit(safeLimit)
+
+  if (fallback.error) {
+    throw new Error(fallback.error.message || 'Could not load transcription evaluations')
+  }
+
+  return Array.isArray(fallback.data) ? fallback.data : []
+}
+
 export function getLocalMeetings(userId) {
   try {
     const raw = localStorage.getItem(LOCAL_MEETINGS_KEY_PREFIX + userId)
@@ -259,4 +365,24 @@ function normalizeContextTerms(values) {
   }
 
   return out
+}
+
+function normalizeRating(value) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return null
+  const rounded = Math.round(parsed)
+  if (rounded < 1 || rounded > 5) return null
+  return rounded
+}
+
+function toIntOrNull(value) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return null
+  return Math.max(0, Math.round(parsed))
+}
+
+function toIntOrZero(value) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return 0
+  return Math.max(0, Math.round(parsed))
 }
