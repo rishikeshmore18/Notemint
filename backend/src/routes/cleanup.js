@@ -103,15 +103,7 @@ function safeTokenEqual(a, b) {
 }
 
 async function loadExpiredAudioMeetings(supabase, limit) {
-  const { data, error } = await supabase.rpc('cleanup_expired_meeting_audio', { p_limit: limit })
-
-  if (!error) {
-    return normalizeExpiredRows(data)
-  }
-
-  console.warn('[Cleanup] cleanup_expired_meeting_audio RPC failed, falling back to direct metadata query:', error.message)
-
-  const fallback = await supabase
+  const { data, error } = await supabase
     .from('meetings')
     .select('id, user_id, audio_storage_path, audio_expires_at')
     .not('audio_storage_path', 'is', null)
@@ -121,11 +113,11 @@ async function loadExpiredAudioMeetings(supabase, limit) {
     .order('audio_expires_at', { ascending: true })
     .limit(limit)
 
-  if (fallback.error) {
-    throw new Error(`Could not load expired audio metadata: ${fallback.error.message}`)
+  if (error) {
+    throw new Error(`Could not load expired audio metadata: ${error.message}`)
   }
 
-  return normalizeExpiredRows(fallback.data)
+  return normalizeExpiredRows(data)
 }
 
 function normalizeExpiredRows(rows) {
