@@ -1,0 +1,35 @@
+name: Cleanup Expired Meeting Audio
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Run without deleting files'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      limit:
+        description: 'Maximum expired audio rows to process'
+        required: false
+        default: '500'
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Cleanup expired audio
+        env:
+          CLEANUP_JOB_SECRET: ${{ secrets.CLEANUP_JOB_SECRET }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          LIMIT: ${{ github.event.inputs.limit || '500' }}
+        run: |
+          curl --fail-with-body \
+            -X POST "https://notemint-production.up.railway.app/api/cleanup/expired-audio" \
+            -H "Content-Type: application/json" \
+            -H "x-cleanup-secret: ${CLEANUP_JOB_SECRET}" \
+            -d "{\"dry_run\":${DRY_RUN},\"limit\":${LIMIT}}"

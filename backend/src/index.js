@@ -6,6 +6,7 @@ import { summarizeRouter } from './routes/summarize.js'
 import { grokRouter } from './routes/grok.js'
 import { voiceRouter } from './routes/voice.js'
 import { contextRouter } from './routes/context.js'
+import { cleanupRouter } from './routes/cleanup.js'
 
 const app = express()
 const PORT = Number(process.env.PORT || 3001)
@@ -29,6 +30,7 @@ app.use('/api/summarize', summarizeRouter)
 app.use('/api/grok', grokRouter)
 app.use('/api/voice', voiceRouter)
 app.use('/api/context', contextRouter)
+app.use('/api/cleanup', cleanupRouter)
 
 app.use((err, _req, res, _next) => {
   console.error('[Backend Error]', err)
