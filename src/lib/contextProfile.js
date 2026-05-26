@@ -95,6 +95,23 @@ export async function getContextProfile(supabase, userId) {
 export async function upsertContextProfile(supabase, userId, profile) {
   if (!userId) throw new Error('Missing user id')
 
+  const {
+    data: { user: authUser },
+    error: authError,
+  } = await supabase.auth.getUser()
+
+  if (authError) {
+    throw new Error(authError.message || 'Could not verify your session')
+  }
+
+  if (!authUser?.id) {
+    throw new Error('Session expired. Please sign in again.')
+  }
+
+  // Always bind writes to the current auth session user.
+  // This prevents stale UI state from causing anon/foreign-id RLS failures.
+  const targetUserId = authUser.id
+
   const userTerms = normalizeList([
     ...normalizeList(profile.organizationTerms),
     ...normalizeList(profile.customTerms),
@@ -106,7 +123,7 @@ export async function upsertContextProfile(supabase, userId, profile) {
   const mergedGeneratedTerms = normalizeList([...generatedTerms, ...userTerms]).slice(0, 200)
 
   const payload = {
-    user_id: userId,
+    user_id: targetUserId,
     industry: emptyToNull(profile.industry),
     role: emptyToNull(profile.role),
     meeting_types: normalizeList(profile.meetingTypes),
@@ -127,7 +144,7 @@ export async function upsertContextProfile(supabase, userId, profile) {
     .single()
 
   if (!error) {
-    setContextOnboardingCompleted(userId)
+    setContextOnboardingCompleted(targetUserId)
     return data
   }
 
@@ -148,7 +165,7 @@ export async function upsertContextProfile(supabase, userId, profile) {
     throw new Error(fallbackError.message || 'Could not save context profile')
   }
 
-  setContextOnboardingCompleted(userId)
+  setContextOnboardingCompleted(targetUserId)
   return fallbackData
 }
 
