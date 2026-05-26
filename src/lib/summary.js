@@ -97,15 +97,31 @@ export async function createMeetingDraft(supabase, userId, title = null) {
 
   const finalTitle = title || buildDefaultMeetingTitle()
 
-  const { data, error } = await supabase
+  const payload = {
+    user_id: userId,
+    title: finalTitle,
+    created_at: new Date().toISOString(),
+    audio_upload_status: 'pending',
+  }
+
+  let { data, error } = await supabase
     .from('meetings')
-    .insert({
-      user_id: userId,
-      title: finalTitle,
-      created_at: new Date().toISOString(),
-    })
+    .insert(payload)
     .select('id')
     .single()
+
+  // Backward compatibility if audio_upload_status column is not yet present.
+  if (error && isMissingColumnError(error, 'audio_upload_status')) {
+    ;({ data, error } = await supabase
+      .from('meetings')
+      .insert({
+        user_id: userId,
+        title: finalTitle,
+        created_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single())
+  }
 
   if (error) {
     throw new Error(error.message || 'Could not create meeting')
@@ -149,9 +165,33 @@ export async function uploadMeetingAudio(
       audio_retention_days: safeRetentionDays,
       audio_expires_at: expiresAt,
       audio_deleted_at: null,
+      audio_upload_status: 'uploaded',
     })
     .eq('id', meetingId)
     .eq('user_id', userId)
+
+  if (updateError && isMissingColumnError(updateError, 'audio_upload_status')) {
+    const fallback = await supabase
+      .from('meetings')
+      .update({
+        audio_storage_path: path,
+        audio_mime_type: mimeType,
+        audio_size_bytes: audioBlob.size,
+        audio_duration_seconds: toIntOrNull(durationSeconds),
+        audio_uploaded_at: new Date().toISOString(),
+        audio_retention_days: safeRetentionDays,
+        audio_expires_at: expiresAt,
+        audio_deleted_at: null,
+      })
+      .eq('id', meetingId)
+      .eq('user_id', userId)
+
+    if (fallback.error) {
+      throw new Error(fallback.error.message || 'Could not save meeting audio metadata')
+    }
+
+    return { ok: true, path, error: null }
+  }
 
   if (updateError) {
     throw new Error(updateError.message || 'Could not save meeting audio metadata')
@@ -185,12 +225,56 @@ export async function deleteMeetingAudio(supabase, { userId, meetingId, audioSto
       audio_uploaded_at: null,
       audio_expires_at: null,
       audio_deleted_at: new Date().toISOString(),
+      audio_upload_status: 'failed',
     })
     .eq('id', meetingId)
     .eq('user_id', userId)
 
+  if (error && isMissingColumnError(error, 'audio_upload_status')) {
+    const fallback = await supabase
+      .from('meetings')
+      .update({
+        audio_storage_path: null,
+        audio_mime_type: null,
+        audio_size_bytes: null,
+        audio_duration_seconds: null,
+        audio_uploaded_at: null,
+        audio_expires_at: null,
+        audio_deleted_at: new Date().toISOString(),
+      })
+      .eq('id', meetingId)
+      .eq('user_id', userId)
+
+    if (fallback.error) {
+      throw new Error(fallback.error.message || 'Could not update meeting audio metadata')
+    }
+
+    return true
+  }
+
   if (error) {
     throw new Error(error.message || 'Could not update meeting audio metadata')
+  }
+
+  return true
+}
+
+export async function setMeetingAudioUploadStatus(supabase, { userId, meetingId, status }) {
+  const nextStatus = normalizeAudioUploadStatus(status)
+  if (!supabase || !userId || !meetingId || !nextStatus) return false
+
+  const { error } = await supabase
+    .from('meetings')
+    .update({ audio_upload_status: nextStatus })
+    .eq('id', meetingId)
+    .eq('user_id', userId)
+
+  if (error && isMissingColumnError(error, 'audio_upload_status')) {
+    return false
+  }
+
+  if (error) {
+    throw new Error(error.message || 'Could not update audio upload status')
   }
 
   return true
@@ -602,4 +686,17 @@ function toIntOrZero(value) {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return 0
   return Math.max(0, Math.round(parsed))
+}
+
+function normalizeAudioUploadStatus(value) {
+  const text = String(value || '').toLowerCase().trim()
+  if (text === 'pending' || text === 'uploaded' || text === 'failed') return text
+  return null
+}
+
+function isMissingColumnError(error, columnName) {
+  const code = String(error?.code || '')
+  const message = String(error?.message || '').toLowerCase()
+  const needle = String(columnName || '').toLowerCase()
+  return code === '42703' || (needle && message.includes(needle) && message.includes('column'))
 }

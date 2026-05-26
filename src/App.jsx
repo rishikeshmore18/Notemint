@@ -14,7 +14,14 @@ import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supaba
 import { streamSummary, transcribeAudio, transcribeAudioDetailed } from './lib/api'
 import { rememberSpeakerLabels } from './lib/speakerMemory'
 import { hasContextProfile, setContextOnboardingCompleted } from './lib/contextProfile'
-import { compressTranscript, getRecentTranscriptionEvaluations, saveTranscriptionEvaluations } from './lib/summary'
+import {
+  compressTranscript,
+  createMeetingDraft,
+  getRecentTranscriptionEvaluations,
+  setMeetingAudioUploadStatus,
+  saveTranscriptionEvaluations,
+  uploadMeetingAudio,
+} from './lib/summary'
 import { repairSpeakerTurns } from './lib/speakerTurnRepair'
 
 export default function App() {
@@ -26,6 +33,9 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null)
   const [meetingSegments, setMeetingSegments] = useState([])
   const [meetingAudioBlob, setMeetingAudioBlob] = useState(null)
+  const [meetingId, setMeetingId] = useState(null)
+  const [audioSaveMessage, setAudioSaveMessage] = useState('')
+  const [audioUploadStatus, setAudioUploadStatus] = useState('pending')
   const [meetingContext, setMeetingContext] = useState(null)
   const [compareModeEnabled, setCompareModeEnabled] = useState(false)
   const [compareResults, setCompareResults] = useState([])
@@ -414,6 +424,124 @@ export default function App() {
     }
   }
 
+  async function prepareMeetingAudioPersistence(audioBlob) {
+    setMeetingId(null)
+    setAudioSaveMessage('')
+    setAudioUploadStatus('pending')
+
+    if (!currentUser?.id || !audioBlob || audioBlob.size === 0) {
+      setAudioUploadStatus('failed')
+      if (audioBlob && audioBlob.size === 0) {
+        setAudioSaveMessage('Audio playback could not be saved. Transcript is still available.')
+      }
+      return null
+    }
+
+    let draftMeetingId = null
+    try {
+      draftMeetingId = await createMeetingDraft(supabase, currentUser.id)
+      setMeetingId(draftMeetingId)
+    } catch (err) {
+      console.warn('[App] Could not create meeting draft for audio:', err?.message || err)
+      setAudioUploadStatus('failed')
+      setAudioSaveMessage('Audio playback could not be saved. Transcript is still available.')
+      return null
+    }
+
+    const uploadPromise = uploadMeetingAudio(supabase, {
+      userId: currentUser.id,
+      meetingId: draftMeetingId,
+      audioBlob,
+    })
+
+    uploadPromise
+      .then((result) => {
+        if (!result?.ok) {
+          setAudioUploadStatus('failed')
+          setAudioSaveMessage('Audio playback could not be saved. Transcript is still available.')
+        } else {
+          setAudioUploadStatus('uploaded')
+          setAudioSaveMessage('')
+        }
+      })
+      .catch(async (err) => {
+        console.warn('[App] Could not upload meeting audio:', err?.message || err)
+        setAudioUploadStatus('failed')
+        try {
+          await setMeetingAudioUploadStatus(supabase, {
+            userId: currentUser.id,
+            meetingId: draftMeetingId,
+            status: 'failed',
+          })
+        } catch (statusErr) {
+          console.warn('[App] Could not mark audio upload as failed:', statusErr?.message || statusErr)
+        }
+        setAudioSaveMessage('Audio playback could not be saved. Transcript is still available.')
+      })
+
+    try {
+      await withTimeout(uploadPromise, 3000)
+    } catch (err) {
+      if (err?.name === 'TimeoutError') {
+        setAudioUploadStatus('pending')
+        setAudioSaveMessage('Audio is still saving in the background. Transcript is available.')
+      } else {
+        setAudioUploadStatus('failed')
+        setAudioSaveMessage('Audio playback could not be saved. Transcript is still available.')
+      }
+    }
+
+    return draftMeetingId
+  }
+
+  async function retryMeetingAudioUpload() {
+    if (!currentUser?.id || !meetingId || !meetingAudioBlob || meetingAudioBlob.size === 0) {
+      return
+    }
+
+    setAudioUploadStatus('pending')
+    setAudioSaveMessage('Audio is still saving in the background. Transcript is available.')
+
+    try {
+      await setMeetingAudioUploadStatus(supabase, {
+        userId: currentUser.id,
+        meetingId,
+        status: 'pending',
+      })
+    } catch (err) {
+      console.warn('[App] Could not mark audio upload as pending:', err?.message || err)
+    }
+
+    try {
+      const result = await uploadMeetingAudio(supabase, {
+        userId: currentUser.id,
+        meetingId,
+        audioBlob: meetingAudioBlob,
+      })
+
+      if (result?.ok) {
+        setAudioUploadStatus('uploaded')
+        setAudioSaveMessage('')
+      } else {
+        setAudioUploadStatus('failed')
+        setAudioSaveMessage('Audio playback could not be saved. Transcript is still available.')
+      }
+    } catch (err) {
+      console.warn('[App] Retry audio upload failed:', err?.message || err)
+      setAudioUploadStatus('failed')
+      setAudioSaveMessage('Audio playback could not be saved. Transcript is still available.')
+      try {
+        await setMeetingAudioUploadStatus(supabase, {
+          userId: currentUser.id,
+          meetingId,
+          status: 'failed',
+        })
+      } catch (statusErr) {
+        console.warn('[App] Could not mark retry failure status:', statusErr?.message || statusErr)
+      }
+    }
+  }
+
   const bestAvailableSegments = diarizedSegments.length > 0 ? diarizedSegments : meetingSegments
 
   if (screen === 'loading') {
@@ -493,9 +621,16 @@ export default function App() {
         audioBlob={meetingAudioBlob}
         meetingContext={meetingContext}
         confirmedLabelMap={confirmedLabelMap}
+        initialMeetingId={meetingId}
+        audioSaveMessage={audioSaveMessage}
+        audioUploadStatus={audioUploadStatus}
+        onRetryAudioUpload={retryMeetingAudioUpload}
         onNewMeeting={() => {
           setMeetingSegments([])
           setMeetingAudioBlob(null)
+          setMeetingId(null)
+          setAudioSaveMessage('')
+          setAudioUploadStatus('pending')
           setMeetingContext(null)
           setCompareResults([])
           setBestTranscriptProvider('')
@@ -589,7 +724,7 @@ export default function App() {
         onContinueWithProvider={(provider) => {
           const selected = compareResults.find((item) => item.provider === provider && item.status === 'done')
           if (!selected) return
-          void persistCompareEvaluations(null)
+          void persistCompareEvaluations(meetingId)
           const segments = Array.isArray(selected.segments) ? selected.segments : []
           setMeetingSegments([])
           setDiarizedSegments(segments)
@@ -627,11 +762,14 @@ export default function App() {
             ),
           )
         }}
-        onSaveEvaluations={() => void persistCompareEvaluations(null)}
+        onSaveEvaluations={() => void persistCompareEvaluations(meetingId)}
         onNewMeeting={() => {
-          void persistCompareEvaluations(null)
+          void persistCompareEvaluations(meetingId)
           setMeetingSegments([])
           setMeetingAudioBlob(null)
+          setMeetingId(null)
+          setAudioSaveMessage('')
+          setAudioUploadStatus('pending')
           setMeetingContext(null)
           setCompareResults([])
           setBestTranscriptProvider('')
@@ -658,6 +796,7 @@ export default function App() {
       onMeetingComplete={async (segments, audioBlob, hadLiveTranscript = true, meetingContextPayload = null) => {
         setMeetingAudioBlob(audioBlob)
         setMeetingContext(meetingContextPayload)
+        await prepareMeetingAudioPersistence(audioBlob)
         setConfirmedLabelMap({})
         setProcessingMessage('')
         setDiarizedSegments([])
@@ -883,4 +1022,19 @@ function getCompareModeAvailability() {
   const params = new URLSearchParams(window.location.search)
   if (params.get('compareModels') === '1') return true
   return import.meta.env.VITE_ENABLE_COMPARE_MODE === 'true'
+}
+
+function withTimeout(promise, timeoutMs) {
+  let timeoutId = null
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      const error = new Error('Operation timed out')
+      error.name = 'TimeoutError'
+      reject(error)
+    }, timeoutMs)
+  })
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timeoutId) clearTimeout(timeoutId)
+  })
 }

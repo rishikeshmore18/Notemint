@@ -8,11 +8,22 @@ import {
   saveMeeting,
   saveMeetingSpeakers,
   saveTranscriptCorrections,
-  updateMeetingTranscriptAndSummary,
+  updateMeetingResults,
 } from '../lib/summary'
 import { supabase } from '../lib/supabase'
 
-export default function ResultsScreen({ user, segments, audioBlob, meetingContext, confirmedLabelMap, onNewMeeting }) {
+export default function ResultsScreen({
+  user,
+  segments,
+  audioBlob,
+  meetingContext,
+  confirmedLabelMap,
+  initialMeetingId = null,
+  audioSaveMessage = '',
+  audioUploadStatus = 'pending',
+  onRetryAudioUpload = null,
+  onNewMeeting,
+}) {
   const [activeTab, setActiveTab] = useState('summary')
   const [summaryText, setSummaryText] = useState('')
   const [summaryStatus, setSummaryStatus] = useState('idle')
@@ -20,19 +31,22 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
   const [labelMap, setLabelMap] = useState({})
   const [saveStatus, setSaveStatus] = useState(null)
   const [copiedWhat, setCopiedWhat] = useState(null)
-  const [meetingId, setMeetingId] = useState(null)
+  const [meetingId, setMeetingId] = useState(initialMeetingId)
   const [editableSegments, setEditableSegments] = useState([])
   const [editingSegmentKey, setEditingSegmentKey] = useState(null)
   const [editingText, setEditingText] = useState('')
   const [audioUrl, setAudioUrl] = useState('')
   const [activeLineIndex, setActiveLineIndex] = useState(-1)
   const [isPlaying, setIsPlaying] = useState(false)
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true)
 
   const summaryTextRef = useRef('')
   const mountedRef = useRef(true)
   const labelMapRef = useRef({})
   const audioRef = useRef(null)
   const lineRefs = useRef({})
+  const scrollContainerRef = useRef(null)
+  const programmaticScrollRef = useRef(false)
   const correctionSaveKeyRef = useRef(new Set())
   const contextRefreshTimerRef = useRef(null)
   const contextRefreshInFlightRef = useRef(false)
@@ -75,7 +89,8 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
     const finalMap = getFinalLabelMap(selectedSegments, confirmedLabelMap)
     labelMapRef.current = finalMap
     setLabelMap(finalMap)
-    setMeetingId(null)
+    setMeetingId(initialMeetingId || null)
+    setAutoScrollEnabled(true)
     correctionSaveKeyRef.current.clear()
 
     void runSummary({
@@ -87,11 +102,17 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
   }, [segments, confirmedLabelMap])
 
   useEffect(() => {
+    if (!autoScrollEnabled) return
     if (activeLineIndex < 0) return
     const node = lineRefs.current[activeLineIndex]
     if (!node) return
+    programmaticScrollRef.current = true
     node.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-  }, [activeLineIndex])
+    const timer = setTimeout(() => {
+      programmaticScrollRef.current = false
+    }, 450)
+    return () => clearTimeout(timer)
+  }, [activeLineIndex, autoScrollEnabled])
 
   const correctedCount = useMemo(
     () => editableSegments.filter((segment) => Boolean(segment?.correctionMeta)).length,
@@ -144,7 +165,13 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
             })
             if (currentMeetingId) setMeetingId(currentMeetingId)
           } else {
-            await updateMeetingTranscriptAndSummary(supabase, currentMeetingId, compressed, fullText)
+            await updateMeetingResults(supabase, currentMeetingId, {
+              userId: user.id,
+              transcript: compressed,
+              summary: fullText,
+              segments: selectedSegments,
+              labelMap: labelMapRef.current,
+            })
           }
 
           if (currentMeetingId && persistSpeakerMappings) {
@@ -339,6 +366,23 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
     setActiveLineIndex(activeIndex)
   }
 
+  function handleTranscriptManualScroll() {
+    if (!isPlaying || activeTab !== 'transcript') return
+    if (programmaticScrollRef.current) return
+    setAutoScrollEnabled(false)
+  }
+
+  function resumeAutoScroll() {
+    setAutoScrollEnabled(true)
+    const node = lineRefs.current[activeLineIndex]
+    if (!node) return
+    programmaticScrollRef.current = true
+    node.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    setTimeout(() => {
+      programmaticScrollRef.current = false
+    }, 450)
+  }
+
   function startEditing(segment) {
     if (!segment) return
     if (audioRef.current && !audioRef.current.paused) {
@@ -362,9 +406,28 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
       </div>
 
       <div className="h-5 flex items-center justify-end mb-1">
-        {saveStatus === 'saving' && <p className="text-xs text-gray-300">saving...</p>}
-        {saveStatus === 'saved' && <p className="text-xs text-gray-300">saved</p>}
-        {saveStatus === 'failed' && <p className="text-xs text-red-300">could not save</p>}
+        <div className="text-right">
+          {audioUploadStatus === 'uploaded' && <p className="text-xs text-emerald-600">audio saved</p>}
+          {audioUploadStatus === 'pending' && <p className="text-xs text-amber-500">audio still uploading</p>}
+          {audioUploadStatus === 'failed' && (
+            <div className="flex items-center justify-end gap-2">
+              <p className="text-xs text-amber-600">audio unavailable</p>
+              {typeof onRetryAudioUpload === 'function' && audioBlob ? (
+                <button
+                  type="button"
+                  onClick={() => void onRetryAudioUpload()}
+                  className="text-xs text-indigo-600 underline"
+                >
+                  retry audio upload
+                </button>
+              ) : null}
+            </div>
+          )}
+          {audioSaveMessage && <p className="text-xs text-amber-500">{audioSaveMessage}</p>}
+          {saveStatus === 'saving' && <p className="text-xs text-gray-300">saving...</p>}
+          {saveStatus === 'saved' && <p className="text-xs text-gray-300">saved</p>}
+          {saveStatus === 'failed' && <p className="text-xs text-red-300">could not save</p>}
+        </div>
       </div>
 
       <div className="flex rounded-xl overflow-hidden border border-gray-100 mb-4 flex-shrink-0">
@@ -386,7 +449,14 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto pb-4" style={{ maxHeight: 'calc(100dvh - 220px)' }}>
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto pb-4"
+        style={{ maxHeight: 'calc(100dvh - 220px)' }}
+        onScroll={handleTranscriptManualScroll}
+        onWheel={handleTranscriptManualScroll}
+        onTouchMove={handleTranscriptManualScroll}
+      >
         {activeTab === 'summary' && (
           <div>
             <div className="mb-3 flex items-center justify-between">
@@ -456,12 +526,28 @@ export default function ResultsScreen({ user, segments, audioBlob, meetingContex
                     onEnded={() => {
                       setIsPlaying(false)
                       setActiveLineIndex(-1)
+                      setAutoScrollEnabled(true)
                     }}
                     onTimeUpdate={handleAudioTimeUpdate}
                   />
-                  <p className="mt-1 text-[11px] text-gray-500">
-                    {isPlaying ? 'playing with synced transcript' : 'press play to sync transcript scrolling'}
-                  </p>
+                  <div className="mt-1 flex items-center justify-between gap-3">
+                    <p className="text-[11px] text-gray-500">
+                      {isPlaying
+                        ? autoScrollEnabled
+                          ? 'playing with synced transcript'
+                          : 'auto-scroll paused'
+                        : 'press play to sync transcript scrolling'}
+                    </p>
+                    {isPlaying && !autoScrollEnabled ? (
+                      <button
+                        type="button"
+                        onClick={resumeAutoScroll}
+                        className="text-[11px] text-indigo-600 underline"
+                      >
+                        resume auto-scroll
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
               ) : (
                 <p className="text-xs text-gray-500">audio playback unavailable for this meeting.</p>

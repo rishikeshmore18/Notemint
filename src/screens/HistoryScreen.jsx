@@ -20,7 +20,7 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
     try {
       const { data, error } = await supabase
         .from('meetings')
-        .select('id, title, summary, created_at, duration_segments')
+        .select('id, title, summary, created_at, duration_segments, audio_storage_path, audio_expires_at, audio_deleted_at, audio_upload_status')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(50)
@@ -70,7 +70,7 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
     try {
       const { data, error } = await supabase
         .from('meetings')
-        .select('id, title, summary, created_at, duration_segments, transcript_compressed, segments, label_map')
+        .select('id, user_id, title, summary, created_at, duration_segments, transcript_compressed, segments, label_map, audio_storage_path, audio_mime_type, audio_size_bytes, audio_duration_seconds, audio_uploaded_at, audio_retention_days, audio_expires_at, audio_deleted_at, audio_upload_status')
         .eq('id', meeting.id)
         .eq('user_id', user.id)
         .single()
@@ -195,6 +195,17 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
                 <span className="text-xs text-gray-300 mt-1.5">
                   {meeting.duration_segments} segments
                 </span>
+              )}
+              {meeting.audio_storage_path && meeting.audio_expires_at && (
+                <span className="text-xs text-gray-300 mt-1">
+                  audio kept until {formatDate(meeting.audio_expires_at)}
+                </span>
+              )}
+              {meeting.audio_upload_status === 'pending' && (
+                <span className="text-xs text-amber-500 mt-1">audio still uploading</span>
+              )}
+              {meeting.audio_upload_status === 'failed' && (
+                <span className="text-xs text-amber-600 mt-1">audio unavailable</span>
               )}
             </button>
           ))}
