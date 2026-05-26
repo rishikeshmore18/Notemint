@@ -766,7 +766,21 @@ function buildMeetingContextPayload({
   ]
 
   const correctionBoostTerms = Array.isArray(correctionMemory?.boostTerms) ? correctionMemory.boostTerms : []
-  const correctionPairs = Array.isArray(correctionMemory?.confusionPairs) ? correctionMemory.confusionPairs : []
+  const correctionPairsRaw = Array.isArray(correctionMemory?.confusionPairs)
+    ? correctionMemory.confusionPairs
+    : []
+  const correctionPairs = correctionPairsRaw
+    .map((pair) => ({
+      original: String(pair?.original || '').trim(),
+      corrected: String(pair?.corrected || '').trim(),
+      confidence: Number(pair?.confidence || 0),
+      count: Number(pair?.count || 0),
+      ambiguous: Boolean(pair?.ambiguous),
+    }))
+    .filter((pair) => pair.original && pair.corrected)
+    // Conservative reuse: avoid pushing uncertain mappings into future meetings.
+    .filter((pair) => !pair.ambiguous && pair.confidence >= 0.65)
+    .slice(0, 20)
 
   const contextTerms = uniqueTerms([
     ...importantTerms,
@@ -804,16 +818,7 @@ function buildMeetingContextPayload({
     contextTerms,
     summaryContext: String(contextProfile?.summary_context || ''),
     doNotInfer: Array.isArray(contextProfile?.do_not_infer) ? contextProfile.do_not_infer : [],
-    confusionPairs: correctionPairs
-      .map((pair) => ({
-        original: String(pair?.original || '').trim(),
-        corrected: String(pair?.corrected || '').trim(),
-        confidence: Number(pair?.confidence || 0),
-        count: Number(pair?.count || 0),
-        ambiguous: Boolean(pair?.ambiguous),
-      }))
-      .filter((pair) => pair.original && pair.corrected)
-      .slice(0, 20),
+    confusionPairs: correctionPairs,
   }
 }
 

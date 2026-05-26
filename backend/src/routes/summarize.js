@@ -221,9 +221,14 @@ function normalizeConfusionPairs(input) {
   for (const item of list) {
     const original = cleanOneLine(item?.original, 80)
     const corrected = cleanOneLine(item?.corrected, 80)
+    const confidence = Number(item?.confidence)
+    const ambiguous = Boolean(item?.ambiguous)
     if (!original || !corrected) continue
     if (looksSensitive(original) || looksSensitive(corrected)) continue
     if (original.toLowerCase() === corrected.toLowerCase()) continue
+    // Conservative gate: only keep confident, non-ambiguous correction hints.
+    if (ambiguous) continue
+    if (Number.isFinite(confidence) && confidence < 0.65) continue
     const key = `${original.toLowerCase()}=>${corrected.toLowerCase()}`
     if (seen.has(key)) continue
     seen.add(key)
