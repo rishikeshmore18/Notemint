@@ -1,9 +1,82 @@
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { groupSegmentsByTime } from '../lib/grokStt'
+import { deleteMeetingAudio, getMeetingAudioSignedUrl } from '../lib/summary'
+import { supabase } from '../lib/supabase'
 
 export default function PastMeetingScreen({ user, meeting, onBack }) {
   const [activeTab, setActiveTab] = useState('summary')
   const [copiedWhat, setCopiedWhat] = useState(null)
+  const [audioUrl, setAudioUrl] = useState('')
+  const [audioStatus, setAudioStatus] = useState('idle')
+  const [audioStoragePath, setAudioStoragePath] = useState(meeting?.audio_storage_path || '')
+  const [audioDeletedAt, setAudioDeletedAt] = useState(meeting?.audio_deleted_at || null)
+  const [audioActionStatus, setAudioActionStatus] = useState('idle')
+  const [activeLineIndex, setActiveLineIndex] = useState(-1)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [autoScrollEnabled, setAutoScrollEnabled] = useState(true)
+  const audioRef = useRef(null)
+  const lineRefs = useRef({})
+  const scrollContainerRef = useRef(null)
+  const programmaticScrollRef = useRef(false)
+  const signedUrlRefreshRef = useRef(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setAudioUrl('')
+    setAudioStoragePath(meeting?.audio_storage_path || '')
+    setAudioDeletedAt(meeting?.audio_deleted_at || null)
+    setAudioActionStatus('idle')
+    setAudioStatus(meeting?.audio_storage_path ? 'loading' : 'unavailable')
+    setActiveLineIndex(-1)
+    setIsPlaying(false)
+    setAutoScrollEnabled(true)
+    signedUrlRefreshRef.current = false
+
+    if (!meeting?.audio_storage_path || !user?.id) {
+      setAudioStatus('unavailable')
+      return () => {
+        cancelled = true
+      }
+    }
+
+    ;(async () => {
+      try {
+        const signedUrl = await getMeetingAudioSignedUrl(supabase, {
+          audioStoragePath: meeting.audio_storage_path,
+          userId: user?.id,
+          meetingId: meeting?.id || null,
+          expiresInSeconds: 3600,
+        })
+        if (!cancelled) {
+          setAudioUrl(signedUrl)
+          setAudioStatus(signedUrl ? 'ready' : 'unavailable')
+        }
+      } catch (err) {
+        console.warn('[PastMeeting] Could not load signed audio URL:', err?.message || err)
+        if (!cancelled) {
+          setAudioUrl('')
+          setAudioStatus('error')
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [meeting?.audio_storage_path, meeting?.id, user?.id])
+
+  useEffect(() => {
+    if (!autoScrollEnabled) return
+    if (activeLineIndex < 0) return
+    const node = lineRefs.current[activeLineIndex]
+    if (!node) return
+    programmaticScrollRef.current = true
+    node.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    const timer = setTimeout(() => {
+      programmaticScrollRef.current = false
+    }, 450)
+    return () => clearTimeout(timer)
+  }, [activeLineIndex, autoScrollEnabled])
 
   async function copyToClipboard(text) {
     try {
@@ -104,6 +177,167 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
       .filter(Boolean)
   }
 
+  function handleAudioTimeUpdate(blocks) {
+    const audio = audioRef.current
+    if (!audio || !Array.isArray(blocks) || blocks.length === 0) return
+    setActiveLineIndex(findActiveBlockIndex(blocks, audio.currentTime))
+  }
+
+  function handleTranscriptManualScroll() {
+    if (!isPlaying || activeTab !== 'transcript') return
+    if (programmaticScrollRef.current) return
+    setAutoScrollEnabled(false)
+  }
+
+  function resumeAutoScroll() {
+    setAutoScrollEnabled(true)
+    const node = lineRefs.current[activeLineIndex]
+    if (!node) return
+    programmaticScrollRef.current = true
+    node.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    setTimeout(() => {
+      programmaticScrollRef.current = false
+    }, 450)
+  }
+
+  function renderAudioPlayer(blocks) {
+    if (audioStatus === 'loading') {
+      return (
+        <div className="mb-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3 text-xs text-gray-500">
+          loading meeting audio...
+        </div>
+      )
+    }
+
+    if (audioStatus === 'error') {
+      return (
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          audio file could not be loaded. transcript is still available.
+        </div>
+      )
+    }
+
+    if (!audioUrl) {
+      return (
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          {audioDeletedAt ? 'audio was deleted. transcript and summary are still available.' : 'audio playback is not available for this meeting.'}
+        </div>
+      )
+    }
+
+    return (
+      <div className="mb-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
+        <audio
+          ref={audioRef}
+          src={audioUrl}
+          controls
+          className="w-full"
+          onPlay={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
+          onEnded={() => {
+            setIsPlaying(false)
+            setActiveLineIndex(-1)
+            setAutoScrollEnabled(true)
+          }}
+          onTimeUpdate={() => handleAudioTimeUpdate(blocks)}
+          onError={() => void handleAudioError()}
+        />
+        <div className="mt-1 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-[11px] text-gray-500">
+              {isPlaying
+                ? autoScrollEnabled
+                  ? 'playing with synced transcript'
+                  : 'auto-scroll paused'
+                : 'press play to sync transcript scrolling'}
+            </p>
+            {meeting?.audio_expires_at ? (
+              <p className="text-[11px] text-gray-400">
+                audio kept until {formatDate(meeting.audio_expires_at)}
+              </p>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-3">
+            {isPlaying && !autoScrollEnabled ? (
+              <button
+                type="button"
+                onClick={resumeAutoScroll}
+                className="text-[11px] text-indigo-600 underline"
+              >
+                resume auto-scroll
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => void handleDeleteAudio()}
+              disabled={audioActionStatus === 'deleting'}
+              className="text-[11px] text-red-500 underline disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {audioActionStatus === 'deleting' ? 'deleting audio...' : 'delete audio'}
+            </button>
+          </div>
+        </div>
+        {audioActionStatus === 'error' ? (
+          <p className="mt-1 text-[11px] text-red-500">could not delete audio. try again.</p>
+        ) : null}
+      </div>
+    )
+  }
+
+  async function handleAudioError() {
+    if (!audioStoragePath || !user?.id || signedUrlRefreshRef.current) {
+      setAudioUrl('')
+      setAudioStatus('error')
+      return
+    }
+
+    signedUrlRefreshRef.current = true
+    setAudioStatus('loading')
+    try {
+      const signedUrl = await getMeetingAudioSignedUrl(supabase, {
+        audioStoragePath,
+        userId: user?.id,
+        meetingId: meeting?.id || null,
+        expiresInSeconds: 3600,
+      })
+      setAudioUrl(signedUrl)
+      setAudioStatus(signedUrl ? 'ready' : 'error')
+    } catch (err) {
+      console.warn('[PastMeeting] Could not refresh signed audio URL:', err?.message || err)
+      setAudioUrl('')
+      setAudioStatus('error')
+    }
+  }
+
+  async function handleDeleteAudio() {
+    if (!audioStoragePath || !meeting?.id || !user?.id) return
+    const confirmed = window.confirm('Delete the saved audio for this meeting? The transcript and summary will stay.')
+    if (!confirmed) return
+
+    if (audioRef.current && !audioRef.current.paused) {
+      audioRef.current.pause()
+    }
+
+    setAudioActionStatus('deleting')
+    try {
+      await deleteMeetingAudio(supabase, {
+        userId: user.id,
+        meetingId: meeting.id,
+        audioStoragePath,
+      })
+      setAudioUrl('')
+      setAudioStoragePath('')
+      setAudioDeletedAt(new Date().toISOString())
+      setAudioStatus('unavailable')
+      setAudioActionStatus('deleted')
+      setIsPlaying(false)
+      setActiveLineIndex(-1)
+    } catch (err) {
+      console.warn('[PastMeeting] Could not delete audio:', err?.message || err)
+      setAudioActionStatus('error')
+    }
+  }
+
   return (
     <div className="min-h-screen bg-white flex flex-col max-w-2xl mx-auto px-5 md:px-10">
       <div className="flex items-center justify-between h-14 flex-shrink-0">
@@ -155,12 +389,18 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
         </button>
       </div>
 
-      <div className="flex-1 overflow-y-auto pb-4" style={{ maxHeight: 'calc(100dvh - 220px)' }}>
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto pb-4"
+        style={{ maxHeight: 'calc(100dvh - 220px)' }}
+        onScroll={handleTranscriptManualScroll}
+        onWheel={handleTranscriptManualScroll}
+        onTouchMove={handleTranscriptManualScroll}
+      >
         {activeTab === 'summary' && <div>{renderMarkdownLite(meeting.summary)}</div>}
 
         {activeTab === 'transcript' &&
           (() => {
-            const hasStoredAudio = Boolean(meeting.audio_path || meeting.audio_url)
             const rawSegments =
               meeting.segments && Array.isArray(meeting.segments) && meeting.segments.length > 0
                 ? meeting.segments
@@ -172,13 +412,17 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
 
               return (
                 <div className="flex flex-col gap-0">
-                  {!hasStoredAudio ? (
-                    <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                      audio playback for history meetings is not available yet.
-                    </div>
-                  ) : null}
+                  {renderAudioPlayer(blocks)}
                   {blocks.map((block, i) => (
-                    <div key={i} className="flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0">
+                    <div
+                      key={i}
+                      ref={(node) => {
+                        if (node) lineRefs.current[i] = node
+                      }}
+                      className={`flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0 ${
+                        i === activeLineIndex ? 'bg-indigo-50' : 'bg-white'
+                      }`}
+                    >
                       <div className="w-10 flex-shrink-0 pt-0.5">
                         {block.timeLabel && (
                           <span className="text-xs text-gray-300 font-mono tabular-nums">
@@ -203,11 +447,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
             const parsed = parseTranscript(meeting.transcript_compressed)
             return (
               <div className="flex flex-col gap-0">
-                {!hasStoredAudio ? (
-                  <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                    audio playback for history meetings is not available yet.
-                  </div>
-                ) : null}
+                {renderAudioPlayer([])}
                 {parsed.map((block, i) => (
                   <div key={i} className="flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0">
                     <div className="w-10 flex-shrink-0" />
@@ -256,4 +496,50 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
       </div>
     </div>
   )
+}
+
+function findActiveBlockIndex(blocks, currentTime) {
+  const list = Array.isArray(blocks) ? blocks : []
+  if (list.length === 0) return -1
+
+  if (!Number.isFinite(currentTime)) return -1
+
+  let activeIndex = -1
+  let nearestIndex = -1
+  let nearestDelta = Number.POSITIVE_INFINITY
+
+  for (let i = 0; i < list.length; i += 1) {
+    const block = list[i]
+    const startTime = toNumberOrNull(block?.startTime)
+    const endTime = toNumberOrNull(block?.endTime)
+    if (startTime === null) continue
+
+    if (endTime !== null && currentTime >= startTime - 0.15 && currentTime <= endTime + 0.15) {
+      return i
+    }
+
+    if (startTime <= currentTime + 0.15) {
+      activeIndex = i
+    }
+
+    const delta = Math.abs(currentTime - startTime)
+    if (delta < nearestDelta && delta <= 1.4) {
+      nearestDelta = delta
+      nearestIndex = i
+    }
+  }
+
+  return activeIndex >= 0 ? activeIndex : nearestIndex
+}
+
+function toNumberOrNull(value) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0) return null
+  return parsed
+}
+
+function formatDate(isoString) {
+  const date = new Date(isoString)
+  if (Number.isNaN(date.getTime())) return 'scheduled deletion'
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }

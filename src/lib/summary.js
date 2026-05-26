@@ -2,6 +2,8 @@ import { streamSummary } from './api.js'
 
 const LIGHT_FILLER_REGEX = /\b(um+|uh+|er+|erm|hmm+|ah+)\b/gi
 const LOCAL_MEETINGS_KEY_PREFIX = 'local_meetings_'
+const MEETING_AUDIO_BUCKET = 'meeting-audio'
+const DEFAULT_AUDIO_RETENTION_DAYS = 7
 
 export function compressTranscript(segments, labelMap) {
   if (!segments || segments.length === 0) {
@@ -88,6 +90,159 @@ export async function saveMeeting(supabase, userId, meetingData) {
     console.error('saveMeeting error:', err)
     return saveMeetingLocally(userId, title, meetingData)
   }
+}
+
+export async function createMeetingDraft(supabase, userId, title = null) {
+  if (!supabase || !userId) return null
+
+  const finalTitle = title || buildDefaultMeetingTitle()
+
+  const { data, error } = await supabase
+    .from('meetings')
+    .insert({
+      user_id: userId,
+      title: finalTitle,
+      created_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single()
+
+  if (error) {
+    throw new Error(error.message || 'Could not create meeting')
+  }
+
+  return data?.id || null
+}
+
+export async function uploadMeetingAudio(
+  supabase,
+  { userId, meetingId, audioBlob, durationSeconds = null, retentionDays = DEFAULT_AUDIO_RETENTION_DAYS },
+) {
+  if (!supabase || !userId || !meetingId || !audioBlob || audioBlob.size === 0) {
+    return { ok: false, path: null, error: 'No audio captured.' }
+  }
+
+  const mimeType = String(audioBlob.type || 'audio/webm').split(';')[0] || 'audio/webm'
+  const extension = getAudioExtension(mimeType)
+  const path = buildMeetingAudioPath(userId, meetingId, extension)
+  const safeRetentionDays = normalizeRetentionDays(retentionDays)
+  const expiresAt = new Date(Date.now() + safeRetentionDays * 24 * 60 * 60 * 1000).toISOString()
+
+  const upload = await supabase.storage.from(MEETING_AUDIO_BUCKET).upload(path, audioBlob, {
+    contentType: mimeType,
+    cacheControl: '3600',
+    upsert: true,
+  })
+
+  if (upload.error) {
+    throw new Error(upload.error.message || 'Could not upload meeting audio')
+  }
+
+  const { error: updateError } = await supabase
+    .from('meetings')
+    .update({
+      audio_storage_path: path,
+      audio_mime_type: mimeType,
+      audio_size_bytes: audioBlob.size,
+      audio_duration_seconds: toIntOrNull(durationSeconds),
+      audio_uploaded_at: new Date().toISOString(),
+      audio_retention_days: safeRetentionDays,
+      audio_expires_at: expiresAt,
+      audio_deleted_at: null,
+    })
+    .eq('id', meetingId)
+    .eq('user_id', userId)
+
+  if (updateError) {
+    throw new Error(updateError.message || 'Could not save meeting audio metadata')
+  }
+
+  return { ok: true, path, error: null }
+}
+
+export async function deleteMeetingAudio(supabase, { userId, meetingId, audioStoragePath }) {
+  const path = String(audioStoragePath || '').trim()
+  if (!supabase || !userId || !meetingId || !path) {
+    return false
+  }
+
+  if (!isSafeMeetingAudioPath(path, userId, meetingId)) {
+    throw new Error('Audio path does not match this meeting.')
+  }
+
+  const removal = await supabase.storage.from(MEETING_AUDIO_BUCKET).remove([path])
+  if (removal.error) {
+    throw new Error(removal.error.message || 'Could not delete meeting audio')
+  }
+
+  const { error } = await supabase
+    .from('meetings')
+    .update({
+      audio_storage_path: null,
+      audio_mime_type: null,
+      audio_size_bytes: null,
+      audio_duration_seconds: null,
+      audio_uploaded_at: null,
+      audio_expires_at: null,
+      audio_deleted_at: new Date().toISOString(),
+    })
+    .eq('id', meetingId)
+    .eq('user_id', userId)
+
+  if (error) {
+    throw new Error(error.message || 'Could not update meeting audio metadata')
+  }
+
+  return true
+}
+
+export async function getMeetingAudioSignedUrl(
+  supabase,
+  { audioStoragePath, userId, meetingId = null, expiresInSeconds = 3600 },
+) {
+  const path = String(audioStoragePath || '').trim()
+  if (!path) return ''
+  if (!userId) throw new Error('Missing user for signed URL request.')
+  if (!isSafeMeetingAudioPath(path, userId, meetingId)) {
+    throw new Error('Audio path is not allowed for this user.')
+  }
+
+  const { data, error } = await supabase.storage
+    .from(MEETING_AUDIO_BUCKET)
+    .createSignedUrl(path, expiresInSeconds)
+
+  if (error) {
+    throw new Error(error.message || 'Could not load meeting audio')
+  }
+
+  return data?.signedUrl || ''
+}
+
+export async function updateMeetingResults(supabase, meetingId, meetingData) {
+  if (!meetingId) return false
+
+  let query = supabase
+    .from('meetings')
+    .update({
+      transcript_compressed: meetingData.transcript,
+      summary: meetingData.summary,
+      segments: meetingData.segments,
+      label_map: meetingData.labelMap,
+      duration_segments: meetingData.segments?.length || 0,
+    })
+    .eq('id', meetingId)
+
+  if (meetingData.userId) {
+    query = query.eq('user_id', meetingData.userId)
+  }
+
+  const { error } = await query
+
+  if (error) {
+    throw new Error(error.message || 'Could not update meeting results')
+  }
+
+  return true
 }
 
 export async function saveMeetingSpeakers(
@@ -343,6 +498,68 @@ function saveMeetingLocally(userId, title, meetingData) {
     console.error('saveMeeting local fallback error:', err)
     return null
   }
+}
+
+function buildDefaultMeetingTitle() {
+  const now = new Date()
+  const dateStr = now.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+  const timeStr = now.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  return dateStr + ' - ' + timeStr
+}
+
+function getAudioExtension(mimeType) {
+  const type = String(mimeType || '').toLowerCase()
+  if (type.includes('mp4')) return 'mp4'
+  if (type.includes('mpeg') || type.includes('mp3')) return 'mp3'
+  if (type.includes('wav')) return 'wav'
+  if (type.includes('ogg')) return 'ogg'
+  return 'webm'
+}
+
+function normalizeRetentionDays(value) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return DEFAULT_AUDIO_RETENTION_DAYS
+  return Math.max(1, Math.min(365, Math.round(parsed)))
+}
+
+function buildMeetingAudioPath(userId, meetingId, extension) {
+  const cleanUserId = sanitizePathSegment(userId, 'user id')
+  const cleanMeetingId = sanitizePathSegment(meetingId, 'meeting id')
+  const cleanExt = sanitizeExtension(extension)
+  return `${cleanUserId}/${cleanMeetingId}/recording.${cleanExt}`
+}
+
+function isSafeMeetingAudioPath(path, userId, meetingId = null) {
+  const value = String(path || '').trim()
+  if (!value || value.includes('\\') || value.includes('..')) return false
+
+  const parts = value.split('/')
+  if (parts.length < 3) return false
+
+  const cleanUserId = sanitizePathSegment(userId, 'user id')
+  if (parts[0] !== cleanUserId) return false
+
+  if (meetingId) {
+    const cleanMeetingId = sanitizePathSegment(meetingId, 'meeting id')
+    if (parts[1] !== cleanMeetingId) return false
+  }
+
+  return /^recording\.[a-z0-9]+$/i.test(parts[2])
+}
+
+function sanitizePathSegment(value, label) {
+  const text = String(value || '').trim()
+  if (!text) throw new Error(`Missing ${label}.`)
+  if (!/^[a-zA-Z0-9-]+$/.test(text)) {
+    throw new Error(`Invalid ${label}.`)
+  }
+  return text
+}
+
+function sanitizeExtension(value) {
+  const ext = String(value || '').toLowerCase().trim()
+  if (!/^[a-z0-9]+$/.test(ext)) return 'webm'
+  return ext
 }
 
 function normalizeContextTerms(values) {
