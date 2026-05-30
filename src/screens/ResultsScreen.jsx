@@ -705,7 +705,14 @@ export default function ResultsScreen({
                             {segment.text}
                           </p>
                           <div className="mt-1 flex items-center gap-3">
-                            <span className="text-[11px] text-gray-400">double-click to edit</span>
+                            <button
+                              type="button"
+                              onClick={() => startEditing(segment)}
+                              className="text-[11px] text-indigo-600 underline"
+                            >
+                              edit
+                            </button>
+                            <span className="text-[11px] text-gray-400">double-click / long-press also works</span>
                             {touchEditableKey === segment.key ? (
                               <button
                                 type="button"
