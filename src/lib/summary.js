@@ -421,12 +421,14 @@ export async function saveTranscriptCorrections(
       const correctedText = String(item?.correctedText || '').trim()
       if (!originalText || !correctedText || originalText === correctedText) return null
 
+      const correctionContext = buildCorrectionContext(item)
       return {
         user_id: userId,
         meeting_id: meetingId || null,
         provider: provider ? String(provider) : null,
         original_text: originalText,
         corrected_text: correctedText,
+        correction_context: correctionContext,
         context_terms_used: terms,
         created_at: new Date().toISOString(),
       }
@@ -436,8 +438,18 @@ export async function saveTranscriptCorrections(
   if (rows.length === 0) return false
 
   const { error } = await supabase.from('transcript_corrections').insert(rows)
-  if (error) {
+  if (!error) {
+    return true
+  }
+
+  if (!isMissingColumnError(error, 'correction_context')) {
     throw new Error(error.message || 'Could not save transcript corrections')
+  }
+
+  const fallbackRows = rows.map(({ correction_context, ...row }) => row)
+  const fallback = await supabase.from('transcript_corrections').insert(fallbackRows)
+  if (fallback.error) {
+    throw new Error(fallback.error.message || 'Could not save transcript corrections')
   }
 
   return true
@@ -699,4 +711,31 @@ function isMissingColumnError(error, columnName) {
   const message = String(error?.message || '').toLowerCase()
   const needle = String(columnName || '').toLowerCase()
   return code === '42703' || (needle && message.includes(needle) && message.includes('column'))
+}
+
+function buildCorrectionContext(item) {
+  const originalSentence = String(item?.originalSentence || '').replace(/\s+/g, ' ').trim()
+  const correctedSentence = String(item?.correctedSentence || '').replace(/\s+/g, ' ').trim()
+  const speakerRaw = item?.speaker
+  const speaker = Number.isFinite(Number(speakerRaw)) ? Number(speakerRaw) : null
+  const startTime = toNumberOrNull(item?.startTime)
+  const endTime = toNumberOrNull(item?.endTime)
+
+  if (!originalSentence && !correctedSentence && speaker === null && startTime === null && endTime === null) {
+    return null
+  }
+
+  return {
+    original_sentence: originalSentence || null,
+    corrected_sentence: correctedSentence || null,
+    speaker,
+    start_time: startTime,
+    end_time: endTime,
+  }
+}
+
+function toNumberOrNull(value) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return null
+  return Math.max(0, parsed)
 }

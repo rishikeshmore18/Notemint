@@ -195,82 +195,92 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
 
         {!loading ? (
           <div className="mt-6 space-y-5">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">industry</label>
-              <select
-                value={industry}
-                onChange={(event) => setIndustry(event.target.value)}
-                className="w-full h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
-              >
-                <option value="">skip for now</option>
-                {INDUSTRY_OPTIONS.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">role</label>
-              <select
-                value={role}
-                onChange={(event) => setRole(event.target.value)}
-                className="w-full h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
-              >
-                <option value="">skip for now</option>
-                {ROLE_OPTIONS.map((item) => (
-                  <option key={item} value={item}>
-                    {item}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <p className="block text-sm font-medium text-gray-700 mb-2">meeting types</p>
-              <div className="flex flex-wrap gap-2">
-                {MEETING_TYPE_OPTIONS.map((type) => {
-                  const selected = meetingTypes.includes(type)
-                  return (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => toggleMeetingType(type)}
-                      className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
-                        selected
-                          ? 'bg-indigo-600 text-white'
-                          : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
-                    >
-                      {type}
-                    </button>
-                  )
-                })}
+            {mode !== 'dictionary' ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">industry</label>
+                <select
+                  value={industry}
+                  onChange={(event) => setIndustry(event.target.value)}
+                  className="w-full h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                >
+                  <option value="">skip for now</option>
+                  {INDUSTRY_OPTIONS.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
               </div>
-            </div>
+            ) : null}
 
-            <Field
-              label="common people names"
-              value={participantNamesInput}
-              onChange={setParticipantNamesInput}
-              placeholder="Tom, Sarah, John Smith"
-              helper="comma or new line separated"
-            />
-            <Field
-              label="organization / product terms"
-              value={organizationTermsInput}
-              onChange={setOrganizationTermsInput}
-              placeholder="Notemint, Fraud Hold, Branch Ops"
-              helper="comma or new line separated"
-            />
-            <Field
-              label="acronyms / special words"
-              value={customTermsInput}
-              onChange={setCustomTermsInput}
-              placeholder="CDs, IEP, SLA, delinquency"
-              helper="comma or new line separated"
-            />
+            {mode !== 'dictionary' ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">role</label>
+                <select
+                  value={role}
+                  onChange={(event) => setRole(event.target.value)}
+                  className="w-full h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                >
+                  <option value="">skip for now</option>
+                  {ROLE_OPTIONS.map((item) => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
+            {mode !== 'dictionary' ? (
+              <div>
+                <p className="block text-sm font-medium text-gray-700 mb-2">meeting types</p>
+                <div className="flex flex-wrap gap-2">
+                  {MEETING_TYPE_OPTIONS.map((type) => {
+                    const selected = meetingTypes.includes(type)
+                    return (
+                      <button
+                        key={type}
+                        type="button"
+                        onClick={() => toggleMeetingType(type)}
+                        className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
+                          selected
+                            ? 'bg-indigo-600 text-white'
+                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                        }`}
+                      >
+                        {type}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : null}
+
+            {mode !== 'dictionary' ? (
+              <>
+                <Field
+                  label="common people names"
+                  value={participantNamesInput}
+                  onChange={setParticipantNamesInput}
+                  placeholder="Tom, Sarah, John Smith"
+                  helper="comma or new line separated"
+                />
+                <Field
+                  label="organization / product terms"
+                  value={organizationTermsInput}
+                  onChange={setOrganizationTermsInput}
+                  placeholder="Notemint, Fraud Hold, Branch Ops"
+                  helper="comma or new line separated"
+                />
+                <Field
+                  label="acronyms / special words"
+                  value={customTermsInput}
+                  onChange={setCustomTermsInput}
+                  placeholder="CDs, IEP, SLA, delinquency"
+                  helper="comma or new line separated"
+                />
+              </>
+            ) : null}
             <Field
               label="words often transcribed wrong (optional)"
               value={correctionTermsInput}
@@ -327,6 +337,9 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
 
             <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
               <p className="text-xs font-medium text-gray-700">recent corrections</p>
+              <p className="mt-1 text-[11px] text-gray-500">
+                learned from transcript edits; used to improve future transcription hints.
+              </p>
               <div className="mt-2 space-y-1.5">
                 {recentCorrections.length > 0 ? (
                   recentCorrections.slice(0, 12).map((pair) => (

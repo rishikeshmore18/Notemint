@@ -211,11 +211,19 @@ export default function ResultsScreen({
 
   async function handleSaveCorrection(segment, nextText) {
     const correctedText = String(nextText || '').replace(/\s+/g, ' ').trim()
-    if (!correctedText) return
+    if (!correctedText) {
+      setEditingSegmentKey(null)
+      setEditingText('')
+      return
+    }
 
     const existingOriginal = segment?.correctionMeta?.originalText
     const originalText = existingOriginal || String(segment?.text || '').trim()
-    if (!originalText || originalText === correctedText) return
+    if (!originalText || originalText === correctedText) {
+      setEditingSegmentKey(null)
+      setEditingText('')
+      return
+    }
 
     setEditableSegments((prev) =>
       prev.map((item) =>
@@ -242,11 +250,24 @@ export default function ResultsScreen({
     correctionSaveKeyRef.current.add(persistKey)
 
     try {
+      const originalSentence = String(segment?.correctionMeta?.originalText || segment?.text || '').trim()
+      const correctedSentence = correctedText
+      const phrasePair = detectCorrectionPair(originalSentence, correctedSentence)
       await saveTranscriptCorrections(supabase, {
         userId: user?.id,
         meetingId,
         provider: segment?.source || null,
-        corrections: [{ originalText, correctedText }],
+        corrections: [
+          {
+            originalText: phrasePair?.original || originalText,
+            correctedText: phrasePair?.corrected || correctedText,
+            originalSentence,
+            correctedSentence,
+            speaker: segment?.speaker ?? null,
+            startTime: segment?.startTime ?? null,
+            endTime: segment?.endTime ?? null,
+          },
+        ],
         contextTermsUsed: Array.isArray(meetingContext?.contextTerms) ? meetingContext.contextTerms : [],
       })
       scheduleContextRefresh()
@@ -605,40 +626,36 @@ export default function ResultsScreen({
                           <textarea
                             value={editingText}
                             onChange={(event) => setEditingText(event.target.value)}
-                            rows={2}
-                            className="w-full rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-sm text-gray-800 focus:outline-none focus:border-indigo-400 resize-y"
-                          />
-                          <div className="mt-1 flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={() => void handleSaveCorrection(segment, editingText)}
-                              className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs text-white"
-                            >
-                              save
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => {
+                            onKeyDown={(event) => {
+                              if (event.key === 'Escape') {
+                                event.preventDefault()
                                 setEditingSegmentKey(null)
                                 setEditingText('')
-                              }}
-                              className="rounded-md border border-gray-200 px-2.5 py-1 text-xs text-gray-500"
-                            >
-                              cancel
-                            </button>
-                          </div>
+                                return
+                              }
+                              if (event.key === 'Enter' && !event.shiftKey) {
+                                event.preventDefault()
+                                void handleSaveCorrection(segment, editingText)
+                              }
+                            }}
+                            onBlur={() => void handleSaveCorrection(segment, editingText)}
+                            rows={2}
+                            autoFocus
+                            className="w-full rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-sm text-gray-800 focus:outline-none focus:border-indigo-400 resize-y"
+                          />
+                          <p className="mt-1 text-[11px] text-gray-500">enter to save, shift+enter for newline, esc to cancel</p>
                         </div>
                       ) : (
                         <div>
-                          <p className="text-sm text-gray-800 leading-relaxed">{segment.text}</p>
+                          <p
+                            className="text-sm text-gray-800 leading-relaxed cursor-text"
+                            onDoubleClick={() => startEditing(segment)}
+                            title="double-click to edit"
+                          >
+                            {segment.text}
+                          </p>
                           <div className="mt-1 flex items-center gap-3">
-                            <button
-                              type="button"
-                              onClick={() => startEditing(segment)}
-                              className="text-[11px] text-indigo-600 underline"
-                            >
-                              edit
-                            </button>
+                            <span className="text-[11px] text-gray-400">double-click to edit</span>
                             {isCorrected ? (
                               <span className="text-[11px] text-amber-700">
                                 corrected
@@ -837,4 +854,35 @@ function uniqueList(values) {
     out.push(value)
   }
   return out
+}
+
+function detectCorrectionPair(originalSentence, correctedSentence) {
+  const before = String(originalSentence || '').replace(/\s+/g, ' ').trim()
+  const after = String(correctedSentence || '').replace(/\s+/g, ' ').trim()
+  if (!before || !after || before === after) return null
+
+  const beforeTokens = before.split(' ')
+  const afterTokens = after.split(' ')
+  if (beforeTokens.length === 0 || afterTokens.length === 0) return null
+
+  let left = 0
+  while (left < beforeTokens.length && left < afterTokens.length && beforeTokens[left] === afterTokens[left]) {
+    left += 1
+  }
+
+  let rightBefore = beforeTokens.length - 1
+  let rightAfter = afterTokens.length - 1
+  while (rightBefore >= left && rightAfter >= left && beforeTokens[rightBefore] === afterTokens[rightAfter]) {
+    rightBefore -= 1
+    rightAfter -= 1
+  }
+
+  const originalDiff = beforeTokens.slice(left, rightBefore + 1).join(' ').trim()
+  const correctedDiff = afterTokens.slice(left, rightAfter + 1).join(' ').trim()
+  if (!originalDiff || !correctedDiff) return null
+
+  return {
+    original: originalDiff,
+    corrected: correctedDiff,
+  }
 }
