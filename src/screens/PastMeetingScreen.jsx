@@ -98,11 +98,23 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   }, [meeting?.id, user?.id])
 
   useEffect(() => {
-    const blocks = buildEditableBlocks(effectiveSegments, effectiveTranscript)
+    const selectedRow =
+      selectedProvider === 'meeting'
+        ? null
+        : providerOutputs.find((row) => String(row?.provider || '').toLowerCase() === selectedProvider) || null
+    const segmentsForView = Array.isArray(selectedRow?.segments) ? selectedRow.segments : meeting?.segments
+    const transcriptForView = buildTranscriptFromSegments(segmentsForView) || String(meeting?.transcript_compressed || '')
+    const blocks = buildEditableBlocks(segmentsForView, transcriptForView)
     setEditableBlocks(blocks)
     setEditingBlockKey(null)
     setEditingBlockText('')
-  }, [selectedProvider, meeting?.id, effectiveTranscript, JSON.stringify(effectiveSegments || [])])
+  }, [
+    selectedProvider,
+    meeting?.id,
+    meeting?.segments,
+    meeting?.transcript_compressed,
+    providerOutputs,
+  ])
 
   useEffect(() => {
     if (!autoScrollEnabled) return
