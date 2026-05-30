@@ -1,5 +1,6 @@
 import { saveContextProfileViaApi } from './api.js'
 const CONTEXT_ONBOARDING_KEY_PREFIX = 'context_onboarding_done_'
+const CONTEXT_PROFILE_CACHE_KEY_PREFIX = 'context_profile_cache_'
 
 export const INDUSTRY_OPTIONS = [
   'banking',
@@ -63,6 +64,7 @@ export async function hasContextProfile(supabase, userId) {
 
 export async function getContextProfile(supabase, userId) {
   if (!userId) return null
+  const cached = getCachedContextProfile(userId)
   const baseSelect =
     'industry, role, meeting_types, participant_names, organization_terms, custom_terms, generated_keyterms, correction_terms, summary_context'
 
@@ -73,10 +75,16 @@ export async function getContextProfile(supabase, userId) {
     .maybeSingle()
 
   if (!error) {
-    return data || null
+    const normalized = data || null
+    if (normalized) {
+      setCachedContextProfile(userId, normalized)
+      return normalized
+    }
+    return cached
   }
 
   if (!isMissingColumnError(error, 'do_not_infer')) {
+    if (cached) return cached
     throw new Error(error.message || 'Could not load context profile')
   }
 
@@ -87,10 +95,16 @@ export async function getContextProfile(supabase, userId) {
     .maybeSingle()
 
   if (fallback.error) {
+    if (cached) return cached
     throw new Error(fallback.error.message || 'Could not load context profile')
   }
 
-  return fallback.data ? { ...fallback.data, do_not_infer: [] } : null
+  const normalized = fallback.data ? { ...fallback.data, do_not_infer: [] } : null
+  if (normalized) {
+    setCachedContextProfile(userId, normalized)
+    return normalized
+  }
+  return cached
 }
 
 export async function upsertContextProfile(supabase, userId, profile) {
@@ -161,6 +175,17 @@ export async function upsertContextProfile(supabase, userId, profile) {
   }
 
   if (!error) {
+    setCachedContextProfile(targetUserId, {
+      ...payload,
+      meeting_types: payload.meeting_types,
+      participant_names: payload.participant_names,
+      organization_terms: payload.organization_terms,
+      custom_terms: payload.custom_terms,
+      generated_keyterms: payload.generated_keyterms,
+      correction_terms: payload.correction_terms,
+      summary_context: payload.summary_context,
+      do_not_infer: payload.do_not_infer,
+    })
     setContextOnboardingCompleted(targetUserId)
     return data
   }
@@ -177,6 +202,17 @@ export async function upsertContextProfile(supabase, userId, profile) {
       correctionTerms: payload.correction_terms,
       summaryContext: payload.summary_context,
       doNotInfer: payload.do_not_infer,
+    })
+    setCachedContextProfile(targetUserId, {
+      ...payload,
+      meeting_types: payload.meeting_types,
+      participant_names: payload.participant_names,
+      organization_terms: payload.organization_terms,
+      custom_terms: payload.custom_terms,
+      generated_keyterms: payload.generated_keyterms,
+      correction_terms: payload.correction_terms,
+      summary_context: payload.summary_context,
+      do_not_infer: payload.do_not_infer,
     })
     setContextOnboardingCompleted(targetUserId)
     return { id: saved?.id || null }
@@ -220,12 +256,34 @@ export async function upsertContextProfile(supabase, userId, profile) {
         summaryContext: legacyPayload.summary_context,
         doNotInfer: [],
       })
+      setCachedContextProfile(targetUserId, {
+        ...legacyPayload,
+        meeting_types: legacyPayload.meeting_types,
+        participant_names: legacyPayload.participant_names,
+        organization_terms: legacyPayload.organization_terms,
+        custom_terms: legacyPayload.custom_terms,
+        generated_keyterms: legacyPayload.generated_keyterms,
+        correction_terms: legacyPayload.correction_terms,
+        summary_context: legacyPayload.summary_context,
+        do_not_infer: [],
+      })
       setContextOnboardingCompleted(targetUserId)
       return { id: saved?.id || null }
     }
     throw new Error(fallbackError.message || 'Could not save context profile')
   }
 
+  setCachedContextProfile(targetUserId, {
+    ...legacyPayload,
+    meeting_types: legacyPayload.meeting_types,
+    participant_names: legacyPayload.participant_names,
+    organization_terms: legacyPayload.organization_terms,
+    custom_terms: legacyPayload.custom_terms,
+    generated_keyterms: legacyPayload.generated_keyterms,
+    correction_terms: legacyPayload.correction_terms,
+    summary_context: legacyPayload.summary_context,
+    do_not_infer: [],
+  })
   setContextOnboardingCompleted(targetUserId)
   return fallbackData
 }
@@ -407,4 +465,28 @@ function isRlsViolation(error) {
   const code = String(error?.code || '')
   const message = String(error?.message || '').toLowerCase()
   return code === '42501' || message.includes('row-level security')
+}
+
+function getCachedContextProfile(userId) {
+  if (!userId || typeof window === 'undefined') return null
+  try {
+    const raw = localStorage.getItem(CONTEXT_PROFILE_CACHE_KEY_PREFIX + userId)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return parsed && typeof parsed === 'object' ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function setCachedContextProfile(userId, profile) {
+  if (!userId || typeof window === 'undefined') return
+  try {
+    localStorage.setItem(
+      CONTEXT_PROFILE_CACHE_KEY_PREFIX + userId,
+      JSON.stringify(profile && typeof profile === 'object' ? profile : {}),
+    )
+  } catch {
+    // Ignore storage failures to avoid blocking context save/read.
+  }
 }
