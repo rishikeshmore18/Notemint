@@ -42,6 +42,38 @@ contextRouter.post('/generate-keyterms', requireAuth, async (req, res) => {
   }
 })
 
+contextRouter.post('/save-profile', requireAuth, async (req, res) => {
+  try {
+    const supabase = getServiceRoleClient()
+    const payload = normalizeProfileForStorage(req.body || {}, req.user.id)
+
+    let { data, error } = await supabase
+      .from('user_context_profiles')
+      .upsert(payload, { onConflict: 'user_id' })
+      .select('id')
+      .single()
+
+    if (error && isMissingColumnError(error, 'do_not_infer')) {
+      const { do_not_infer: _omit, ...legacyPayload } = payload
+      ;({ data, error } = await supabase
+        .from('user_context_profiles')
+        .upsert(legacyPayload, { onConflict: 'user_id' })
+        .select('id')
+        .single())
+    }
+
+    if (error) {
+      console.warn('[Context] save-profile failed:', error.message)
+      return res.status(500).json({ error: 'Could not save context profile' })
+    }
+
+    return res.json({ ok: true, id: data?.id || null })
+  } catch (err) {
+    console.warn('[Context] save-profile exception:', err?.message || err)
+    return res.status(500).json({ error: 'Could not save context profile' })
+  }
+})
+
 async function generateKeytermSuggestions(profile, correctionMemory) {
   const promptPayload = JSON.stringify(
     {
@@ -321,4 +353,36 @@ function looksSensitive(value) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value))
+}
+
+function getServiceRoleClient() {
+  const supabaseUrl = process.env.SUPABASE_URL
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY
+  if (!supabaseUrl || !serviceRoleKey) {
+    throw new Error('Supabase service role is not configured on server')
+  }
+  return createClient(supabaseUrl, serviceRoleKey)
+}
+
+function normalizeProfileForStorage(input, userId) {
+  const cleaned = normalizeProfileInput(input)
+  return {
+    user_id: userId,
+    industry: cleaned.industry || null,
+    role: cleaned.role || null,
+    meeting_types: cleaned.meetingTypes,
+    participant_names: cleaned.participantNames,
+    organization_terms: cleaned.organizationTerms,
+    custom_terms: cleaned.customTerms,
+    generated_keyterms: normalizeArray(input.generatedKeyterms, { maxItems: 200, maxLen: 60 }),
+    correction_terms: cleaned.correctionTerms,
+    summary_context: cleanOneLine(input.summaryContext, 280) || null,
+    do_not_infer: normalizeArray(input.doNotInfer, { maxItems: 24, maxLen: 120 }),
+    updated_at: new Date().toISOString(),
+  }
+}
+
+function isMissingColumnError(error, columnName) {
+  const message = String(error?.message || '').toLowerCase()
+  return message.includes(String(columnName || '').toLowerCase()) && message.includes('column')
 }

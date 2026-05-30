@@ -198,6 +198,36 @@ export async function generateContextKeyterms(profile) {
   }
 }
 
+export async function saveContextProfileViaApi(profile) {
+  const token = await getAuthToken()
+  const response = await fetch(`${BASE_URL}/api/context/save-profile`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      industry: profile?.industry || '',
+      role: profile?.role || '',
+      meetingTypes: Array.isArray(profile?.meetingTypes) ? profile.meetingTypes : [],
+      participantNames: Array.isArray(profile?.participantNames) ? profile.participantNames : [],
+      organizationTerms: Array.isArray(profile?.organizationTerms) ? profile.organizationTerms : [],
+      customTerms: Array.isArray(profile?.customTerms) ? profile.customTerms : [],
+      generatedKeyterms: Array.isArray(profile?.generatedKeyterms) ? profile.generatedKeyterms : [],
+      correctionTerms: Array.isArray(profile?.correctionTerms) ? profile.correctionTerms : [],
+      summaryContext: profile?.summaryContext || '',
+      doNotInfer: Array.isArray(profile?.doNotInfer) ? profile.doNotInfer : [],
+    }),
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.error || 'Could not save context profile')
+  }
+
+  return response.json()
+}
+
 export async function enrollVoice(audioBlob) {
   const token = await getAuthToken()
   const formData = new FormData()

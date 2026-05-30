@@ -1,3 +1,4 @@
+import { saveContextProfileViaApi } from './api.js'
 const CONTEXT_ONBOARDING_KEY_PREFIX = 'context_onboarding_done_'
 
 export const INDUSTRY_OPTIONS = [
@@ -164,6 +165,23 @@ export async function upsertContextProfile(supabase, userId, profile) {
     return data
   }
 
+  if (isRlsViolation(error)) {
+    const saved = await saveContextProfileViaApi({
+      industry: payload.industry,
+      role: payload.role,
+      meetingTypes: payload.meeting_types,
+      participantNames: payload.participant_names,
+      organizationTerms: payload.organization_terms,
+      customTerms: payload.custom_terms,
+      generatedKeyterms: payload.generated_keyterms,
+      correctionTerms: payload.correction_terms,
+      summaryContext: payload.summary_context,
+      doNotInfer: payload.do_not_infer,
+    })
+    setContextOnboardingCompleted(targetUserId)
+    return { id: saved?.id || null }
+  }
+
   if (!isMissingColumnError(error, 'do_not_infer')) {
     throw new Error(error.message || 'Could not save context profile')
   }
@@ -189,6 +207,22 @@ export async function upsertContextProfile(supabase, userId, profile) {
   }
 
   if (fallbackError) {
+    if (isRlsViolation(fallbackError)) {
+      const saved = await saveContextProfileViaApi({
+        industry: legacyPayload.industry,
+        role: legacyPayload.role,
+        meetingTypes: legacyPayload.meeting_types,
+        participantNames: legacyPayload.participant_names,
+        organizationTerms: legacyPayload.organization_terms,
+        customTerms: legacyPayload.custom_terms,
+        generatedKeyterms: legacyPayload.generated_keyterms,
+        correctionTerms: legacyPayload.correction_terms,
+        summaryContext: legacyPayload.summary_context,
+        doNotInfer: [],
+      })
+      setContextOnboardingCompleted(targetUserId)
+      return { id: saved?.id || null }
+    }
     throw new Error(fallbackError.message || 'Could not save context profile')
   }
 
