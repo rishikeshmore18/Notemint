@@ -39,6 +39,7 @@ export default function ResultsScreen({
   const [activeLineIndex, setActiveLineIndex] = useState(-1)
   const [isPlaying, setIsPlaying] = useState(false)
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true)
+  const [touchEditableKey, setTouchEditableKey] = useState(null)
 
   const summaryTextRef = useRef('')
   const mountedRef = useRef(true)
@@ -51,10 +52,17 @@ export default function ResultsScreen({
   const contextRefreshTimerRef = useRef(null)
   const contextRefreshInFlightRef = useRef(false)
   const contextRefreshQueuedRef = useRef(false)
+  const touchStateRef = useRef({
+    key: null,
+    timer: null,
+    lastTapAt: 0,
+    lastTapKey: null,
+  })
 
   useEffect(() => {
     return () => {
       mountedRef.current = false
+      clearTouchTimer()
       if (contextRefreshTimerRef.current) {
         clearTimeout(contextRefreshTimerRef.current)
         contextRefreshTimerRef.current = null
@@ -412,6 +420,45 @@ export default function ResultsScreen({
     }
     setEditingSegmentKey(segment.key)
     setEditingText(segment.text || '')
+    setTouchEditableKey(null)
+  }
+
+  function showTouchEditHint(segmentKey) {
+    setTouchEditableKey(segmentKey)
+    setTimeout(() => {
+      setTouchEditableKey((current) => (current === segmentKey ? null : current))
+    }, 4500)
+  }
+
+  function handleTranscriptTouchStart(segment) {
+    if (!segment?.key || editingSegmentKey === segment.key) return
+    clearTouchTimer()
+    touchStateRef.current.key = segment.key
+    touchStateRef.current.timer = setTimeout(() => {
+      showTouchEditHint(segment.key)
+      clearTouchTimer()
+    }, 420)
+  }
+
+  function handleTranscriptTouchEnd(segment) {
+    if (!segment?.key || editingSegmentKey === segment.key) return
+    const now = Date.now()
+    const sameKey = touchStateRef.current.lastTapKey === segment.key
+    const delta = now - touchStateRef.current.lastTapAt
+    if (sameKey && delta < 320) {
+      showTouchEditHint(segment.key)
+    }
+    touchStateRef.current.lastTapAt = now
+    touchStateRef.current.lastTapKey = segment.key
+    clearTouchTimer()
+  }
+
+  function clearTouchTimer() {
+    if (touchStateRef.current.timer) {
+      clearTimeout(touchStateRef.current.timer)
+      touchStateRef.current.timer = null
+    }
+    touchStateRef.current.key = null
   }
 
   return (
@@ -650,12 +697,24 @@ export default function ResultsScreen({
                           <p
                             className="text-sm text-gray-800 leading-relaxed cursor-text"
                             onDoubleClick={() => startEditing(segment)}
+                            onTouchStart={() => handleTranscriptTouchStart(segment)}
+                            onTouchEnd={() => handleTranscriptTouchEnd(segment)}
+                            onTouchCancel={clearTouchTimer}
                             title="double-click to edit"
                           >
                             {segment.text}
                           </p>
                           <div className="mt-1 flex items-center gap-3">
                             <span className="text-[11px] text-gray-400">double-click to edit</span>
+                            {touchEditableKey === segment.key ? (
+                              <button
+                                type="button"
+                                onClick={() => startEditing(segment)}
+                                className="text-[11px] text-indigo-600 underline"
+                              >
+                                edit
+                              </button>
+                            ) : null}
                             {isCorrected ? (
                               <span className="text-[11px] text-amber-700">
                                 corrected
