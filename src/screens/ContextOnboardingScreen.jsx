@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   INDUSTRY_OPTIONS,
-  MEETING_TYPE_OPTIONS,
   ROLE_OPTIONS,
   getCorrectionMemory,
   getContextProfile,
@@ -12,13 +11,11 @@ import { supabase } from '../lib/supabase'
 import { generateContextKeyterms } from '../lib/api'
 
 export default function ContextOnboardingScreen({ user, mode = 'initial', onComplete, onSkip }) {
-  const [industry, setIndustry] = useState('')
-  const [role, setRole] = useState('')
-  const [meetingTypes, setMeetingTypes] = useState([])
-  const [participantNamesInput, setParticipantNamesInput] = useState('')
-  const [organizationTermsInput, setOrganizationTermsInput] = useState('')
-  const [customTermsInput, setCustomTermsInput] = useState('')
-  const [correctionTermsInput, setCorrectionTermsInput] = useState('')
+  const [industrySelection, setIndustrySelection] = useState('')
+  const [industryOtherInput, setIndustryOtherInput] = useState('')
+  const [roleSelection, setRoleSelection] = useState('')
+  const [roleOtherInput, setRoleOtherInput] = useState('')
+  const [importantTermsInput, setImportantTermsInput] = useState('')
   const [generatedKeyterms, setGeneratedKeyterms] = useState([])
   const [generatedSummaryContext, setGeneratedSummaryContext] = useState('')
   const [generatedDoNotInfer, setGeneratedDoNotInfer] = useState([])
@@ -31,12 +28,9 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
   const [generationWarning, setGenerationWarning] = useState('')
 
   const title = mode === 'edit' ? 'edit work context' : mode === 'dictionary' ? 'correction dictionary' : 'set your work context'
-  const subtitle =
-    mode === 'edit'
-      ? 'update this anytime to improve transcript accuracy.'
-      : mode === 'dictionary'
-        ? 'review corrections and refresh term suggestions from real edits.'
-      : 'helps improve names, domain terms, and meeting summaries.'
+  const subtitle = mode === 'dictionary'
+    ? 'review corrections and refresh term suggestions from real edits.'
+    : 'quick setup to improve names, domain terms, and meeting summaries.'
 
   useEffect(() => {
     let cancelled = false
@@ -46,13 +40,26 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
         const existing = await getContextProfile(supabase, user?.id)
         if (cancelled || !existing) return
 
-        setIndustry(existing.industry || '')
-        setRole(existing.role || '')
-        setMeetingTypes(Array.isArray(existing.meeting_types) ? existing.meeting_types : [])
-        setParticipantNamesInput(listToInput(existing.participant_names))
-        setOrganizationTermsInput(listToInput(existing.organization_terms))
-        setCustomTermsInput(listToInput(existing.custom_terms))
-        setCorrectionTermsInput(listToInput(existing.correction_terms))
+        const existingIndustry = String(existing.industry || '').trim()
+        const existingRole = String(existing.role || '').trim()
+        if (existingIndustry && INDUSTRY_OPTIONS.includes(existingIndustry)) {
+          setIndustrySelection(existingIndustry)
+        } else if (existingIndustry) {
+          setIndustrySelection('other')
+          setIndustryOtherInput(existingIndustry)
+        }
+        if (existingRole && ROLE_OPTIONS.includes(existingRole)) {
+          setRoleSelection(existingRole)
+        } else if (existingRole) {
+          setRoleSelection('other')
+          setRoleOtherInput(existingRole)
+        }
+        const mergedTerms = uniqueTerms([
+          ...toStringList(existing.participant_names),
+          ...toStringList(existing.organization_terms),
+          ...toStringList(existing.custom_terms),
+        ])
+        setImportantTermsInput(listToInput(mergedTerms))
         setGeneratedKeyterms(Array.isArray(existing.generated_keyterms) ? existing.generated_keyterms : [])
         setGeneratedSummaryContext(String(existing.summary_context || ''))
         setGeneratedDoNotInfer(Array.isArray(existing.do_not_infer) ? existing.do_not_infer : [])
@@ -78,10 +85,15 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
     }
   }, [user?.id])
 
-  const parsedParticipantNames = useMemo(() => parseTerms(participantNamesInput), [participantNamesInput])
-  const parsedOrganizationTerms = useMemo(() => parseTerms(organizationTermsInput), [organizationTermsInput])
-  const parsedCustomTerms = useMemo(() => parseTerms(customTermsInput), [customTermsInput])
-  const parsedCorrectionTerms = useMemo(() => parseTerms(correctionTermsInput), [correctionTermsInput])
+  const parsedImportantTerms = useMemo(() => parseTerms(importantTermsInput), [importantTermsInput])
+  const normalizedIndustry = useMemo(() => {
+    if (industrySelection === 'other') return String(industryOtherInput || '').trim()
+    return String(industrySelection || '').trim()
+  }, [industrySelection, industryOtherInput])
+  const normalizedRole = useMemo(() => {
+    if (roleSelection === 'other') return String(roleOtherInput || '').trim()
+    return String(roleSelection || '').trim()
+  }, [roleSelection, roleOtherInput])
   const normalizedGeneratedKeyterms = useMemo(
     () =>
       uniqueTerms(generatedKeyterms)
@@ -95,13 +107,13 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
     setGenerationWarning('')
     try {
       const generated = await generateContextKeyterms({
-        industry,
-        role,
-        meetingTypes,
-        participantNames: parsedParticipantNames,
-        organizationTerms: parsedOrganizationTerms,
-        customTerms: parsedCustomTerms,
-        correctionTerms: parsedCorrectionTerms,
+        industry: normalizedIndustry,
+        role: normalizedRole,
+        meetingTypes: [],
+        participantNames: parsedImportantTerms,
+        organizationTerms: parsedImportantTerms,
+        customTerms: parsedImportantTerms,
+        correctionTerms: [],
       })
       const nextKeyterms = Array.isArray(generated?.keyterms) ? generated.keyterms : []
       const nextSummaryContext = String(generated?.summaryContext || '')
@@ -129,6 +141,17 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
     setError(null)
     setGenerationWarning('')
     try {
+      if (mode !== 'dictionary') {
+        if (industrySelection === 'other' && !normalizedIndustry) {
+          setError('please enter your industry')
+          return
+        }
+        if (roleSelection === 'other' && !normalizedRole) {
+          setError('please enter your role')
+          return
+        }
+      }
+
       let finalGeneratedKeyterms = normalizedGeneratedKeyterms
       let finalSummaryContext = generatedSummaryContext
       let finalDoNotInfer = generatedDoNotInfer
@@ -145,13 +168,13 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
       }
 
       await upsertContextProfile(supabase, user.id, {
-        industry,
-        role,
-        meetingTypes,
-        participantNames: parsedParticipantNames,
-        organizationTerms: parsedOrganizationTerms,
-        customTerms: parsedCustomTerms,
-        correctionTerms: parsedCorrectionTerms,
+        industry: normalizedIndustry,
+        role: normalizedRole,
+        meetingTypes: [],
+        participantNames: parsedImportantTerms,
+        organizationTerms: parsedImportantTerms,
+        customTerms: parsedImportantTerms,
+        correctionTerms: [],
         generatedKeyterms: finalGeneratedKeyterms,
         summaryContext: finalSummaryContext,
         doNotInfer: finalDoNotInfer,
@@ -162,13 +185,6 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
     } finally {
       setSaving(false)
     }
-  }
-
-  function toggleMeetingType(type) {
-    setMeetingTypes((prev) => {
-      if (prev.includes(type)) return prev.filter((item) => item !== type)
-      return [...prev, type]
-    })
   }
 
   function handleAddKeyterm() {
@@ -199,8 +215,8 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">industry</label>
                 <select
-                  value={industry}
-                  onChange={(event) => setIndustry(event.target.value)}
+                  value={industrySelection}
+                  onChange={(event) => setIndustrySelection(event.target.value)}
                   className="w-full h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
                 >
                   <option value="">skip for now</option>
@@ -210,6 +226,14 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
                     </option>
                   ))}
                 </select>
+                {industrySelection === 'other' ? (
+                  <input
+                    value={industryOtherInput}
+                    onChange={(event) => setIndustryOtherInput(event.target.value)}
+                    placeholder="enter your industry"
+                    className="mt-2 w-full h-10 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                  />
+                ) : null}
               </div>
             ) : null}
 
@@ -217,8 +241,8 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">role</label>
                 <select
-                  value={role}
-                  onChange={(event) => setRole(event.target.value)}
+                  value={roleSelection}
+                  onChange={(event) => setRoleSelection(event.target.value)}
                   className="w-full h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
                 >
                   <option value="">skip for now</option>
@@ -228,66 +252,26 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
                     </option>
                   ))}
                 </select>
+                {roleSelection === 'other' ? (
+                  <input
+                    value={roleOtherInput}
+                    onChange={(event) => setRoleOtherInput(event.target.value)}
+                    placeholder="enter your role"
+                    className="mt-2 w-full h-10 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                  />
+                ) : null}
               </div>
             ) : null}
 
             {mode !== 'dictionary' ? (
-              <div>
-                <p className="block text-sm font-medium text-gray-700 mb-2">meeting types</p>
-                <div className="flex flex-wrap gap-2">
-                  {MEETING_TYPE_OPTIONS.map((type) => {
-                    const selected = meetingTypes.includes(type)
-                    return (
-                      <button
-                        key={type}
-                        type="button"
-                        onClick={() => toggleMeetingType(type)}
-                        className={`rounded-full px-3 py-1.5 text-xs transition-colors ${
-                          selected
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                      >
-                        {type}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
+              <Field
+                label="important names / terms"
+                value={importantTermsInput}
+                onChange={setImportantTermsInput}
+                placeholder="Tom, Sarah, Notemint, fraud hold, CDs"
+                helper="comma or new line separated"
+              />
             ) : null}
-
-            {mode !== 'dictionary' ? (
-              <>
-                <Field
-                  label="common people names"
-                  value={participantNamesInput}
-                  onChange={setParticipantNamesInput}
-                  placeholder="Tom, Sarah, John Smith"
-                  helper="comma or new line separated"
-                />
-                <Field
-                  label="organization / product terms"
-                  value={organizationTermsInput}
-                  onChange={setOrganizationTermsInput}
-                  placeholder="Notemint, Fraud Hold, Branch Ops"
-                  helper="comma or new line separated"
-                />
-                <Field
-                  label="acronyms / special words"
-                  value={customTermsInput}
-                  onChange={setCustomTermsInput}
-                  placeholder="CDs, IEP, SLA, delinquency"
-                  helper="comma or new line separated"
-                />
-              </>
-            ) : null}
-            <Field
-              label="words often transcribed wrong (optional)"
-              value={correctionTermsInput}
-              onChange={setCorrectionTermsInput}
-              placeholder="staffing issue, fraud prevention"
-              helper="comma or new line separated"
-            />
 
             <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
               <div className="flex items-center justify-between gap-3">
@@ -426,4 +410,12 @@ function uniqueTerms(values) {
   }
 
   return out
+}
+
+function toStringList(value) {
+  return Array.isArray(value)
+    ? value
+        .map((item) => String(item || '').trim())
+        .filter(Boolean)
+    : []
 }
