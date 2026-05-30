@@ -37,7 +37,7 @@ export default function App() {
   const [audioSaveMessage, setAudioSaveMessage] = useState('')
   const [audioUploadStatus, setAudioUploadStatus] = useState('pending')
   const [meetingContext, setMeetingContext] = useState(null)
-  const [compareModeEnabled, setCompareModeEnabled] = useState(false)
+  const [compareModeEnabled, setCompareModeEnabled] = useState(true)
   const [compareResults, setCompareResults] = useState([])
   const [compareHistory, setCompareHistory] = useState([])
   const [bestTranscriptProvider, setBestTranscriptProvider] = useState('')
@@ -54,7 +54,7 @@ export default function App() {
   const callbackContextRef = useRef(getAuthCallbackContext())
   const redirectTimeoutRef = useRef(null)
   const compareRunRef = useRef(0)
-  const compareModeAvailable = getCompareModeAvailability()
+  const compareModeAvailable = true
 
   useEffect(() => {
     let cancelled = false
@@ -792,7 +792,7 @@ export default function App() {
       onTranscriptionProviderChange={setTranscriptionProvider}
       compareModeAvailable={compareModeAvailable}
       compareModeEnabled={compareModeEnabled}
-      onCompareModeChange={setCompareModeEnabled}
+      onCompareModeChange={() => setCompareModeEnabled(true)}
       onMeetingComplete={async (segments, audioBlob, hadLiveTranscript = true, meetingContextPayload = null) => {
         setMeetingAudioBlob(audioBlob)
         setMeetingContext(meetingContextPayload)
