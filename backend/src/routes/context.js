@@ -26,6 +26,32 @@ const GENERIC_TERMS = new Set([
   'calls',
 ])
 
+const CONTEXT_KEYTERM_TOOL_NAME = 'generate_context_keyterms'
+const CONTEXT_KEYTERM_TOOL = {
+  name: CONTEXT_KEYTERM_TOOL_NAME,
+  description: 'Generate speech-recognition keyterms and concise meeting context from a user profile.',
+  input_schema: {
+    type: 'object',
+    properties: {
+      keyterms: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Specific names, acronyms, product terms, and domain phrases useful for transcription.',
+      },
+      summary_context: {
+        type: 'string',
+        description: 'A concise context note, maximum 280 characters.',
+      },
+      do_not_infer: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Short constraints for things the summarizer should not assume.',
+      },
+    },
+    required: ['keyterms', 'summary_context', 'do_not_infer'],
+  },
+}
+
 contextRouter.post('/generate-keyterms', requireAuth, async (req, res) => {
   if (!process.env.ANTHROPIC_KEY) {
     return res.status(500).json({ error: 'ANTHROPIC_KEY is not configured on server' })
@@ -102,14 +128,10 @@ async function generateKeytermSuggestions(profile, correctionMemory) {
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 900,
       temperature: 0.1,
+      tools: [CONTEXT_KEYTERM_TOOL],
+      tool_choice: { type: 'tool', name: CONTEXT_KEYTERM_TOOL_NAME },
       system: `You generate high-signal speech transcription context.
-Return STRICT JSON only, no markdown, no commentary.
-Schema:
-{
-  "keyterms": string[],
-  "summary_context": string,
-  "do_not_infer": string[]
-}
+Use the provided tool exactly once.
 Rules:
 - Keep keyterms specific and useful for speech recognition.
 - Prefer names, acronyms, product terms, domain phrases.
@@ -134,10 +156,23 @@ Rules:
   }
 
   const payload = await response.json()
-  const rawText = extractTextBlocks(payload)
-  const parsed = parseStrictJson(rawText)
+  const toolInput = extractKeytermToolInput(payload)
+  if (toolInput) {
+    return sanitizeGeneratedPayload(toolInput, correctionMemory)
+  }
 
-  return sanitizeGeneratedPayload(parsed, correctionMemory)
+  try {
+    const rawText = extractTextBlocks(payload)
+    const parsed = parseStrictJson(rawText)
+    return sanitizeGeneratedPayload(parsed, correctionMemory)
+  } catch (err) {
+    console.warn('[Context] Claude returned unstructured keyterm output; using local fallback:', err?.message || err)
+    return {
+      ...buildFallbackGeneratedPayload(profile, correctionMemory),
+      fallback: true,
+      warning: 'claude_unstructured_output',
+    }
+  }
 }
 
 function normalizeProfileInput(input) {
@@ -170,6 +205,32 @@ function sanitizeGeneratedPayload(parsed, correctionMemory = { boostTerms: [] })
     keyterms,
     summary_context: summaryContext || '',
     do_not_infer: doNotInfer,
+  }
+}
+
+function buildFallbackGeneratedPayload(profile, correctionMemory = { boostTerms: [] }) {
+  const sourceTerms = [
+    ...normalizeArray(profile?.participantNames, { maxItems: 120, maxLen: 50 }),
+    ...normalizeArray(profile?.organizationTerms, { maxItems: 160, maxLen: 50 }),
+    ...normalizeArray(profile?.customTerms, { maxItems: 160, maxLen: 50 }),
+    ...normalizeArray(profile?.correctionTerms, { maxItems: 160, maxLen: 50 }),
+    ...normalizeArray(correctionMemory?.boostTerms, { maxItems: 120, maxLen: 50 }),
+  ]
+
+  const keyterms = normalizeArray(sourceTerms, { maxItems: 200, maxLen: 50 })
+    .filter((term) => term.split(' ').length <= 6)
+    .filter((term) => !GENERIC_TERMS.has(term.toLowerCase()))
+    .filter((term) => !looksSensitive(term))
+
+  const contextParts = []
+  if (profile?.industry) contextParts.push(`Industry: ${profile.industry}`)
+  if (profile?.role) contextParts.push(`Role: ${profile.role}`)
+  if (keyterms.length > 0) contextParts.push(`Known terms: ${keyterms.slice(0, 12).join(', ')}`)
+
+  return {
+    keyterms,
+    summary_context: cleanOneLine(contextParts.join(' | '), 280),
+    do_not_infer: [],
   }
 }
 
@@ -292,6 +353,19 @@ function restoreFromKey(rows, field, key) {
     if (value && value.toLowerCase() === key) return value
   }
   return ''
+}
+
+function extractKeytermToolInput(payload) {
+  const content = Array.isArray(payload?.content) ? payload.content : []
+  const toolBlock = content.find(
+    (block) =>
+      block?.type === 'tool_use' &&
+      block?.name === CONTEXT_KEYTERM_TOOL_NAME &&
+      block?.input &&
+      typeof block.input === 'object',
+  )
+
+  return toolBlock?.input || null
 }
 
 function extractTextBlocks(payload) {
