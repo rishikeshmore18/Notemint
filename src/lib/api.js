@@ -7,12 +7,17 @@ if (!BASE_URL) {
 }
 
 async function getAuthToken() {
-  const {
+  let {
     data: { session },
   } = await supabase.auth.getSession()
 
   if (!session?.access_token) {
-    throw new Error('Not authenticated')
+    const refreshed = await supabase.auth.refreshSession()
+    session = refreshed?.data?.session || null
+  }
+
+  if (!session?.access_token) {
+    throw new Error('Session expired. Please sign in again.')
   }
 
   return session.access_token

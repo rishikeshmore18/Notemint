@@ -95,20 +95,27 @@ export async function getContextProfile(supabase, userId) {
 export async function upsertContextProfile(supabase, userId, profile) {
   if (!userId) throw new Error('Missing user id')
 
-  const {
-    data: { user: authUser },
-    error: authError,
-  } = await supabase.auth.getUser()
+  let {
+    data: { session },
+    error: sessionError,
+  } = await supabase.auth.getSession()
 
-  if (authError) {
-    throw new Error(authError.message || 'Could not verify your session')
+  if (sessionError) {
+    throw new Error(sessionError.message || 'Could not verify your session')
   }
 
-  if (!authUser?.id) {
+  if (!session?.access_token) {
+    const refreshed = await supabase.auth.refreshSession()
+    session = refreshed?.data?.session || null
+  }
+
+  if (!session?.access_token || !session?.user?.id) {
     throw new Error('Session expired. Please sign in again.')
   }
 
-  // Always bind writes to the current auth session user.
+  const authUser = session.user
+
+  // Always bind writes to the current authenticated session user.
   // This prevents stale UI state from causing anon/foreign-id RLS failures.
   const targetUserId = authUser.id
 
@@ -137,11 +144,20 @@ export async function upsertContextProfile(supabase, userId, profile) {
     updated_at: new Date().toISOString(),
   }
 
-  const { data, error } = await supabase
-    .from('user_context_profiles')
-    .upsert(payload, { onConflict: 'user_id' })
-    .select('id')
-    .single()
+  const runUpsert = async () =>
+    supabase
+      .from('user_context_profiles')
+      .upsert(payload, { onConflict: 'user_id' })
+      .select('id')
+      .single()
+
+  let { data, error } = await runUpsert()
+  if (error && isRlsViolation(error)) {
+    const refreshed = await supabase.auth.refreshSession()
+    if (refreshed?.data?.session?.access_token) {
+      ;({ data, error } = await runUpsert())
+    }
+  }
 
   if (!error) {
     setContextOnboardingCompleted(targetUserId)
@@ -155,11 +171,22 @@ export async function upsertContextProfile(supabase, userId, profile) {
   // Backward compatibility while the new migration is being applied.
   const { do_not_infer: _omit, ...legacyPayload } = payload
 
-  const { data: fallbackData, error: fallbackError } = await supabase
+  let { data: fallbackData, error: fallbackError } = await supabase
     .from('user_context_profiles')
     .upsert(legacyPayload, { onConflict: 'user_id' })
     .select('id')
     .single()
+
+  if (fallbackError && isRlsViolation(fallbackError)) {
+    const refreshed = await supabase.auth.refreshSession()
+    if (refreshed?.data?.session?.access_token) {
+      ;({ data: fallbackData, error: fallbackError } = await supabase
+        .from('user_context_profiles')
+        .upsert(legacyPayload, { onConflict: 'user_id' })
+        .select('id')
+        .single())
+    }
+  }
 
   if (fallbackError) {
     throw new Error(fallbackError.message || 'Could not save context profile')
@@ -340,4 +367,10 @@ function emptyToNull(value) {
 function isMissingColumnError(error, columnName) {
   const message = String(error?.message || '').toLowerCase()
   return message.includes(columnName.toLowerCase()) && message.includes('column')
+}
+
+function isRlsViolation(error) {
+  const code = String(error?.code || '')
+  const message = String(error?.message || '').toLowerCase()
+  return code === '42501' || message.includes('row-level security')
 }

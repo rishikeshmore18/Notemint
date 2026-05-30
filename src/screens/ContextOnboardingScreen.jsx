@@ -127,8 +127,13 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
         doNotInfer: nextDoNotInfer,
       }
     } catch (err) {
-      setGenerationWarning('could not regenerate suggestions right now')
-      console.warn('[ContextOnboarding] Keyterm regeneration failed:', err?.message || err)
+      const message = String(err?.message || '')
+      if (message.toLowerCase().includes('session expired') || message.toLowerCase().includes('not authenticated')) {
+        setGenerationWarning('session expired. please sign in again and retry.')
+      } else {
+        setGenerationWarning('could not regenerate suggestions right now')
+      }
+      console.warn('[ContextOnboarding] Keyterm regeneration failed:', message || err)
       return null
     } finally {
       setRegenerating(false)
@@ -181,7 +186,12 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
       })
       onComplete?.()
     } catch (err) {
-      setError(err.message || 'Could not save context profile')
+      const message = String(err?.message || '')
+      if (message.toLowerCase().includes('row-level security')) {
+        setError('session check failed. please sign in again, then save context.')
+      } else {
+        setError(message || 'Could not save context profile')
+      }
     } finally {
       setSaving(false)
     }
