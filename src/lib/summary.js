@@ -561,6 +561,31 @@ export async function getRecentTranscriptionEvaluations(supabase, userId, limit 
   return Array.isArray(fallback.data) ? fallback.data : []
 }
 
+export async function getMeetingProviderOutputs(supabase, { userId, meetingId }) {
+  if (!userId || !meetingId) return []
+
+  const { data, error } = await supabase
+    .from('transcription_evaluations')
+    .select('provider, model, segments, summary, duration_ms, speaker_count, segment_count, created_at')
+    .eq('user_id', userId)
+    .eq('meeting_id', meetingId)
+    .order('created_at', { ascending: false })
+    .limit(60)
+
+  if (error) {
+    throw new Error(error.message || 'Could not load provider outputs')
+  }
+
+  const latestByProvider = new Map()
+  for (const row of Array.isArray(data) ? data : []) {
+    const provider = String(row?.provider || '').trim()
+    if (!provider || latestByProvider.has(provider)) continue
+    latestByProvider.set(provider, row)
+  }
+
+  return Array.from(latestByProvider.values())
+}
+
 export function getLocalMeetings(userId) {
   try {
     const raw = localStorage.getItem(LOCAL_MEETINGS_KEY_PREFIX + userId)

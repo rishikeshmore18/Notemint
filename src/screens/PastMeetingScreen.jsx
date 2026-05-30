@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { groupSegmentsByTime } from '../lib/grokStt'
-import { deleteMeetingAudio, getMeetingAudioSignedUrl } from '../lib/summary'
+import { deleteMeetingAudio, getMeetingAudioSignedUrl, getMeetingProviderOutputs } from '../lib/summary'
 import { supabase } from '../lib/supabase'
 
 export default function PastMeetingScreen({ user, meeting, onBack }) {
@@ -11,6 +11,8 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   const [audioStoragePath, setAudioStoragePath] = useState(meeting?.audio_storage_path || '')
   const [audioDeletedAt, setAudioDeletedAt] = useState(meeting?.audio_deleted_at || null)
   const [audioActionStatus, setAudioActionStatus] = useState('idle')
+  const [providerOutputs, setProviderOutputs] = useState([])
+  const [selectedProvider, setSelectedProvider] = useState('meeting')
   const [activeLineIndex, setActiveLineIndex] = useState(-1)
   const [isPlaying, setIsPlaying] = useState(false)
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true)
@@ -66,6 +68,33 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   }, [meeting?.audio_storage_path, meeting?.id, user?.id])
 
   useEffect(() => {
+    let cancelled = false
+    setProviderOutputs([])
+    setSelectedProvider('meeting')
+    if (!user?.id || !meeting?.id || String(meeting.id).startsWith('local_')) return () => {}
+
+    ;(async () => {
+      try {
+        const rows = await getMeetingProviderOutputs(supabase, {
+          userId: user.id,
+          meetingId: meeting.id,
+        })
+        if (cancelled) return
+        setProviderOutputs(rows)
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('[PastMeeting] Could not load provider outputs:', err?.message || err)
+          setProviderOutputs([])
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [meeting?.id, user?.id])
+
+  useEffect(() => {
     if (!autoScrollEnabled) return
     if (activeLineIndex < 0) return
     const node = lineRefs.current[activeLineIndex]
@@ -99,7 +128,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   }
 
   async function handleCopy(type) {
-    const text = type === 'summary' ? meeting.summary || '' : meeting.transcript_compressed || ''
+    const text = type === 'summary' ? effectiveSummary || '' : effectiveTranscript || ''
     await copyToClipboard(text)
     setCopiedWhat(type)
     setTimeout(() => {
@@ -338,6 +367,14 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
     }
   }
 
+  const selectedProviderRow =
+    selectedProvider === 'meeting'
+      ? null
+      : providerOutputs.find((row) => String(row?.provider || '').toLowerCase() === selectedProvider) || null
+  const effectiveSegments = Array.isArray(selectedProviderRow?.segments) ? selectedProviderRow.segments : meeting?.segments
+  const effectiveSummary = String(selectedProviderRow?.summary || meeting?.summary || '')
+  const effectiveTranscript = buildTranscriptFromSegments(effectiveSegments) || String(meeting?.transcript_compressed || '')
+
   return (
     <div className="min-h-screen bg-white flex flex-col max-w-2xl mx-auto px-5 md:px-10">
       <div className="flex items-center justify-between h-14 flex-shrink-0">
@@ -389,6 +426,26 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
         </button>
       </div>
 
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-xs text-gray-400">model output</p>
+        <select
+          value={selectedProvider}
+          onChange={(event) => setSelectedProvider(event.target.value)}
+          className="h-8 rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+        >
+          <option value="meeting">Meeting (default)</option>
+          {providerOutputs.map((row) => {
+            const key = String(row?.provider || '').toLowerCase()
+            if (!key) return null
+            return (
+              <option key={key} value={key}>
+                {formatProviderLabel(key)}
+              </option>
+            )
+          })}
+        </select>
+      </div>
+
       <div
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto pb-4"
@@ -397,13 +454,13 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
         onWheel={handleTranscriptManualScroll}
         onTouchMove={handleTranscriptManualScroll}
       >
-        {activeTab === 'summary' && <div>{renderMarkdownLite(meeting.summary)}</div>}
+        {activeTab === 'summary' && <div>{renderMarkdownLite(effectiveSummary)}</div>}
 
         {activeTab === 'transcript' &&
           (() => {
             const rawSegments =
-              meeting.segments && Array.isArray(meeting.segments) && meeting.segments.length > 0
-                ? meeting.segments
+              effectiveSegments && Array.isArray(effectiveSegments) && effectiveSegments.length > 0
+                ? effectiveSegments
                 : null
 
             if (rawSegments) {
@@ -444,7 +501,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
               )
             }
 
-            const parsed = parseTranscript(meeting.transcript_compressed)
+            const parsed = parseTranscript(effectiveTranscript)
             return (
               <div className="flex flex-col gap-0">
                 {renderAudioPlayer([])}
@@ -473,7 +530,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
       <div className="flex flex-col gap-2 pt-4 flex-shrink-0" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
         <button
           onClick={() => handleCopy('summary')}
-          disabled={!meeting.summary}
+          disabled={!effectiveSummary}
           className="h-11 w-full rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {copiedWhat === 'summary' ? 'copied!' : 'copy summary'}
@@ -481,7 +538,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
 
         <button
           onClick={() => handleCopy('transcript')}
-          disabled={!meeting.transcript_compressed}
+          disabled={!effectiveTranscript}
           className="h-11 w-full rounded-xl border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50 active:bg-gray-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {copiedWhat === 'transcript' ? 'copied!' : 'copy transcript'}
@@ -496,6 +553,14 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
       </div>
     </div>
   )
+}
+
+function formatProviderLabel(provider) {
+  const key = String(provider || '').toLowerCase()
+  if (key === 'assemblyai') return 'AssemblyAI'
+  if (key === 'deepgram') return 'Deepgram'
+  if (key === 'grok') return 'Grok'
+  return provider
 }
 
 function findActiveBlockIndex(blocks, currentTime) {
@@ -542,4 +607,18 @@ function formatDate(isoString) {
   const date = new Date(isoString)
   if (Number.isNaN(date.getTime())) return 'scheduled deletion'
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+}
+
+function buildTranscriptFromSegments(segments) {
+  const list = Array.isArray(segments) ? segments : []
+  if (list.length === 0) return ''
+  const lines = []
+  for (const segment of list) {
+    const text = String(segment?.text || '').replace(/\s+/g, ' ').trim()
+    if (!text) continue
+    const speakerNumber = Number(segment?.speaker)
+    const label = Number.isFinite(speakerNumber) ? `Person ${speakerNumber + 1}` : 'Person 1'
+    lines.push(`[${label}]: ${text}`)
+  }
+  return lines.join('\n')
 }

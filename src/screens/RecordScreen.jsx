@@ -426,20 +426,15 @@ export default function RecordScreen({
                   >
                     re-enroll voice
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!compareModeAvailable) return
-                      onCompareModeChange?.(!compareModeEnabled)
-                    }}
-                    className={`w-full text-left px-3 py-2 text-sm transition-colors border-t border-gray-100 ${
-                      compareModeAvailable
-                        ? 'text-gray-700 hover:bg-gray-50'
-                        : 'text-gray-400 cursor-not-allowed'
-                    }`}
-                  >
-                    testing mode: {compareModeAvailable ? (compareModeEnabled ? 'on' : 'off') : 'unavailable'}
-                  </button>
+                  {compareModeAvailable ? (
+                    <button
+                      type="button"
+                      onClick={() => onCompareModeChange?.(!compareModeEnabled)}
+                      className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors border-t border-gray-100"
+                    >
+                      testing mode: {compareModeEnabled ? 'on' : 'off'}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => {

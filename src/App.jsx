@@ -6,7 +6,6 @@ import ContextOnboardingScreen from './screens/ContextOnboardingScreen'
 import RecordScreen from './screens/RecordScreen'
 import SpeakerReviewScreen from './screens/SpeakerReviewScreen'
 import ResultsScreen from './screens/ResultsScreen'
-import CompareResultsScreen from './screens/CompareResultsScreen'
 import HistoryScreen from './screens/HistoryScreen'
 import PastMeetingScreen from './screens/PastMeetingScreen'
 import LoadingDot from './components/LoadingDot'
@@ -17,7 +16,6 @@ import { hasContextProfile, setContextOnboardingCompleted } from './lib/contextP
 import {
   compressTranscript,
   createMeetingDraft,
-  getRecentTranscriptionEvaluations,
   setMeetingAudioUploadStatus,
   saveTranscriptionEvaluations,
   uploadMeetingAudio,
@@ -37,11 +35,6 @@ export default function App() {
   const [audioSaveMessage, setAudioSaveMessage] = useState('')
   const [audioUploadStatus, setAudioUploadStatus] = useState('pending')
   const [meetingContext, setMeetingContext] = useState(null)
-  const [compareModeEnabled, setCompareModeEnabled] = useState(true)
-  const [compareResults, setCompareResults] = useState([])
-  const [compareHistory, setCompareHistory] = useState([])
-  const [bestTranscriptProvider, setBestTranscriptProvider] = useState('')
-  const [bestSummaryProvider, setBestSummaryProvider] = useState('')
   const [diarizedSegments, setDiarizedSegments] = useState([])
   const [confirmedLabelMap, setConfirmedLabelMap] = useState({})
   const [selectedMeeting, setSelectedMeeting] = useState(null)
@@ -53,31 +46,7 @@ export default function App() {
   })
   const callbackContextRef = useRef(getAuthCallbackContext())
   const redirectTimeoutRef = useRef(null)
-  const compareRunRef = useRef(0)
-  const compareModeAvailable = true
-
-  useEffect(() => {
-    let cancelled = false
-    if (screen !== 'compare-results' || !currentUser?.id) return () => {}
-
-    ;(async () => {
-      try {
-        const history = await getRecentTranscriptionEvaluations(supabase, currentUser.id, 80)
-        if (!cancelled) {
-          setCompareHistory(history)
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setCompareHistory([])
-          console.warn('[App] Could not load compare history:', err?.message || err)
-        }
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [screen, currentUser?.id])
+  const compareModeAvailable = false
 
   useEffect(() => {
     let isMounted = true
@@ -284,143 +253,62 @@ export default function App() {
     return []
   }
 
-  function updateCompareProvider(provider, patch, runId) {
-    if (compareRunRef.current !== runId) return
-    setCompareResults((prev) =>
-      prev.map((item) => (item.provider === provider ? { ...item, ...patch } : item)),
-    )
-  }
-
-  async function runCompareMode(audioBlob, meetingContextPayload) {
-    const runId = Date.now()
-    compareRunRef.current = runId
+  async function runProviderCaptureInBackground(audioBlob, meetingContextPayload, targetMeetingId) {
+    if (!audioBlob || audioBlob.size === 0 || !currentUser?.id) return
 
     const providers = ['assemblyai', 'deepgram', 'grok']
-    const initial = providers.map((provider) => ({
-      provider,
-      model: '',
-      segments: [],
-      summary: '',
-      durationMs: 0,
-      speakerCount: 0,
-      segmentCount: 0,
-      status: 'queued',
-      error: '',
-      userRating: { bestTranscript: false, bestSummary: false },
-      notes: '',
-      transcriptRating: null,
-      summaryRating: null,
-      correctionCount: 0,
-      manualSpeakerFixes: 0,
-    }))
-
-    setCompareResults(initial)
-    setBestTranscriptProvider('')
-    setBestSummaryProvider('')
-    setScreen('compare-results')
-
     const transcriptionOptions = {
       contextTerms: Array.isArray(meetingContextPayload?.contextTerms) ? meetingContextPayload.contextTerms : [],
       meetingContext: meetingContextPayload && typeof meetingContextPayload === 'object' ? meetingContextPayload : null,
       compareMode: true,
     }
 
-    const tasks = providers.map(async (provider) => {
-      try {
-        updateCompareProvider(provider, { status: 'transcribing' }, runId)
-        const stt = await transcribeAudioDetailed(audioBlob, provider, transcriptionOptions)
-        const segments = Array.isArray(stt?.segments) ? repairSpeakerTurns(stt.segments) : []
-        const speakerCount = new Set(segments.map((segment) => segment?.speaker).filter((x) => Number.isFinite(Number(x)))).size
-        updateCompareProvider(
-          provider,
-          {
-            status: 'summarizing',
-            model: stt?.model || '',
-            segments,
-            durationMs: Number(stt?.durationMs || 0),
-            segmentCount: segments.length,
-            speakerCount,
-            error: '',
-          },
-          runId,
-        )
+    const rows = []
+    await Promise.allSettled(
+      providers.map(async (provider) => {
+        try {
+          const stt = await transcribeAudioDetailed(audioBlob, provider, transcriptionOptions)
+          const segments = Array.isArray(stt?.segments) ? repairSpeakerTurns(stt.segments) : []
+          const transcript = compressTranscript(segments, {})
+          if (!transcript || transcript.length < 20) return
 
-        const transcript = compressTranscript(segments, {})
-        if (!transcript || transcript.length < 20) {
-          updateCompareProvider(
+          const summary = await summarizeForCompare(transcript, meetingContextPayload)
+          const speakerCount = new Set(
+            segments.map((segment) => Number(segment?.speaker)).filter(Number.isFinite),
+          ).size
+
+          rows.push({
             provider,
-            {
-              status: 'failed',
-              error: 'Transcript too short to summarize.',
-            },
-            runId,
-          )
-          return
-        }
-
-        const summary = await summarizeForCompare(transcript, meetingContextPayload)
-        updateCompareProvider(
-          provider,
-          {
-            status: 'done',
+            model: stt?.model || null,
+            segments,
             summary,
-            userRating: {
-              bestTranscript: bestTranscriptProvider === provider,
-              bestSummary: bestSummaryProvider === provider,
-            },
-          },
-          runId,
-        )
-      } catch (err) {
-        updateCompareProvider(
-          provider,
-          {
-            status: 'failed',
-            error: String(err?.message || 'Provider failed'),
-          },
-          runId,
-        )
-      }
-    })
+            durationMs: Number(stt?.durationMs || 0),
+            speakerCount,
+            segmentCount: segments.length,
+            correctionCount: 0,
+            transcriptRating: null,
+            summaryRating: null,
+            notes: '',
+            manualSpeakerFixes: 0,
+            bestTranscript: false,
+            bestSummary: false,
+          })
+        } catch (err) {
+          console.warn(`[App] Background provider capture failed for ${provider}:`, err?.message || err)
+        }
+      }),
+    )
 
-    await Promise.allSettled(tasks)
-  }
-
-  function buildCompareEvaluationRows() {
-    return compareResults.map((item) => ({
-      provider: item.provider,
-      model: item.model || null,
-      segments: Array.isArray(item.segments) ? item.segments : [],
-      summary: item.summary || '',
-      durationMs: Number(item.durationMs || 0),
-      speakerCount: Number(item.speakerCount || 0),
-      segmentCount: Number(item.segmentCount || 0),
-      correctionCount: Number(item.correctionCount || 0),
-      transcriptRating: item.transcriptRating,
-      summaryRating: item.summaryRating,
-      notes: item.notes || (item.error ? `provider_error: ${item.error}` : ''),
-      manualSpeakerFixes: Number(item.manualSpeakerFixes || 0),
-      bestTranscript: bestTranscriptProvider === item.provider,
-      bestSummary: bestSummaryProvider === item.provider,
-    }))
-  }
-
-  async function persistCompareEvaluations(meetingId = null) {
-    if (!currentUser?.id || compareResults.length === 0) return
-    const rows = buildCompareEvaluationRows()
+    if (rows.length === 0) return
     try {
       await saveTranscriptionEvaluations(supabase, {
         userId: currentUser.id,
-        meetingId,
+        meetingId: targetMeetingId || null,
         evaluations: rows,
-        compareRunId: compareRunRef.current ? String(compareRunRef.current) : null,
+        compareRunId: `${Date.now()}`,
       })
-      if (screen === 'compare-results') {
-        const history = await getRecentTranscriptionEvaluations(supabase, currentUser.id, 80)
-        setCompareHistory(history)
-      }
     } catch (err) {
-      console.warn('[App] Could not persist compare evaluations:', err?.message || err)
+      console.warn('[App] Could not persist background provider outputs:', err?.message || err)
     }
   }
 
@@ -632,10 +520,6 @@ export default function App() {
           setAudioSaveMessage('')
           setAudioUploadStatus('pending')
           setMeetingContext(null)
-          setCompareResults([])
-          setBestTranscriptProvider('')
-          setBestSummaryProvider('')
-          compareRunRef.current = Date.now()
           setDiarizedSegments([])
           setConfirmedLabelMap({})
           setProcessingMessage('')
@@ -690,181 +574,25 @@ export default function App() {
     )
   }
 
-  if (screen === 'compare-results') {
-    return (
-      <CompareResultsScreen
-        results={compareResults}
-        history={compareHistory}
-        bestTranscriptProvider={bestTranscriptProvider}
-        bestSummaryProvider={bestSummaryProvider}
-        onSelectBestTranscript={(provider) => {
-          setBestTranscriptProvider(provider)
-          setCompareResults((prev) =>
-            prev.map((item) => ({
-              ...item,
-              userRating: {
-                ...item.userRating,
-                bestTranscript: item.provider === provider,
-              },
-            })),
-          )
-        }}
-        onSelectBestSummary={(provider) => {
-          setBestSummaryProvider(provider)
-          setCompareResults((prev) =>
-            prev.map((item) => ({
-              ...item,
-              userRating: {
-                ...item.userRating,
-                bestSummary: item.provider === provider,
-              },
-            })),
-          )
-        }}
-        onContinueWithProvider={(provider) => {
-          const selected = compareResults.find((item) => item.provider === provider && item.status === 'done')
-          if (!selected) return
-          void persistCompareEvaluations(meetingId)
-          const segments = Array.isArray(selected.segments) ? selected.segments : []
-          setMeetingSegments([])
-          setDiarizedSegments(segments)
-          setConfirmedLabelMap({})
-          setScreen('speaker-review')
-        }}
-        onUpdateProviderRating={(provider, patch) => {
-          setCompareResults((prev) =>
-            prev.map((item) =>
-              item.provider === provider
-                ? {
-                    ...item,
-                    transcriptRating:
-                      patch && Object.prototype.hasOwnProperty.call(patch, 'transcriptRating')
-                        ? patch.transcriptRating
-                        : item.transcriptRating,
-                    summaryRating:
-                      patch && Object.prototype.hasOwnProperty.call(patch, 'summaryRating')
-                        ? patch.summaryRating
-                        : item.summaryRating,
-                    notes:
-                      patch && Object.prototype.hasOwnProperty.call(patch, 'notes')
-                        ? String(patch.notes || '').slice(0, 300)
-                        : item.notes,
-                    correctionCount:
-                      patch && Object.prototype.hasOwnProperty.call(patch, 'correctionCount')
-                        ? Math.max(0, Number(patch.correctionCount) || 0)
-                        : item.correctionCount,
-                    manualSpeakerFixes:
-                      patch && Object.prototype.hasOwnProperty.call(patch, 'manualSpeakerFixes')
-                        ? Math.max(0, Number(patch.manualSpeakerFixes) || 0)
-                        : item.manualSpeakerFixes,
-                  }
-                : item,
-            ),
-          )
-        }}
-        onSaveEvaluations={() => void persistCompareEvaluations(meetingId)}
-        onNewMeeting={() => {
-          void persistCompareEvaluations(meetingId)
-          setMeetingSegments([])
-          setMeetingAudioBlob(null)
-          setMeetingId(null)
-          setAudioSaveMessage('')
-          setAudioUploadStatus('pending')
-          setMeetingContext(null)
-          setCompareResults([])
-          setBestTranscriptProvider('')
-          setBestSummaryProvider('')
-          compareRunRef.current = Date.now()
-          setDiarizedSegments([])
-          setConfirmedLabelMap({})
-          setProcessingMessage('')
-          setEnrollMode('initial')
-          setScreen('home')
-        }}
-      />
-    )
-  }
-
   return (
     <RecordScreen
       user={currentUser}
       transcriptionProvider={transcriptionProvider}
       onTranscriptionProviderChange={setTranscriptionProvider}
       compareModeAvailable={compareModeAvailable}
-      compareModeEnabled={compareModeEnabled}
-      onCompareModeChange={() => setCompareModeEnabled(true)}
+      compareModeEnabled={false}
+      onCompareModeChange={() => {}}
       onMeetingComplete={async (segments, audioBlob, hadLiveTranscript = true, meetingContextPayload = null) => {
         setMeetingAudioBlob(audioBlob)
         setMeetingContext(meetingContextPayload)
-        await prepareMeetingAudioPersistence(audioBlob)
+        const draftMeetingId = await prepareMeetingAudioPersistence(audioBlob)
+        void runProviderCaptureInBackground(audioBlob, meetingContextPayload, draftMeetingId)
         setConfirmedLabelMap({})
         setProcessingMessage('')
         setDiarizedSegments([])
         const transcriptionOptions = {
           contextTerms: Array.isArray(meetingContextPayload?.contextTerms) ? meetingContextPayload.contextTerms : [],
           meetingContext: meetingContextPayload && typeof meetingContextPayload === 'object' ? meetingContextPayload : null,
-        }
-
-        if (compareModeAvailable && compareModeEnabled) {
-          if (!audioBlob || audioBlob.size === 0) {
-            setCompareResults([
-              {
-                provider: 'assemblyai',
-                model: '',
-                segments: [],
-                summary: '',
-                durationMs: 0,
-                speakerCount: 0,
-                segmentCount: 0,
-                status: 'failed',
-                error: 'No audio captured.',
-                userRating: { bestTranscript: false, bestSummary: false },
-                notes: '',
-                transcriptRating: null,
-                summaryRating: null,
-                correctionCount: 0,
-                manualSpeakerFixes: 0,
-              },
-              {
-                provider: 'deepgram',
-                model: '',
-                segments: [],
-                summary: '',
-                durationMs: 0,
-                speakerCount: 0,
-                segmentCount: 0,
-                status: 'failed',
-                error: 'No audio captured.',
-                userRating: { bestTranscript: false, bestSummary: false },
-                notes: '',
-                transcriptRating: null,
-                summaryRating: null,
-                correctionCount: 0,
-                manualSpeakerFixes: 0,
-              },
-              {
-                provider: 'grok',
-                model: '',
-                segments: [],
-                summary: '',
-                durationMs: 0,
-                speakerCount: 0,
-                segmentCount: 0,
-                status: 'failed',
-                error: 'No audio captured.',
-                userRating: { bestTranscript: false, bestSummary: false },
-                notes: '',
-                transcriptRating: null,
-                summaryRating: null,
-                correctionCount: 0,
-                manualSpeakerFixes: 0,
-              },
-            ])
-            setScreen('compare-results')
-            return
-          }
-          await runCompareMode(audioBlob, meetingContextPayload)
-          return
         }
 
         if (hadLiveTranscript) {
@@ -1015,13 +743,6 @@ async function summarizeForCompare(transcript, meetingContextPayload) {
       },
     )
   })
-}
-
-function getCompareModeAvailability() {
-  if (typeof window === 'undefined') return false
-  const params = new URLSearchParams(window.location.search)
-  if (params.get('compareModels') === '1') return true
-  return import.meta.env.VITE_ENABLE_COMPARE_MODE === 'true'
 }
 
 function withTimeout(promise, timeoutMs) {
