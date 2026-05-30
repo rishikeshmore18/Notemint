@@ -13,6 +13,9 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   const [audioActionStatus, setAudioActionStatus] = useState('idle')
   const [providerOutputs, setProviderOutputs] = useState([])
   const [selectedProvider, setSelectedProvider] = useState('meeting')
+  const [editableBlocks, setEditableBlocks] = useState([])
+  const [editingBlockKey, setEditingBlockKey] = useState(null)
+  const [editingBlockText, setEditingBlockText] = useState('')
   const [activeLineIndex, setActiveLineIndex] = useState(-1)
   const [isPlaying, setIsPlaying] = useState(false)
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true)
@@ -95,6 +98,13 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   }, [meeting?.id, user?.id])
 
   useEffect(() => {
+    const blocks = buildEditableBlocks(effectiveSegments, effectiveTranscript)
+    setEditableBlocks(blocks)
+    setEditingBlockKey(null)
+    setEditingBlockText('')
+  }, [selectedProvider, meeting?.id, effectiveTranscript, JSON.stringify(effectiveSegments || [])])
+
+  useEffect(() => {
     if (!autoScrollEnabled) return
     if (activeLineIndex < 0) return
     const node = lineRefs.current[activeLineIndex]
@@ -128,7 +138,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   }
 
   async function handleCopy(type) {
-    const text = type === 'summary' ? effectiveSummary || '' : effectiveTranscript || ''
+    const text = type === 'summary' ? effectiveSummary || '' : buildTranscriptFromBlocks(editableBlocks) || effectiveTranscript || ''
     await copyToClipboard(text)
     setCopiedWhat(type)
     setTimeout(() => {
@@ -188,22 +198,6 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
     if (labelLower === '1') return 'bg-emerald-100 text-emerald-700'
     if (labelLower === '2') return 'bg-amber-100 text-amber-700'
     return 'bg-gray-100 text-gray-600'
-  }
-
-  function parseTranscript(compressed) {
-    if (!compressed) return []
-    return compressed
-      .split('\n')
-      .map((line) => {
-        const match = line.match(/^\[([^\]]+)\]:\s*(.+)$/)
-        if (!match) return null
-        return {
-          label: match[1],
-          text: match[2],
-          timeLabel: null,
-        }
-      })
-      .filter(Boolean)
   }
 
   function handleAudioTimeUpdate(blocks) {
@@ -367,6 +361,25 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
     }
   }
 
+  function startEditingBlock(block) {
+    setEditingBlockKey(block?.key || null)
+    setEditingBlockText(String(block?.text || ''))
+  }
+
+  function saveEditingBlock(block) {
+    const nextText = String(editingBlockText || '').replace(/\s+/g, ' ').trim()
+    if (!nextText) {
+      setEditingBlockKey(null)
+      setEditingBlockText('')
+      return
+    }
+    setEditableBlocks((prev) =>
+      prev.map((item) => (item.key === block.key ? { ...item, text: nextText, edited: true } : item)),
+    )
+    setEditingBlockKey(null)
+    setEditingBlockText('')
+  }
+
   const selectedProviderRow =
     selectedProvider === 'meeting'
       ? null
@@ -458,21 +471,17 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
 
         {activeTab === 'transcript' &&
           (() => {
-            const rawSegments =
-              effectiveSegments && Array.isArray(effectiveSegments) && effectiveSegments.length > 0
-                ? effectiveSegments
-                : null
-
+            const rawSegments = editableBlocks.length > 0 ? editableBlocks : null
             if (rawSegments) {
               const labelMapFromDb = meeting.label_map || {}
-              const blocks = groupSegmentsByTime(rawSegments)
+              const blocks = rawSegments
 
               return (
                 <div className="flex flex-col gap-0">
                   {renderAudioPlayer(blocks)}
                   {blocks.map((block, i) => (
                     <div
-                      key={i}
+                      key={block.key || i}
                       ref={(node) => {
                         if (node) lineRefs.current[i] = node
                       }}
@@ -489,41 +498,56 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
                       </div>
                       <span
                         className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(
-                          labelMapFromDb[block.speaker] || 'person ' + block.speaker,
+                          block.label || labelMapFromDb[block.speaker] || 'person ' + block.speaker,
                         )}`}
                       >
-                        {(labelMapFromDb[block.speaker] || 'person ' + block.speaker).toLowerCase()}
+                        {String(block.label || labelMapFromDb[block.speaker] || 'person ' + block.speaker).toLowerCase()}
                       </span>
-                      <p className="text-sm text-gray-800 leading-relaxed flex-1">{block.text}</p>
+                      <div className="flex-1">
+                        {editingBlockKey === block.key ? (
+                          <div>
+                            <textarea
+                              value={editingBlockText}
+                              onChange={(event) => setEditingBlockText(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Escape') {
+                                  event.preventDefault()
+                                  setEditingBlockKey(null)
+                                  setEditingBlockText('')
+                                  return
+                                }
+                                if (event.key === 'Enter' && !event.shiftKey) {
+                                  event.preventDefault()
+                                  saveEditingBlock(block)
+                                }
+                              }}
+                              rows={2}
+                              className="w-full rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-sm text-gray-800 focus:outline-none focus:border-indigo-400 resize-y"
+                            />
+                            <p className="mt-1 text-[11px] text-gray-500">enter to save, esc to cancel</p>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-sm text-gray-800 leading-relaxed">{block.text}</p>
+                            <div className="mt-1 flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => startEditingBlock(block)}
+                                className="text-[11px] text-indigo-600 underline"
+                              >
+                                edit
+                              </button>
+                              {block.edited ? <span className="text-[11px] text-amber-700">edited</span> : null}
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
                   ))}
                 </div>
               )
             }
-
-            const parsed = parseTranscript(effectiveTranscript)
-            return (
-              <div className="flex flex-col gap-0">
-                {renderAudioPlayer([])}
-                {parsed.map((block, i) => (
-                  <div key={i} className="flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0">
-                    <div className="w-10 flex-shrink-0" />
-                    <span
-                      className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(
-                        block.label,
-                      )}`}
-                    >
-                      {block.label.toLowerCase()}
-                    </span>
-                    <p className="text-sm text-gray-800 leading-relaxed flex-1">{block.text}</p>
-                  </div>
-                ))}
-
-                {parsed.length === 0 && (
-                  <p className="text-sm text-gray-400 text-center py-8">no transcript available</p>
-                )}
-              </div>
-            )
+            return null
           })()}
       </div>
 
@@ -618,6 +642,61 @@ function buildTranscriptFromSegments(segments) {
     if (!text) continue
     const speakerNumber = Number(segment?.speaker)
     const label = Number.isFinite(speakerNumber) ? `Person ${speakerNumber + 1}` : 'Person 1'
+    lines.push(`[${label}]: ${text}`)
+  }
+  return lines.join('\n')
+}
+
+function buildEditableBlocks(segments, transcript) {
+  const grouped = Array.isArray(segments) && segments.length > 0 ? groupSegmentsByTime(segments) : []
+  if (grouped.length > 0) {
+    return grouped.map((block, index) => ({
+      key: `seg_${index}_${block.startTime ?? 'na'}`,
+      speaker: block.speaker,
+      label: Number.isFinite(Number(block.speaker)) ? `Person ${Number(block.speaker) + 1}` : String(block.label || 'person 1'),
+      text: String(block.text || ''),
+      timeLabel: block.timeLabel || null,
+      startTime: block.startTime,
+      endTime: block.endTime,
+      edited: false,
+    }))
+  }
+
+  const parsed = parseTranscriptLines(transcript)
+  return parsed.map((block, index) => ({
+    key: `line_${index}`,
+    speaker: index % 4,
+    label: block.label,
+    text: block.text,
+    timeLabel: null,
+    startTime: null,
+    endTime: null,
+    edited: false,
+  }))
+}
+
+function parseTranscriptLines(compressed) {
+  if (!compressed) return []
+  return String(compressed)
+    .split('\n')
+    .map((line) => {
+      const match = line.match(/^\[([^\]]+)\]:\s*(.+)$/)
+      if (!match) return null
+      return {
+        label: match[1],
+        text: match[2],
+      }
+    })
+    .filter(Boolean)
+}
+
+function buildTranscriptFromBlocks(blocks) {
+  const list = Array.isArray(blocks) ? blocks : []
+  const lines = []
+  for (const block of list) {
+    const label = String(block?.label || 'Person 1').trim() || 'Person 1'
+    const text = String(block?.text || '').replace(/\s+/g, ' ').trim()
+    if (!text) continue
     lines.push(`[${label}]: ${text}`)
   }
   return lines.join('\n')
