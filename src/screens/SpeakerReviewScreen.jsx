@@ -15,6 +15,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
 
   const audioRefs = useRef({})
   const snippetUrlsRef = useRef([])
+  const autoConfirmedRef = useRef(false)
 
   const allSpeakers = useMemo(() => {
     if (!Array.isArray(segments)) return []
@@ -283,6 +284,17 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
           }
           return next
         })
+
+        const autoLabelCount = Object.keys(nextAutoLabels).length
+        const allAutoDetected =
+          allSpeakers.length > 0 &&
+          allSpeakers.every((speakerId) => nextReviewState[speakerId] === 'auto-detected' && nextAutoLabels[speakerId])
+        const hasConfidentSelf = Object.values(nextAutoLabels).some((label) => label === 'You')
+        if (!cancelled && !autoConfirmedRef.current && hasConfidentSelf && (allSpeakers.length === 1 || allAutoDetected || autoLabelCount === allSpeakers.length)) {
+          autoConfirmedRef.current = true
+          onConfirmed(buildLabelMapFromAutoLabels(allSpeakers, nextAutoLabels))
+          return
+        }
       } catch (err) {
         console.warn('[SpeakerReview] Voice status/identify skipped:', err)
         setReviewStateMap((prev) => {
@@ -390,6 +402,26 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
 
   if (allSpeakers.length === 1) {
     const onlySpeaker = allSpeakers[0]
+    const singleName = speakerNames[onlySpeaker]
+    const singleMeta = autoLabelMeta[onlySpeaker]
+    const singleReviewState = reviewStateMap[onlySpeaker]
+
+    if (identifyingStatus === 'identifying') {
+      return (
+        <div className="min-h-screen bg-white flex flex-col max-w-md mx-auto px-5">
+          <div className="flex items-center justify-between h-14">
+            <span className="text-sm font-medium text-gray-900">recall</span>
+            <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center">
+              <span className="text-sm font-medium text-indigo-600">{initial}</span>
+            </div>
+          </div>
+          <div className="flex flex-1 items-center justify-center">
+            <p className="text-sm text-indigo-400">matching your voice...</p>
+          </div>
+        </div>
+      )
+    }
+
     return (
       <div className="min-h-screen bg-white flex flex-col max-w-md mx-auto px-5">
         <div className="flex items-center justify-between h-14">
@@ -400,7 +432,13 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
         </div>
 
         <p className="text-xl font-semibold text-gray-900 mt-6 mb-1">one speaker detected</p>
-        <p className="text-sm text-gray-400 mb-6">is this recording your voice?</p>
+        <p className="text-sm text-gray-400 mb-6">
+          {singleReviewState === 'low confidence' && singleMeta?.source === 'self'
+            ? 'possible match to your voice - confirm before saving.'
+            : singleName === 'You'
+              ? 'your voice was detected.'
+              : 'is this recording your voice?'}
+        </p>
 
         <div className="flex gap-3">
           <button
@@ -664,6 +702,20 @@ function shouldRememberContactName(name) {
   if (cleaned.toLowerCase() === 'you') return false
   if (/^person\s*\d+$/i.test(cleaned)) return false
   return true
+}
+
+function buildLabelMapFromAutoLabels(allSpeakers, autoLabels) {
+  const labelMap = {}
+  let personIndex = 1
+  for (const speakerId of allSpeakers) {
+    if (autoLabels[speakerId]) {
+      labelMap[speakerId] = autoLabels[speakerId]
+    } else {
+      labelMap[speakerId] = `Person ${personIndex}`
+      personIndex += 1
+    }
+  }
+  return labelMap
 }
 
 export async function extractAudioSlice(audioBlob, startSec, endSec) {
