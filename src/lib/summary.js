@@ -139,7 +139,7 @@ export async function uploadMeetingAudio(
   }
 
   const mimeType = String(audioBlob.type || 'audio/webm').split(';')[0] || 'audio/webm'
-  const extension = getAudioExtension(mimeType)
+  const extension = getAudioExtension(mimeType, audioBlob?.name)
   const path = buildMeetingAudioPath(userId, meetingId, extension)
   const safeRetentionDays = normalizeRetentionDays(retentionDays)
   const expiresAt = new Date(Date.now() + safeRetentionDays * 24 * 60 * 60 * 1000).toISOString()
@@ -667,12 +667,24 @@ function buildDefaultMeetingTitle() {
   return dateStr + ' - ' + timeStr
 }
 
-function getAudioExtension(mimeType) {
+function getAudioExtension(mimeType, fileName = '') {
+  const nameExtension = String(fileName || '')
+    .split('.')
+    .pop()
+    ?.toLowerCase()
+  if (['aac', 'aif', 'aiff', 'flac', 'm4a', 'mp3', 'mp4', 'oga', 'ogg', 'opus', 'wav', 'webm'].includes(nameExtension)) {
+    return nameExtension
+  }
+
   const type = String(mimeType || '').toLowerCase()
+  if (type.includes('flac')) return 'flac'
+  if (type.includes('aac')) return 'aac'
+  if (type.includes('m4a') || type.includes('x-m4a')) return 'm4a'
   if (type.includes('mp4')) return 'mp4'
   if (type.includes('mpeg') || type.includes('mp3')) return 'mp3'
   if (type.includes('wav')) return 'wav'
   if (type.includes('ogg')) return 'ogg'
+  if (type.includes('opus')) return 'opus'
   return 'webm'
 }
 

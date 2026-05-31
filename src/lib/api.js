@@ -440,10 +440,29 @@ export async function identifyContactVoice(audioBlob) {
 }
 
 function inferFileName(audioBlob) {
+  const existingName = sanitizeAudioFileName(audioBlob?.name)
+  if (existingName) return existingName
+
   const type = String(audioBlob?.type || '')
+  if (type.includes('flac')) return 'clip.flac'
+  if (type.includes('aac')) return 'clip.aac'
+  if (type.includes('m4a') || type.includes('x-m4a')) return 'clip.m4a'
   if (type.includes('mp4')) return 'clip.mp4'
   if (type.includes('ogg')) return 'clip.ogg'
   if (type.includes('mpeg') || type.includes('mp3')) return 'clip.mp3'
   if (type.includes('wav')) return 'clip.wav'
   return 'clip.webm'
+}
+
+function sanitizeAudioFileName(name) {
+  const raw = String(name || '').trim()
+  if (!raw) return ''
+
+  const safe = raw
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .slice(0, 120)
+    .trim()
+
+  return safe && safe.includes('.') ? safe : ''
 }

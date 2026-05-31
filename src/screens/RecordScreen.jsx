@@ -10,6 +10,21 @@ const TRANSCRIPTION_PROVIDERS = [
   { value: 'grok', label: 'Grok', detail: 'fast baseline' },
 ]
 const LAST_MEETING_TYPE_KEY_PREFIX = 'last_meeting_type_'
+const AUDIO_FILE_ACCEPT = 'audio/*,.aac,.aif,.aiff,.flac,.m4a,.mp3,.mp4,.oga,.ogg,.opus,.wav,.webm'
+const AUDIO_FILE_EXTENSIONS = new Set([
+  'aac',
+  'aif',
+  'aiff',
+  'flac',
+  'm4a',
+  'mp3',
+  'mp4',
+  'oga',
+  'ogg',
+  'opus',
+  'wav',
+  'webm',
+])
 
 export default function RecordScreen({
   user,
@@ -35,6 +50,8 @@ export default function RecordScreen({
   const [menuOpen, setMenuOpen] = useState(false)
   const [meetingDetailsMode, setMeetingDetailsMode] = useState('unset')
   const [showStartChoice, setShowStartChoice] = useState(false)
+  const [startChoiceAction, setStartChoiceAction] = useState('record')
+  const [pendingUploadFile, setPendingUploadFile] = useState(null)
   const [meetingTopic, setMeetingTopic] = useState('')
   const [meetingGoal, setMeetingGoal] = useState('')
   const [expectedParticipantsInput, setExpectedParticipantsInput] = useState('')
@@ -45,6 +62,7 @@ export default function RecordScreen({
   const segmentsRef = useRef([])
   const transcriptEndRef = useRef(null)
   const menuRef = useRef(null)
+  const fileInputRef = useRef(null)
   const silentRecorderRef = useRef(null)
   const silentAudioStreamRef = useRef(null)
   const silentChunksRef = useRef([])
@@ -144,10 +162,70 @@ export default function RecordScreen({
       return
     }
     if (meetingDetailsMode === 'unset') {
+      setStartChoiceAction('record')
       setShowStartChoice(true)
       return
     }
     await handleStart(meetingDetailsMode)
+  }
+
+  function handleUploadClick() {
+    if (isRecording) return
+    setError(null)
+    fileInputRef.current?.click()
+  }
+
+  function handleAudioFileSelected(event) {
+    const file = event.target.files?.[0] || null
+    event.target.value = ''
+    if (!file) return
+
+    if (!isSupportedAudioFile(file)) {
+      setError('Choose a supported audio file like MP3, WAV, M4A, OGG, FLAC, MP4, or WebM.')
+      return
+    }
+
+    if (file.size <= 0) {
+      setError('This audio file is empty. Choose another file.')
+      return
+    }
+
+    setError(null)
+    setPendingUploadFile(file)
+
+    if (meetingDetailsMode === 'unset') {
+      setStartChoiceAction('upload')
+      setShowStartChoice(true)
+      return
+    }
+
+    void handleProcessUploadedFile(file, meetingDetailsMode)
+  }
+
+  async function handleProcessUploadedFile(file = pendingUploadFile, startMode = meetingDetailsMode) {
+    if (!file || isRecording) return
+
+    const nextMode = startMode === 'details' ? 'details' : 'skip'
+    setMeetingDetailsMode(nextMode)
+    setShowStartChoice(false)
+    setPendingUploadFile(null)
+    setSegments([])
+    segmentsRef.current = []
+    setElapsedSeconds(0)
+    setError(null)
+
+    const meetingContextPayload = buildMeetingContextPayload({
+      meetingDetailsMode: nextMode,
+      meetingTopic,
+      meetingGoal,
+      expectedParticipantsInput,
+      importantTermsInput,
+      meetingType,
+      contextProfile,
+      correctionMemory,
+    })
+
+    onMeetingComplete([], file, false, meetingContextPayload)
   }
 
   async function checkMicPermission() {
@@ -458,6 +536,13 @@ export default function RecordScreen({
 
         {!isRecording && segments.length === 0 ? (
           <main className="flex flex-col items-center justify-center flex-1 text-center px-6">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={AUDIO_FILE_ACCEPT}
+              className="hidden"
+              onChange={handleAudioFileSelected}
+            />
             <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
                 <rect x="9" y="2" width="6" height="12" rx="3" stroke="#4F46E5" strokeWidth="1.5" />
@@ -554,6 +639,17 @@ export default function RecordScreen({
                       setExpectedParticipantsInput((prev) => appendCommaSeparated(prev, name))
                     },
                   })}
+                  {pendingUploadFile ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void handleProcessUploadedFile(pendingUploadFile, 'details')
+                      }}
+                      className="h-10 w-full rounded-xl bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700"
+                    >
+                      process uploaded file
+                    </button>
+                  ) : null}
                 </div>
               </div>
             ) : null}
@@ -593,6 +689,15 @@ export default function RecordScreen({
                 testing mode is available in the profile menu.
               </p>
             ) : null}
+            <button
+              type="button"
+              onClick={handleUploadClick}
+              disabled={isRecording}
+              className="mt-4 inline-flex items-center justify-center rounded-full border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm transition hover:border-indigo-200 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              upload audio file
+            </button>
+            <p className="mt-1 text-[11px] text-gray-400">MP3, WAV, M4A, OGG, FLAC, MP4, or WebM</p>
             {false ? (
               <>
               <div className="mt-8 w-full max-w-xs bg-gray-50 rounded-2xl px-4 py-3.5 flex items-center justify-between">
@@ -702,8 +807,19 @@ export default function RecordScreen({
         {showStartChoice && !isRecording ? (
           <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/30 px-4 pb-8">
             <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-lg">
-              <p className="text-sm font-medium text-gray-900">before you start</p>
-              <p className="mt-1 text-xs text-gray-500">add context first, or start recording now.</p>
+              <p className="text-sm font-medium text-gray-900">
+                {startChoiceAction === 'upload' ? 'before processing audio' : 'before you start'}
+              </p>
+              <p className="mt-1 text-xs text-gray-500">
+                {startChoiceAction === 'upload'
+                  ? 'add context first, or process this file now.'
+                  : 'add context first, or start recording now.'}
+              </p>
+              {startChoiceAction === 'upload' && pendingUploadFile ? (
+                <p className="mt-2 truncate rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                  {pendingUploadFile.name}
+                </p>
+              ) : null}
               <div className="mt-3 grid grid-cols-1 gap-2">
                 <button
                   type="button"
@@ -718,15 +834,24 @@ export default function RecordScreen({
                 <button
                   type="button"
                   onClick={() => {
-                    void handleStart('skip')
+                    if (startChoiceAction === 'upload') {
+                      void handleProcessUploadedFile(pendingUploadFile, 'skip')
+                    } else {
+                      void handleStart('skip')
+                    }
                   }}
                   className="h-10 rounded-xl bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700"
                 >
-                  skip & start recording
+                  {startChoiceAction === 'upload' ? 'skip & process file' : 'skip & start recording'}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowStartChoice(false)}
+                  onClick={() => {
+                    setShowStartChoice(false)
+                    if (startChoiceAction === 'upload') {
+                      setPendingUploadFile(null)
+                    }
+                  }}
                   className="h-9 text-xs text-gray-500 hover:text-gray-700"
                 >
                   cancel
@@ -758,6 +883,18 @@ function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
   })
+}
+
+function isSupportedAudioFile(file) {
+  const type = String(file?.type || '').toLowerCase()
+  if (type.startsWith('audio/')) return true
+  if (type === 'video/mp4' || type === 'application/ogg') return true
+
+  const extension = String(file?.name || '')
+    .split('.')
+    .pop()
+    ?.toLowerCase()
+  return Boolean(extension && AUDIO_FILE_EXTENSIONS.has(extension))
 }
 
 function buildMeetingContextPayload({
