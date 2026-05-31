@@ -286,9 +286,11 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
                   : 'auto-scroll paused'
                 : 'press play to sync transcript scrolling'}
             </p>
-            {meeting?.audio_expires_at ? (
+            {meeting?.audio_storage_path ? (
               <p className="text-[11px] text-gray-400">
-                audio kept until {formatDate(meeting.audio_expires_at)}
+                {meeting?.audio_expires_at
+                  ? `audio kept until ${formatDate(meeting.audio_expires_at)}`
+                  : 'audio kept (no expiry)'}
               </p>
             ) : null}
           </div>

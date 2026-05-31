@@ -4,6 +4,7 @@ const LIGHT_FILLER_REGEX = /\b(um+|uh+|er+|erm|hmm+|ah+)\b/gi
 const LOCAL_MEETINGS_KEY_PREFIX = 'local_meetings_'
 const MEETING_AUDIO_BUCKET = 'meeting-audio'
 const DEFAULT_AUDIO_RETENTION_DAYS = 7
+const KEEP_MEETING_AUDIO_FOREVER = true
 
 export function compressTranscript(segments, labelMap) {
   if (!segments || segments.length === 0) {
@@ -142,7 +143,9 @@ export async function uploadMeetingAudio(
   const extension = getAudioExtension(mimeType, audioBlob?.name)
   const path = buildMeetingAudioPath(userId, meetingId, extension)
   const safeRetentionDays = normalizeRetentionDays(retentionDays)
-  const expiresAt = new Date(Date.now() + safeRetentionDays * 24 * 60 * 60 * 1000).toISOString()
+  const expiresAt = KEEP_MEETING_AUDIO_FOREVER
+    ? null
+    : new Date(Date.now() + safeRetentionDays * 24 * 60 * 60 * 1000).toISOString()
 
   const upload = await supabase.storage.from(MEETING_AUDIO_BUCKET).upload(path, audioBlob, {
     contentType: mimeType,

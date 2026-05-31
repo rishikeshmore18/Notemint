@@ -276,11 +276,13 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
                     {meeting.duration_segments} segments
                   </span>
                 )}
-                {meeting.audio_storage_path && meeting.audio_expires_at && (
+                {meeting.audio_storage_path ? (
                   <span className="text-xs text-gray-300 mt-1">
-                    audio kept until {formatDate(meeting.audio_expires_at)}
+                    {meeting.audio_expires_at
+                      ? `audio kept until ${formatDate(meeting.audio_expires_at)}`
+                      : 'audio kept (no expiry)'}
                   </span>
-                )}
+                ) : null}
                 {meeting.audio_upload_status === 'pending' && (
                   <span className="text-xs text-amber-500 mt-1">audio still uploading</span>
                 )}
