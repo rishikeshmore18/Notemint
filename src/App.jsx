@@ -10,7 +10,7 @@ import HistoryScreen from './screens/HistoryScreen'
 import PastMeetingScreen from './screens/PastMeetingScreen'
 import LoadingDot from './components/LoadingDot'
 import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supabase'
-import { streamSummary, transcribeAudio, transcribeAudioDetailed } from './lib/api'
+import { getVoiceStatus, streamSummary, transcribeAudio, transcribeAudioDetailed } from './lib/api'
 import { rememberSpeakerLabels } from './lib/speakerMemory'
 import { hasContextProfile, setContextOnboardingCompleted } from './lib/contextProfile'
 import {
@@ -143,7 +143,19 @@ export default function App() {
       return
     }
 
-    const enrolled = localStorage.getItem(`enrolled_${user.id}`) === 'true'
+    let enrolled = localStorage.getItem(`enrolled_${user.id}`) === 'true'
+    if (!enrolled) {
+      try {
+        const voiceStatus = await getVoiceStatus()
+        enrolled = Boolean(voiceStatus?.enrolled)
+        if (enrolled) {
+          localStorage.setItem(`enrolled_${user.id}`, 'true')
+        }
+      } catch (err) {
+        console.warn('[App] Could not verify enrollment status from backend:', err?.message || err)
+      }
+    }
+
     if (!enrolled) {
       setScreen('enroll')
       return
