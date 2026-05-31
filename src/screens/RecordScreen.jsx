@@ -34,6 +34,7 @@ export default function RecordScreen({
   const [error, setError] = useState(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [meetingDetailsMode, setMeetingDetailsMode] = useState('unset')
+  const [showStartChoice, setShowStartChoice] = useState(false)
   const [meetingTopic, setMeetingTopic] = useState('')
   const [meetingGoal, setMeetingGoal] = useState('')
   const [expectedParticipantsInput, setExpectedParticipantsInput] = useState('')
@@ -142,7 +143,11 @@ export default function RecordScreen({
       await handleStop()
       return
     }
-    await handleStart()
+    if (meetingDetailsMode === 'unset') {
+      setShowStartChoice(true)
+      return
+    }
+    await handleStart(meetingDetailsMode)
   }
 
   async function checkMicPermission() {
@@ -165,16 +170,16 @@ export default function RecordScreen({
     }
   }
 
-  async function handleStart() {
+  async function handleStart(startMode = meetingDetailsMode) {
     if (!navigator.mediaDevices && window.location.protocol === 'http:') {
       setError('Microphone requires HTTPS. Deploy the app or use localhost.')
       return
     }
 
     setError(null)
-    if (meetingDetailsMode === 'unset') {
-      setMeetingDetailsMode('skip')
-    }
+    const nextMode = startMode === 'details' ? 'details' : 'skip'
+    setMeetingDetailsMode(nextMode)
+    setShowStartChoice(false)
     setElapsedSeconds(0)
     setSegments([])
     segmentsRef.current = []
@@ -472,33 +477,18 @@ export default function RecordScreen({
               <br />
               speakers are detected automatically.
             </p>
-            <div className="mt-5 w-full max-w-xs rounded-2xl border border-gray-100 bg-gray-50 p-3 text-left">
-              <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-gray-400">meeting details</p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setMeetingDetailsMode('skip')}
-                  className={`rounded-xl border px-2.5 py-2 text-xs transition-colors ${
-                    meetingDetailsMode === 'skip'
-                      ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-                      : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  start without details
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMeetingDetailsMode('details')}
-                  className={`rounded-xl border px-2.5 py-2 text-xs transition-colors ${
-                    meetingDetailsMode === 'details'
-                      ? 'border-indigo-300 bg-indigo-50 text-indigo-700'
-                      : 'border-gray-200 bg-white text-gray-500 hover:text-gray-700'
-                  }`}
-                >
-                  add meeting details
-                </button>
-              </div>
-              {meetingDetailsMode === 'details' ? (
+            {meetingDetailsMode === 'details' ? (
+              <div className="mt-5 w-full max-w-xs rounded-2xl border border-gray-100 bg-gray-50 p-3 text-left">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-gray-400">meeting details</p>
+                  <button
+                    type="button"
+                    onClick={() => setMeetingDetailsMode('skip')}
+                    className="text-[11px] text-gray-400 hover:text-gray-600"
+                  >
+                    hide
+                  </button>
+                </div>
                 <div className="mt-3 space-y-2.5">
                   <Field
                     label="meeting topic"
@@ -565,8 +555,8 @@ export default function RecordScreen({
                     },
                   })}
                 </div>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
             <div className="mt-7 w-full max-w-xs rounded-2xl border border-gray-100 bg-gray-50 p-1">
               <p className="px-3 pb-2 pt-2 text-left text-[11px] font-medium uppercase tracking-[0.16em] text-gray-400">
                 transcript model
@@ -708,6 +698,43 @@ export default function RecordScreen({
             </div>
           ) : null}
         </div>
+
+        {showStartChoice && !isRecording ? (
+          <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/30 px-4 pb-8">
+            <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-lg">
+              <p className="text-sm font-medium text-gray-900">before you start</p>
+              <p className="mt-1 text-xs text-gray-500">add context first, or start recording now.</p>
+              <div className="mt-3 grid grid-cols-1 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMeetingDetailsMode('details')
+                    setShowStartChoice(false)
+                  }}
+                  className="h-10 rounded-xl border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
+                >
+                  add meeting details
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleStart('skip')
+                  }}
+                  className="h-10 rounded-xl bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700"
+                >
+                  skip & start recording
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowStartChoice(false)}
+                  className="h-9 text-xs text-gray-500 hover:text-gray-700"
+                >
+                  cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   )
