@@ -1,11 +1,20 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { getLocalMeetings } from '../lib/summary'
+import { deleteLocalMeeting, deleteMeetingRecord, getLocalMeetings } from '../lib/summary'
 
 export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
   const [meetings, setMeetings] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [deletingMeetingId, setDeletingMeetingId] = useState('')
+  const [revealedMeetingId, setRevealedMeetingId] = useState('')
+  const touchState = React.useRef({
+    id: '',
+    x: 0,
+    y: 0,
+    startedAt: 0,
+    longPressTimer: null,
+  })
 
   useEffect(() => {
     loadMeetings()
@@ -62,6 +71,7 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
   }
 
   async function handleOpenMeeting(meeting) {
+    if (revealedMeetingId === meeting.id) return
     if (String(meeting.id).startsWith('local_')) {
       onOpenMeeting(meeting)
       return
@@ -86,6 +96,72 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
       console.error('[History] Supabase error:', err)
       setError('Could not open meeting: ' + (err.message || 'Unknown error'))
     }
+  }
+
+  async function handleDeleteMeeting(meeting) {
+    if (!meeting?.id || !user?.id) return
+    const confirmed = window.confirm('Delete this meeting? Transcript and summary will be removed.')
+    if (!confirmed) return
+
+    setDeletingMeetingId(meeting.id)
+    setError(null)
+    try {
+      if (String(meeting.id).startsWith('local_')) {
+        deleteLocalMeeting(user.id, meeting.id)
+      } else {
+        await deleteMeetingRecord(supabase, {
+          userId: user.id,
+          meetingId: meeting.id,
+          audioStoragePath: meeting.audio_storage_path || '',
+        })
+      }
+      setMeetings((prev) => prev.filter((item) => item.id !== meeting.id))
+      if (revealedMeetingId === meeting.id) setRevealedMeetingId('')
+    } catch (err) {
+      setError(err?.message || 'Could not delete meeting')
+    } finally {
+      setDeletingMeetingId('')
+    }
+  }
+
+  function clearLongPressTimer() {
+    if (touchState.current.longPressTimer) {
+      clearTimeout(touchState.current.longPressTimer)
+      touchState.current.longPressTimer = null
+    }
+  }
+
+  function handleTouchStart(event, meetingId) {
+    const touch = event.touches?.[0]
+    if (!touch) return
+    clearLongPressTimer()
+    touchState.current.id = meetingId
+    touchState.current.x = touch.clientX
+    touchState.current.y = touch.clientY
+    touchState.current.startedAt = Date.now()
+    touchState.current.longPressTimer = setTimeout(() => {
+      setRevealedMeetingId(meetingId)
+      clearLongPressTimer()
+    }, 480)
+  }
+
+  function handleTouchMove(event, meetingId) {
+    const touch = event.touches?.[0]
+    if (!touch || touchState.current.id !== meetingId) return
+    const dx = touch.clientX - touchState.current.x
+    const dy = touch.clientY - touchState.current.y
+    if (Math.abs(dy) > 18) {
+      clearLongPressTimer()
+      return
+    }
+    if (Math.abs(dx) > 52) {
+      clearLongPressTimer()
+      setRevealedMeetingId((prev) => (prev === meetingId ? '' : meetingId))
+    }
+  }
+
+  function handleTouchEnd() {
+    clearLongPressTimer()
   }
 
   function getTldr(summary) {
@@ -175,39 +251,67 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
       {!loading && !error && meetings.length > 0 && (
         <div className="flex flex-col gap-0 flex-1 overflow-y-auto" style={{ maxHeight: 'calc(100dvh - 160px)' }}>
           {meetings.map((meeting) => (
-            <button
-              key={meeting.id}
-              onClick={() => handleOpenMeeting(meeting)}
-              className="flex flex-col items-start text-left py-4 border-b border-gray-50 hover:bg-gray-50 active:bg-gray-100 transition-colors px-1 rounded-lg w-full"
-            >
-              <div className="flex items-center justify-between w-full mb-1">
-                <span className="text-sm font-medium text-gray-900 truncate flex-1 mr-3">
-                  {meeting.title || 'Untitled meeting'}
-                </span>
-                <span className="text-xs text-gray-400 flex-shrink-0">
-                  {formatDate(meeting.created_at)}
-                </span>
-              </div>
-              <p className="text-xs text-gray-400 leading-relaxed line-clamp-2">
-                {getTldr(meeting.summary)}
-              </p>
-              {meeting.duration_segments > 0 && (
-                <span className="text-xs text-gray-300 mt-1.5">
-                  {meeting.duration_segments} segments
-                </span>
-              )}
-              {meeting.audio_storage_path && meeting.audio_expires_at && (
-                <span className="text-xs text-gray-300 mt-1">
-                  audio kept until {formatDate(meeting.audio_expires_at)}
-                </span>
-              )}
-              {meeting.audio_upload_status === 'pending' && (
-                <span className="text-xs text-amber-500 mt-1">audio still uploading</span>
-              )}
-              {meeting.audio_upload_status === 'failed' && (
-                <span className="text-xs text-amber-600 mt-1">audio unavailable</span>
-              )}
-            </button>
+            <div key={meeting.id} className="relative group">
+              <button
+                onClick={() => handleOpenMeeting(meeting)}
+                onTouchStart={(event) => handleTouchStart(event, meeting.id)}
+                onTouchMove={(event) => handleTouchMove(event, meeting.id)}
+                onTouchEnd={handleTouchEnd}
+                onTouchCancel={handleTouchEnd}
+                className="flex flex-col items-start text-left py-4 border-b border-gray-50 hover:bg-gray-50 active:bg-gray-100 transition-colors px-1 rounded-lg w-full"
+              >
+                <div className="flex items-center justify-between w-full mb-1">
+                  <span className="text-sm font-medium text-gray-900 truncate flex-1 mr-3">
+                    {meeting.title || 'Untitled meeting'}
+                  </span>
+                  <span className="text-xs text-gray-400 flex-shrink-0">
+                    {formatDate(meeting.created_at)}
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 leading-relaxed line-clamp-2">
+                  {getTldr(meeting.summary)}
+                </p>
+                {meeting.duration_segments > 0 && (
+                  <span className="text-xs text-gray-300 mt-1.5">
+                    {meeting.duration_segments} segments
+                  </span>
+                )}
+                {meeting.audio_storage_path && meeting.audio_expires_at && (
+                  <span className="text-xs text-gray-300 mt-1">
+                    audio kept until {formatDate(meeting.audio_expires_at)}
+                  </span>
+                )}
+                {meeting.audio_upload_status === 'pending' && (
+                  <span className="text-xs text-amber-500 mt-1">audio still uploading</span>
+                )}
+                {meeting.audio_upload_status === 'failed' && (
+                  <span className="text-xs text-amber-600 mt-1">audio unavailable</span>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  void handleDeleteMeeting(meeting)
+                }}
+                disabled={deletingMeetingId === meeting.id}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full border border-red-200 bg-white text-red-500 flex items-center justify-center transition-opacity ${
+                  revealedMeetingId === meeting.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+                } disabled:opacity-40`}
+                title="delete meeting"
+              >
+                {deletingMeetingId === meeting.id ? (
+                  <span className="text-[10px]">...</span>
+                ) : (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M4 7h16" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                    <path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke="currentColor" strokeWidth="1.6" />
+                    <path d="M7 7l1 12a1 1 0 0 0 1 .9h6a1 1 0 0 0 1-.9L17 7" stroke="currentColor" strokeWidth="1.6" />
+                    <path d="M10 11v5M14 11v5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                )}
+              </button>
+            </div>
           ))}
         </div>
       )}

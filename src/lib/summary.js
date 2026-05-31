@@ -597,6 +597,45 @@ export function getLocalMeetings(userId) {
   }
 }
 
+export function deleteLocalMeeting(userId, meetingId) {
+  if (!userId || !meetingId) return false
+  try {
+    const meetings = getLocalMeetings(userId)
+    const next = meetings.filter((meeting) => meeting?.id !== meetingId)
+    localStorage.setItem(LOCAL_MEETINGS_KEY_PREFIX + userId, JSON.stringify(next))
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function deleteMeetingRecord(supabase, { userId, meetingId, audioStoragePath = '' }) {
+  if (!supabase || !userId || !meetingId) {
+    throw new Error('Missing meeting delete parameters')
+  }
+
+  const path = String(audioStoragePath || '').trim()
+  if (path) {
+    try {
+      await supabase.storage.from(MEETING_AUDIO_BUCKET).remove([path])
+    } catch (err) {
+      console.warn('[Summary] Could not delete meeting audio object:', err?.message || err)
+    }
+  }
+
+  const { error } = await supabase
+    .from('meetings')
+    .delete()
+    .eq('id', meetingId)
+    .eq('user_id', userId)
+
+  if (error) {
+    throw new Error(error.message || 'Could not delete meeting')
+  }
+
+  return true
+}
+
 function saveMeetingLocally(userId, title, meetingData) {
   try {
     const meetings = getLocalMeetings(userId)
