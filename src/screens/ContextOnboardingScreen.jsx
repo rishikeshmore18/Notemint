@@ -26,11 +26,14 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
   const [regenerating, setRegenerating] = useState(false)
   const [error, setError] = useState(null)
   const [generationWarning, setGenerationWarning] = useState('')
+  const [savePhase, setSavePhase] = useState('idle')
 
   const title = mode === 'edit' ? 'edit work context' : mode === 'dictionary' ? 'correction dictionary' : 'set your work context'
   const subtitle = mode === 'dictionary'
     ? 'review corrections and refresh term suggestions from real edits.'
     : 'quick setup to improve names, domain terms, and meeting summaries.'
+  const isDictionaryMode = mode === 'dictionary'
+  const isWorkContextMode = !isDictionaryMode
 
   useEffect(() => {
     let cancelled = false
@@ -102,7 +105,8 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
     [generatedKeyterms],
   )
 
-  async function runRegenerateSuggestions() {
+  async function runRegenerateSuggestions(options = {}) {
+    const silent = options.silent === true
     setRegenerating(true)
     setGenerationWarning('')
     try {
@@ -128,10 +132,12 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
       }
     } catch (err) {
       const message = String(err?.message || '')
-      if (message.toLowerCase().includes('session expired') || message.toLowerCase().includes('not authenticated')) {
-        setGenerationWarning('session expired. please sign in again and retry.')
-      } else {
-        setGenerationWarning('could not regenerate suggestions right now')
+      if (!silent) {
+        if (message.toLowerCase().includes('session expired') || message.toLowerCase().includes('not authenticated')) {
+          setGenerationWarning('session expired. please sign in again and retry.')
+        } else {
+          setGenerationWarning('could not regenerate suggestions right now')
+        }
       }
       console.warn('[ContextOnboarding] Keyterm regeneration failed:', message || err)
       return null
@@ -145,14 +151,17 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
     setSaving(true)
     setError(null)
     setGenerationWarning('')
+    setSavePhase('saving')
     try {
-      if (mode !== 'dictionary') {
+      if (!isDictionaryMode) {
         if (industrySelection === 'other' && !normalizedIndustry) {
           setError('please enter your industry')
+          setSavePhase('idle')
           return
         }
         if (roleSelection === 'other' && !normalizedRole) {
           setError('please enter your role')
+          setSavePhase('idle')
           return
         }
       }
@@ -161,8 +170,23 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
       let finalSummaryContext = generatedSummaryContext
       let finalDoNotInfer = generatedDoNotInfer
 
-      if (mode === 'initial' && finalGeneratedKeyterms.length === 0 && !regenerating) {
-        const regenerated = await runRegenerateSuggestions()
+      if (isWorkContextMode) {
+        // Save typed context first, then generate suggestions from saved context.
+        await upsertContextProfile(supabase, user.id, {
+          industry: normalizedIndustry,
+          role: normalizedRole,
+          meetingTypes: [],
+          participantNames: parsedImportantTerms,
+          organizationTerms: parsedImportantTerms,
+          customTerms: parsedImportantTerms,
+          correctionTerms: [],
+          generatedKeyterms: finalGeneratedKeyterms,
+          summaryContext: finalSummaryContext,
+          doNotInfer: finalDoNotInfer,
+        })
+
+        setSavePhase('generating')
+        const regenerated = await runRegenerateSuggestions({ silent: true })
         if (regenerated) {
           finalGeneratedKeyterms = uniqueTerms(regenerated.keyterms)
             .filter((term) => term.split(' ').length <= 6)
@@ -170,21 +194,51 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
           finalSummaryContext = String(regenerated.summaryContext || '')
           finalDoNotInfer = Array.isArray(regenerated.doNotInfer) ? regenerated.doNotInfer : []
         }
-      }
+        await upsertContextProfile(supabase, user.id, {
+          industry: normalizedIndustry,
+          role: normalizedRole,
+          meetingTypes: [],
+          participantNames: parsedImportantTerms,
+          organizationTerms: parsedImportantTerms,
+          customTerms: parsedImportantTerms,
+          correctionTerms: [],
+          generatedKeyterms: finalGeneratedKeyterms,
+          summaryContext: finalSummaryContext,
+          doNotInfer: finalDoNotInfer,
+        })
 
-      await upsertContextProfile(supabase, user.id, {
-        industry: normalizedIndustry,
-        role: normalizedRole,
-        meetingTypes: [],
-        participantNames: parsedImportantTerms,
-        organizationTerms: parsedImportantTerms,
-        customTerms: parsedImportantTerms,
-        correctionTerms: [],
-        generatedKeyterms: finalGeneratedKeyterms,
-        summaryContext: finalSummaryContext,
-        doNotInfer: finalDoNotInfer,
-      })
-      onComplete?.()
+        const { data: savedRow, error: verifyError } = await supabase
+          .from('user_context_profiles')
+          .select('id')
+          .eq('user_id', user.id)
+          .maybeSingle()
+        if (verifyError || !savedRow?.id) {
+          throw new Error('Could not confirm saved context profile')
+        }
+
+        setGeneratedKeyterms(finalGeneratedKeyterms)
+        setGeneratedSummaryContext(finalSummaryContext)
+        setGeneratedDoNotInfer(finalDoNotInfer)
+        setSavePhase('preview')
+        await sleep(1500)
+        setSavePhase('saved')
+        await sleep(700)
+        onComplete?.()
+      } else {
+        await upsertContextProfile(supabase, user.id, {
+          industry: normalizedIndustry,
+          role: normalizedRole,
+          meetingTypes: [],
+          participantNames: parsedImportantTerms,
+          organizationTerms: parsedImportantTerms,
+          customTerms: parsedImportantTerms,
+          correctionTerms: [],
+          generatedKeyterms: finalGeneratedKeyterms,
+          summaryContext: finalSummaryContext,
+          doNotInfer: finalDoNotInfer,
+        })
+        onComplete?.()
+      }
     } catch (err) {
       const message = String(err?.message || '')
       if (message.toLowerCase().includes('row-level security')) {
@@ -192,6 +246,7 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
       } else {
         setError(message || 'Could not save context profile')
       }
+      setSavePhase('idle')
     } finally {
       setSaving(false)
     }
@@ -283,7 +338,44 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
               />
             ) : null}
 
-            <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
+            {isWorkContextMode ? (
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving || regenerating || savePhase === 'preview' || savePhase === 'saved'}
+                  className="w-full h-11 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {savePhase === 'saving'
+                    ? 'saving context...'
+                    : savePhase === 'generating'
+                      ? 'suggestions being generated based on your inputs...'
+                      : savePhase === 'saved'
+                        ? 'context saved'
+                        : 'save context'}
+                </button>
+                {savePhase === 'preview' ? (
+                  <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/40 px-3 py-3">
+                    <p className="text-xs font-medium text-indigo-700">suggestions generated</p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {normalizedGeneratedKeyterms.slice(0, 24).map((term, index) => (
+                        <span
+                          key={`${term}-${index}`}
+                          className={`rounded-full bg-white/80 px-2.5 py-1 text-indigo-700 ${
+                            index % 3 === 0 ? 'text-xs font-semibold' : index % 3 === 1 ? 'text-[11px]' : 'text-[10px]'
+                          }`}
+                        >
+                          {term}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {isDictionaryMode ? (
+              <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-medium text-gray-700">generated keyterms</p>
                 <button
@@ -327,9 +419,11 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
                   add
                 </button>
               </div>
-            </div>
+              </div>
+            ) : null}
 
-            <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
+            {isDictionaryMode ? (
+              <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
               <p className="text-xs font-medium text-gray-700">recent corrections</p>
               <p className="mt-1 text-[11px] text-gray-500">
                 learned from transcript edits; used to improve future transcription hints.
@@ -345,27 +439,30 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
                   <p className="text-xs text-gray-400">no correction history yet</p>
                 )}
               </div>
-            </div>
+              </div>
+            ) : null}
 
             {error ? <p className="text-sm text-red-500">{error}</p> : null}
             {generationWarning ? <p className="text-sm text-amber-600">{generationWarning}</p> : null}
 
             <div className="pt-2">
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving || regenerating}
-                className="w-full h-11 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {saving ? 'saving context...' : 'save context'}
-              </button>
+              {isDictionaryMode ? (
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving || regenerating}
+                  className="w-full h-11 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {saving ? 'saving context...' : 'save context'}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={onSkip}
                 disabled={saving}
                 className="mt-2 w-full h-10 rounded-xl text-sm text-gray-500 hover:text-gray-700 transition-colors"
               >
-                skip for now
+                {isDictionaryMode ? 'skip for now' : 'cancel'}
               </button>
             </div>
 
@@ -428,4 +525,10 @@ function toStringList(value) {
         .map((item) => String(item || '').trim())
         .filter(Boolean)
     : []
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms)
+  })
 }
