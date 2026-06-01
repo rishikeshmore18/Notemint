@@ -27,6 +27,7 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
   const [error, setError] = useState(null)
   const [generationWarning, setGenerationWarning] = useState('')
   const [savePhase, setSavePhase] = useState('idle')
+  const [previewKeyterms, setPreviewKeyterms] = useState([])
 
   const title = mode === 'edit' ? 'edit work context' : mode === 'dictionary' ? 'correction dictionary' : 'set your work context'
   const subtitle = mode === 'dictionary'
@@ -34,6 +35,8 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
     : 'quick setup to improve names, domain terms, and meeting summaries.'
   const isDictionaryMode = mode === 'dictionary'
   const isWorkContextMode = !isDictionaryMode
+  const isEditMode = mode === 'edit'
+  const showGeneratedSuggestionsPanel = isDictionaryMode || isEditMode
 
   useEffect(() => {
     let cancelled = false
@@ -219,10 +222,11 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
         setGeneratedKeyterms(finalGeneratedKeyterms)
         setGeneratedSummaryContext(finalSummaryContext)
         setGeneratedDoNotInfer(finalDoNotInfer)
+        setPreviewKeyterms(finalGeneratedKeyterms)
         setSavePhase('preview')
-        await sleep(1500)
+        await sleep(2500)
         setSavePhase('saved')
-        await sleep(700)
+        await sleep(800)
         onComplete?.()
       } else {
         await upsertContextProfile(supabase, user.id, {
@@ -268,6 +272,47 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
 
   return (
     <div className="min-h-screen bg-white px-6 py-8">
+      {isWorkContextMode && (savePhase === 'saving' || savePhase === 'generating') ? (
+        <div className="fixed inset-x-0 top-4 z-40 mx-auto w-[92%] max-w-md rounded-2xl border border-indigo-100 bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
+          <p className="text-sm font-medium text-indigo-700">
+            {savePhase === 'saving'
+              ? 'saving your context...'
+              : 'suggestions being generated based on your inputs...'}
+          </p>
+        </div>
+      ) : null}
+
+      {isWorkContextMode && (savePhase === 'preview' || savePhase === 'saved') ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-white px-6 py-8">
+          <div className="w-full max-w-2xl text-center">
+            <p className="text-sm font-medium text-indigo-600">
+              {savePhase === 'preview' ? 'suggestions generated from your context' : 'context saved'}
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              {(previewKeyterms.length > 0 ? previewKeyterms : normalizedGeneratedKeyterms).slice(0, 32).map((term, index) => (
+                <span
+                  key={`${term}-${index}`}
+                  className={`inline-flex rounded-full px-3 py-1 text-indigo-700 transition-all ${
+                    index % 4 === 0
+                      ? 'bg-indigo-100 text-base font-semibold'
+                      : index % 4 === 1
+                        ? 'bg-indigo-50 text-sm font-medium'
+                        : index % 4 === 2
+                          ? 'bg-sky-50 text-xs font-medium'
+                          : 'bg-violet-50 text-[11px]'
+                  }`}
+                >
+                  {term}
+                </span>
+              ))}
+            </div>
+            <p className="mt-8 text-xs text-gray-500">
+              {savePhase === 'preview' ? 'verifying and saving context...' : 'redirecting to homepage...'}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       <div className="mx-auto w-full max-w-xl">
         <h1 className="text-xl font-semibold text-gray-900">{title}</h1>
         <p className="mt-1 text-sm text-gray-400">{subtitle}</p>
@@ -374,7 +419,7 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
               </div>
             ) : null}
 
-            {isDictionaryMode ? (
+            {showGeneratedSuggestionsPanel ? (
               <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-medium text-gray-700">generated keyterms</p>
@@ -419,6 +464,11 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
                   add
                 </button>
               </div>
+              {isEditMode ? (
+                <p className="mt-2 text-[11px] text-gray-500">
+                  these suggestions will be refreshed automatically when you save.
+                </p>
+              ) : null}
               </div>
             ) : null}
 
