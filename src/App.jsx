@@ -46,8 +46,10 @@ export default function App() {
   })
   const callbackContextRef = useRef(getAuthCallbackContext())
   const redirectTimeoutRef = useRef(null)
-  const compareModeAvailable = false
-  const feedbackUrl = String(import.meta.env.VITE_FEEDBACK_FORM_URL || '').trim()
+const compareModeAvailable = false
+  const feedbackUrl = String(
+    import.meta.env.VITE_FEEDBACK_FORM_URL || 'https://forms.gle/vJekpUCer7bX3M856',
+  ).trim()
 
   useEffect(() => {
     let isMounted = true
