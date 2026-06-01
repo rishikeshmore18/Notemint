@@ -12,7 +12,7 @@ import LoadingDot from './components/LoadingDot'
 import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supabase'
 import { getVoiceStatus, streamSummary, transcribeAudio, transcribeAudioDetailed } from './lib/api'
 import { rememberSpeakerLabels } from './lib/speakerMemory'
-import { hasContextProfile, setContextOnboardingCompleted } from './lib/contextProfile'
+import { hasContextProfile } from './lib/contextProfile'
 import {
   compressTranscript,
   createMeetingDraft,
@@ -496,12 +496,10 @@ export default function App() {
         user={currentUser}
         mode={contextMode}
         onComplete={() => {
-          setContextOnboardingCompleted(currentUser?.id)
           setContextMode('initial')
-          setScreen('home')
+          void applyEnrollmentGate(currentUser)
         }}
         onSkip={() => {
-          setContextOnboardingCompleted(currentUser?.id)
           setContextMode('initial')
           setScreen('home')
         }}

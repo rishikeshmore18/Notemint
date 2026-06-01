@@ -36,8 +36,8 @@ export const MEETING_TYPE_OPTIONS = [
 
 export async function hasContextProfile(supabase, userId) {
   if (!userId) return false
-
-  const locallyCompleted = getContextOnboardingCompleted(userId)
+  const cachedProfile = getCachedContextProfile(userId)
+  if (cachedProfile) return true
 
   try {
     const { data, error } = await supabase
@@ -48,17 +48,17 @@ export async function hasContextProfile(supabase, userId) {
 
     if (error) {
       console.warn('[ContextProfile] Could not read context profile:', error.message)
-      return locallyCompleted
+      return false
     }
 
     if (data?.id) {
       setContextOnboardingCompleted(userId)
       return true
     }
-    return locallyCompleted
+    return false
   } catch (err) {
     console.warn('[ContextProfile] Context profile check failed:', err?.message || err)
-    return locallyCompleted
+    return false
   }
 }
 
