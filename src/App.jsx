@@ -47,6 +47,7 @@ export default function App() {
   const callbackContextRef = useRef(getAuthCallbackContext())
   const redirectTimeoutRef = useRef(null)
   const compareModeAvailable = false
+  const feedbackUrl = String(import.meta.env.VITE_FEEDBACK_FORM_URL || '').trim()
 
   useEffect(() => {
     let isMounted = true
@@ -446,239 +447,337 @@ export default function App() {
 
   if (screen === 'loading') {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <LoadingDot />
-      </div>
+      <>
+        <div className="min-h-screen bg-white flex items-center justify-center">
+          <LoadingDot />
+        </div>
+        <FloatingFeedbackButton url={feedbackUrl} />
+      </>
     )
   }
 
   if (screen === 'auth') {
     return (
-      <AuthScreen
-        onAuthenticated={handleAuthenticated}
-        initialEmail={getPendingConfirmationEmail()}
-        initialError={authScreenError}
-      />
+      <>
+        <AuthScreen
+          onAuthenticated={handleAuthenticated}
+          initialEmail={getPendingConfirmationEmail()}
+          initialError={authScreenError}
+        />
+        <FloatingFeedbackButton url={feedbackUrl} />
+      </>
     )
   }
 
   if (screen === 'auth-callback') {
     return (
-      <AuthCallbackScreen
-        status={callbackState.status}
-        title={callbackState.title}
-        message={callbackState.message}
-        onContinue={
-          callbackState.status === 'error'
-            ? () => handleReturnToAuth('confirmation link expired - request a new email below')
-            : null
-        }
-      />
+      <>
+        <GlobalBackButton
+          onClick={() => {
+            handleReturnToAuth(null)
+          }}
+        />
+        <AuthCallbackScreen
+          status={callbackState.status}
+          title={callbackState.title}
+          message={callbackState.message}
+          onContinue={
+            callbackState.status === 'error'
+              ? () => handleReturnToAuth('confirmation link expired - request a new email below')
+              : null
+          }
+        />
+        <FloatingFeedbackButton url={feedbackUrl} />
+      </>
     )
   }
 
   if (screen === 'enroll') {
     return (
-      <EnrollScreen
-        user={currentUser}
-        mode={enrollMode}
-        onComplete={() => {
-          setEnrollMode('initial')
-          handleSkipEnrollment()
-        }}
-      />
+      <>
+        <GlobalBackButton
+          onClick={() => {
+            if (currentUser) {
+              setScreen('home')
+              return
+            }
+            handleReturnToAuth(null)
+          }}
+        />
+        <EnrollScreen
+          user={currentUser}
+          mode={enrollMode}
+          onComplete={() => {
+            setEnrollMode('initial')
+            handleSkipEnrollment()
+          }}
+        />
+        <FloatingFeedbackButton url={feedbackUrl} />
+      </>
     )
   }
 
   if (screen === 'context-onboarding') {
     return (
-      <ContextOnboardingScreen
-        user={currentUser}
-        mode={contextMode}
-        onComplete={() => {
-          setContextMode('initial')
-          void applyEnrollmentGate(currentUser)
-        }}
-        onSkip={() => {
-          setContextMode('initial')
-          setScreen('home')
-        }}
-      />
+      <>
+        <GlobalBackButton
+          onClick={() => {
+            setContextMode('initial')
+            setScreen('home')
+          }}
+        />
+        <ContextOnboardingScreen
+          user={currentUser}
+          mode={contextMode}
+          onComplete={() => {
+            setContextMode('initial')
+            void applyEnrollmentGate(currentUser)
+          }}
+          onSkip={() => {
+            setContextMode('initial')
+            setScreen('home')
+          }}
+        />
+        <FloatingFeedbackButton url={feedbackUrl} />
+      </>
     )
   }
 
   if (screen === 'processing') {
-    return <ProcessingScreen message={processingMessage} />
+    return (
+      <>
+        <GlobalBackButton onClick={() => setScreen('home')} />
+        <ProcessingScreen message={processingMessage} />
+        <FloatingFeedbackButton url={feedbackUrl} />
+      </>
+    )
   }
 
   if (screen === 'results') {
     return (
-      <ResultsScreen
-        user={currentUser}
-        segments={bestAvailableSegments}
-        audioBlob={meetingAudioBlob}
-        meetingContext={meetingContext}
-        confirmedLabelMap={confirmedLabelMap}
-        initialMeetingId={meetingId}
-        audioSaveMessage={audioSaveMessage}
-        audioUploadStatus={audioUploadStatus}
-        onRetryAudioUpload={retryMeetingAudioUpload}
-        onNewMeeting={() => {
-          setMeetingSegments([])
-          setMeetingAudioBlob(null)
-          setMeetingId(null)
-          setAudioSaveMessage('')
-          setAudioUploadStatus('pending')
-          setMeetingContext(null)
-          setDiarizedSegments([])
-          setConfirmedLabelMap({})
-          setProcessingMessage('')
-          setEnrollMode('initial')
-          setScreen('home')
-        }}
-      />
+      <>
+        <GlobalBackButton onClick={() => setScreen('home')} />
+        <ResultsScreen
+          user={currentUser}
+          segments={bestAvailableSegments}
+          audioBlob={meetingAudioBlob}
+          meetingContext={meetingContext}
+          confirmedLabelMap={confirmedLabelMap}
+          initialMeetingId={meetingId}
+          audioSaveMessage={audioSaveMessage}
+          audioUploadStatus={audioUploadStatus}
+          onRetryAudioUpload={retryMeetingAudioUpload}
+          onNewMeeting={() => {
+            setMeetingSegments([])
+            setMeetingAudioBlob(null)
+            setMeetingId(null)
+            setAudioSaveMessage('')
+            setAudioUploadStatus('pending')
+            setMeetingContext(null)
+            setDiarizedSegments([])
+            setConfirmedLabelMap({})
+            setProcessingMessage('')
+            setEnrollMode('initial')
+            setScreen('home')
+          }}
+        />
+        <FloatingFeedbackButton url={feedbackUrl} />
+      </>
     )
   }
 
   if (screen === 'speaker-review') {
     return (
-      <SpeakerReviewScreen
-        segments={bestAvailableSegments}
-        audioBlob={meetingAudioBlob}
-        user={currentUser}
-        onConfirmed={(labelMap) => {
-          void rememberSpeakerLabels(currentUser?.id, labelMap).catch((err) => {
-            console.warn('[App] Could not remember speaker names:', err?.message || err)
-          })
-          setConfirmedLabelMap(labelMap)
-          setScreen('results')
-        }}
-        onSkip={() => {
-          setConfirmedLabelMap({})
-          setScreen('results')
-        }}
-      />
+      <>
+        <GlobalBackButton onClick={() => setScreen('home')} />
+        <SpeakerReviewScreen
+          segments={bestAvailableSegments}
+          audioBlob={meetingAudioBlob}
+          user={currentUser}
+          onConfirmed={(labelMap) => {
+            void rememberSpeakerLabels(currentUser?.id, labelMap).catch((err) => {
+              console.warn('[App] Could not remember speaker names:', err?.message || err)
+            })
+            setConfirmedLabelMap(labelMap)
+            setScreen('results')
+          }}
+          onSkip={() => {
+            setConfirmedLabelMap({})
+            setScreen('results')
+          }}
+        />
+        <FloatingFeedbackButton url={feedbackUrl} />
+      </>
     )
   }
 
   if (screen === 'history') {
     return (
-      <HistoryScreen
-        user={currentUser}
-        onBack={() => setScreen('home')}
-        onOpenMeeting={(meeting) => {
-          setSelectedMeeting(meeting)
-          setScreen('past-meeting')
-        }}
-      />
+      <>
+        <GlobalBackButton onClick={() => setScreen('home')} />
+        <HistoryScreen
+          user={currentUser}
+          onBack={() => setScreen('home')}
+          onOpenMeeting={(meeting) => {
+            setSelectedMeeting(meeting)
+            setScreen('past-meeting')
+          }}
+        />
+        <FloatingFeedbackButton url={feedbackUrl} />
+      </>
     )
   }
 
   if (screen === 'past-meeting' && selectedMeeting) {
     return (
-      <PastMeetingScreen
-        user={currentUser}
-        meeting={selectedMeeting}
-        onBack={() => setScreen('history')}
-      />
+      <>
+        <GlobalBackButton onClick={() => setScreen('history')} />
+        <PastMeetingScreen
+          user={currentUser}
+          meeting={selectedMeeting}
+          onBack={() => setScreen('history')}
+        />
+        <FloatingFeedbackButton url={feedbackUrl} />
+      </>
     )
   }
 
   return (
-    <RecordScreen
-      user={currentUser}
-      transcriptionProvider={transcriptionProvider}
-      onTranscriptionProviderChange={setTranscriptionProvider}
-      compareModeAvailable={compareModeAvailable}
-      compareModeEnabled={false}
-      onCompareModeChange={() => {}}
-      onMeetingComplete={async (segments, audioBlob, hadLiveTranscript = true, meetingContextPayload = null) => {
-        setMeetingAudioBlob(audioBlob)
-        setMeetingContext(meetingContextPayload)
-        const draftMeetingId = await prepareMeetingAudioPersistence(audioBlob)
-        void runProviderCaptureInBackground(audioBlob, meetingContextPayload, draftMeetingId)
-        setConfirmedLabelMap({})
-        setProcessingMessage('')
-        setDiarizedSegments([])
-        const transcriptionOptions = {
-          contextTerms: Array.isArray(meetingContextPayload?.contextTerms) ? meetingContextPayload.contextTerms : [],
-          meetingContext: meetingContextPayload && typeof meetingContextPayload === 'object' ? meetingContextPayload : null,
-        }
+    <>
+      <RecordScreen
+        user={currentUser}
+        transcriptionProvider={transcriptionProvider}
+        onTranscriptionProviderChange={setTranscriptionProvider}
+        compareModeAvailable={compareModeAvailable}
+        compareModeEnabled={false}
+        onCompareModeChange={() => {}}
+        onMeetingComplete={async (segments, audioBlob, hadLiveTranscript = true, meetingContextPayload = null) => {
+          setMeetingAudioBlob(audioBlob)
+          setMeetingContext(meetingContextPayload)
+          const draftMeetingId = await prepareMeetingAudioPersistence(audioBlob)
+          void runProviderCaptureInBackground(audioBlob, meetingContextPayload, draftMeetingId)
+          setConfirmedLabelMap({})
+          setProcessingMessage('')
+          setDiarizedSegments([])
+          const transcriptionOptions = {
+            contextTerms: Array.isArray(meetingContextPayload?.contextTerms) ? meetingContextPayload.contextTerms : [],
+            meetingContext: meetingContextPayload && typeof meetingContextPayload === 'object' ? meetingContextPayload : null,
+          }
 
-        if (hadLiveTranscript) {
-          setMeetingSegments(segments)
+          if (hadLiveTranscript) {
+            setMeetingSegments(segments)
 
-          if (!audioBlob || audioBlob.size === 0) {
+            if (!audioBlob || audioBlob.size === 0) {
+              setScreen('speaker-review')
+              return
+            }
+
             setScreen('speaker-review')
+            void (async () => {
+              try {
+                const parsed = await transcribeWithFallback(
+                  audioBlob,
+                  transcriptionProvider,
+                  undefined,
+                  transcriptionOptions,
+                )
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                  setDiarizedSegments(parsed)
+                } else {
+                  setDiarizedSegments([])
+                }
+              } catch (err) {
+                console.warn('[App] Diarization failed, using live segments fallback:', err?.message || err)
+                setDiarizedSegments([])
+              }
+            })()
             return
           }
 
-          setScreen('speaker-review')
-          void (async () => {
-            try {
-              const parsed = await transcribeWithFallback(
-                audioBlob,
-                transcriptionProvider,
-                undefined,
-                transcriptionOptions,
-              )
-              if (Array.isArray(parsed) && parsed.length > 0) {
-                setDiarizedSegments(parsed)
-              } else {
-                setDiarizedSegments([])
-              }
-            } catch (err) {
-              console.warn('[App] Diarization failed, using live segments fallback:', err?.message || err)
+          setMeetingSegments([])
+          setProcessingMessage('')
+          setScreen('processing')
+
+          if (!audioBlob || audioBlob.size === 0) {
+            setScreen('results')
+            return
+          }
+
+          try {
+            const parsed = await transcribeWithFallback(
+              audioBlob,
+              transcriptionProvider,
+              setProcessingMessage,
+              transcriptionOptions,
+            )
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setDiarizedSegments(parsed)
+              setScreen('speaker-review')
+            } else {
               setDiarizedSegments([])
+              setScreen('results')
             }
-          })()
-          return
-        }
-
-        setMeetingSegments([])
-        setProcessingMessage('')
-        setScreen('processing')
-
-        if (!audioBlob || audioBlob.size === 0) {
-          setScreen('results')
-          return
-        }
-
-        try {
-          const parsed = await transcribeWithFallback(
-            audioBlob,
-            transcriptionProvider,
-            setProcessingMessage,
-            transcriptionOptions,
-          )
-          if (Array.isArray(parsed) && parsed.length > 0) {
-            setDiarizedSegments(parsed)
-            setScreen('speaker-review')
-          } else {
+          } catch (err) {
+            console.warn('[App] Silent-mode diarization failed:', err?.message || err)
             setDiarizedSegments([])
             setScreen('results')
           }
-        } catch (err) {
-          console.warn('[App] Silent-mode diarization failed:', err?.message || err)
-          setDiarizedSegments([])
-          setScreen('results')
-        }
+        }}
+        onReEnrollVoice={() => {
+          setEnrollMode('reset')
+          setScreen('enroll')
+        }}
+        onEditContext={() => {
+          setContextMode('edit')
+          setScreen('context-onboarding')
+        }}
+        onOpenCorrectionDictionary={() => {
+          setContextMode('dictionary')
+          setScreen('context-onboarding')
+        }}
+        onViewHistory={() => setScreen('history')}
+        onSignOut={handleSignOut}
+      />
+      <FloatingFeedbackButton url={feedbackUrl} />
+    </>
+  )
+}
+
+function GlobalBackButton({ onClick }) {
+  if (typeof onClick !== 'function') return null
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="fixed left-4 top-4 z-40 inline-flex h-10 min-w-10 items-center justify-center rounded-full bg-white/95 px-3 text-sm font-medium text-gray-700 shadow-md ring-1 ring-black/5 backdrop-blur hover:bg-white"
+      aria-label="Go back"
+    >
+      <span aria-hidden="true" className="mr-1 text-base leading-none">‹</span>
+      back
+    </button>
+  )
+}
+
+function FloatingFeedbackButton({ url }) {
+  const destination = String(url || '').trim()
+  const hasUrl = destination.length > 0
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (!hasUrl) return
+        window.open(destination, '_blank', 'noopener,noreferrer')
       }}
-      onReEnrollVoice={() => {
-        setEnrollMode('reset')
-        setScreen('enroll')
-      }}
-      onEditContext={() => {
-        setContextMode('edit')
-        setScreen('context-onboarding')
-      }}
-      onOpenCorrectionDictionary={() => {
-        setContextMode('dictionary')
-        setScreen('context-onboarding')
-      }}
-      onViewHistory={() => setScreen('history')}
-      onSignOut={handleSignOut}
-    />
+      className={`fixed bottom-5 right-5 z-40 inline-flex h-11 items-center justify-center rounded-full px-4 text-sm font-medium text-white shadow-lg transition ${
+        hasUrl ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-400 cursor-not-allowed'
+      }`}
+      title={hasUrl ? 'Open feedback form in new tab' : 'Set VITE_FEEDBACK_FORM_URL to enable feedback'}
+      aria-label="Open feedback form"
+      disabled={!hasUrl}
+    >
+      feedback
+    </button>
   )
 }
 
