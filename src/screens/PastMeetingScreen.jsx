@@ -439,10 +439,10 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
                       </div>
                       <span
                         className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(
-                          block.label || labelMapFromDb[block.speaker] || 'person ' + block.speaker,
+                          getDisplaySpeakerLabel(block, labelMapFromDb),
                         )}`}
                       >
-                        {String(block.label || labelMapFromDb[block.speaker] || 'person ' + block.speaker).toLowerCase()}
+                        {getDisplaySpeakerLabel(block, labelMapFromDb).toLowerCase()}
                       </span>
                       <div className="flex-1">
                         {editingBlockKey === block.key ? (
@@ -546,6 +546,18 @@ function findActiveBlockIndex(blocks, currentTime) {
   }
 
   return activeIndex >= 0 ? activeIndex : nearestIndex
+}
+
+function getDisplaySpeakerLabel(block, labelMap) {
+  const speakerId = block?.speaker
+  const savedLabel = labelMap?.[speakerId]
+  if (savedLabel) return String(savedLabel)
+
+  const numericSpeaker = Number(speakerId)
+  if (Number.isFinite(numericSpeaker)) return `Person ${numericSpeaker + 1}`
+
+  if (block?.label) return String(block.label)
+  return 'Person 1'
 }
 
 function toNumberOrNull(value) {

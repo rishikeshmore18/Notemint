@@ -1,13 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import WaveformVisualizer from '../components/WaveformVisualizer'
 import { getAudioStream, getFullAudioBlob, startTranscription, stopTranscription } from '../lib/gladia'
-import { getContextProfile, getCorrectionMemory, MEETING_TYPE_OPTIONS, parseTerms } from '../lib/contextProfile'
+import { getContextProfile, getCorrectionMemory, parseTerms } from '../lib/contextProfile'
 import { supabase } from '../lib/supabase'
 
-const TRANSCRIPTION_PROVIDERS = [
-  { value: 'assemblyai', label: 'AssemblyAI', detail: 'Universal', recommended: true },
-]
-const LAST_MEETING_TYPE_KEY_PREFIX = 'last_meeting_type_'
 const AUDIO_FILE_ACCEPT = 'audio/*,.aac,.aif,.aiff,.flac,.m4a,.mp3,.mp4,.oga,.ogg,.opus,.wav,.webm'
 const AUDIO_FILE_EXTENSIONS = new Set([
   'aac',
@@ -26,11 +22,6 @@ const AUDIO_FILE_EXTENSIONS = new Set([
 
 export default function RecordScreen({
   user,
-  transcriptionProvider = 'assemblyai',
-  onTranscriptionProviderChange,
-  compareModeAvailable = false,
-  compareModeEnabled = false,
-  onCompareModeChange,
   onMeetingComplete,
   onSignOut,
   onViewHistory,
@@ -53,9 +44,7 @@ export default function RecordScreen({
   const [pendingUploadFile, setPendingUploadFile] = useState(null)
   const [meetingTopic, setMeetingTopic] = useState('')
   const [meetingGoal, setMeetingGoal] = useState('')
-  const [expectedParticipantsInput, setExpectedParticipantsInput] = useState('')
-  const [importantTermsInput, setImportantTermsInput] = useState('')
-  const [meetingType, setMeetingType] = useState('')
+  const [expectedParticipantCount, setExpectedParticipantCount] = useState('')
   const [contextProfile, setContextProfile] = useState(null)
   const [correctionMemory, setCorrectionMemory] = useState({ boostTerms: [], confusionPairs: [] })
   const segmentsRef = useRef([])
@@ -88,12 +77,6 @@ export default function RecordScreen({
         if (cancelled) return
         setContextProfile(profile || null)
         setCorrectionMemory(correction)
-        const savedMeetingType = getStoredMeetingType(user.id)
-        if (savedMeetingType && !meetingType) {
-          setMeetingType(savedMeetingType)
-        } else if (!meetingType && profile?.meeting_types?.[0]) {
-          setMeetingType(String(profile.meeting_types[0]))
-        }
       } catch (err) {
         if (!cancelled) {
           console.warn('[RecordScreen] Could not load context profile:', err?.message || err)
@@ -217,9 +200,7 @@ export default function RecordScreen({
       meetingDetailsMode: nextMode,
       meetingTopic,
       meetingGoal,
-      expectedParticipantsInput,
-      importantTermsInput,
-      meetingType,
+      expectedParticipantCount,
       contextProfile,
       correctionMemory,
     })
@@ -356,9 +337,7 @@ export default function RecordScreen({
       meetingDetailsMode,
       meetingTopic,
       meetingGoal,
-      expectedParticipantsInput,
-      importantTermsInput,
-      meetingType,
+      expectedParticipantCount,
       contextProfile,
       correctionMemory,
     })
@@ -514,15 +493,6 @@ export default function RecordScreen({
                   >
                     re-enroll voice
                   </button>
-                  {compareModeAvailable ? (
-                    <button
-                      type="button"
-                      onClick={() => onCompareModeChange?.(!compareModeEnabled)}
-                      className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors border-t border-gray-100"
-                    >
-                      testing mode: {compareModeEnabled ? 'on' : 'off'}
-                    </button>
-                  ) : null}
                   <button
                     type="button"
                     onClick={() => {
@@ -587,63 +557,20 @@ export default function RecordScreen({
                     placeholder="branch wait times review"
                     maxLength={120}
                   />
-                  <Field
-                    label="goal"
+                  <TextAreaField
+                    label="goal, agenda, important terms"
                     value={meetingGoal}
                     onChange={setMeetingGoal}
-                    placeholder="identify root causes and next actions"
-                    maxLength={180}
-                  />
-                  <Field
-                    label="expected participants"
-                    value={expectedParticipantsInput}
-                    onChange={setExpectedParticipantsInput}
-                    placeholder="Tom, Sarah, John"
-                    maxLength={200}
-                  />
-                  <Field
-                    label="important terms"
-                    value={importantTermsInput}
-                    onChange={setImportantTermsInput}
-                    placeholder="CDs, fraud hold, delinquency"
+                    placeholder="review wait times, staffing plan, CDs, fraud hold"
                     maxLength={260}
                   />
-                  <div>
-                    <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400">
-                      meeting type
-                    </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {MEETING_TYPE_OPTIONS.map((type) => {
-                        const selected = meetingType === type
-                        return (
-                          <button
-                            key={type}
-                            type="button"
-                            onClick={() => {
-                              setMeetingType(type)
-                              storeMeetingType(user?.id, type)
-                            }}
-                            className={`rounded-full px-2.5 py-1 text-[11px] transition-colors ${
-                              selected
-                                ? 'bg-indigo-600 text-white'
-                                : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700'
-                            }`}
-                          >
-                            {type}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                  {renderSuggestionChips({
-                    profile: contextProfile,
-                    onUseTerm: (term) => {
-                      setImportantTermsInput((prev) => appendCommaSeparated(prev, term))
-                    },
-                    onUseParticipant: (name) => {
-                      setExpectedParticipantsInput((prev) => appendCommaSeparated(prev, name))
-                    },
-                  })}
+                  <NumberField
+                    label="number of participants"
+                    value={expectedParticipantCount}
+                    onChange={setExpectedParticipantCount}
+                    min={1}
+                    max={50}
+                  />
                   {pendingUploadFile ? (
                     <button
                       type="button"
@@ -657,46 +584,6 @@ export default function RecordScreen({
                   ) : null}
                 </div>
               </div>
-            ) : null}
-            {false ? (
-              <>
-                <div className="mt-7 w-full max-w-xs rounded-2xl border border-gray-100 bg-gray-50 p-1">
-                  <p className="px-3 pb-2 pt-2 text-left text-[11px] font-medium uppercase tracking-[0.16em] text-gray-400">
-                    transcript model
-                  </p>
-                  <div className="grid grid-cols-3 gap-1">
-                    {TRANSCRIPTION_PROVIDERS.map((provider) => {
-                      const selected = transcriptionProvider === provider.value
-                      return (
-                        <button
-                          key={provider.value}
-                          type="button"
-                          onClick={() => onTranscriptionProviderChange?.(provider.value)}
-                          className={`rounded-xl px-2 py-2 text-center transition-colors ${
-                            selected
-                              ? 'bg-white text-indigo-600 shadow-sm'
-                              : 'text-gray-400 hover:bg-white/70 hover:text-gray-600'
-                          }`}
-                          aria-pressed={selected}
-                        >
-                          <span className="block text-xs font-medium">{provider.label}</span>
-                          <span className="mt-0.5 block text-[10px] leading-tight opacity-75">{provider.detail}</span>
-                          {provider.recommended ? (
-                            <span className="mt-1 inline-block rounded-full bg-emerald-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-emerald-700">
-                              recommended
-                            </span>
-                          ) : null}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-                {compareModeAvailable ? (
-                  <p className="mt-2 text-[11px] text-gray-400">
-                    testing mode is available in the profile menu.
-                  </p>
-                ) : null}
-              </>
             ) : null}
             <button
               type="button"
@@ -910,17 +797,15 @@ function buildMeetingContextPayload({
   meetingDetailsMode,
   meetingTopic,
   meetingGoal,
-  expectedParticipantsInput,
-  importantTermsInput,
-  meetingType,
+  expectedParticipantCount,
   contextProfile,
   correctionMemory,
 }) {
-  const expectedParticipants = parseTerms(expectedParticipantsInput)
-  const importantTerms = parseTerms(importantTermsInput)
   const topic = String(meetingTopic || '').trim().slice(0, 120)
-  const goal = String(meetingGoal || '').trim().slice(0, 180)
-  const finalMeetingType = String(meetingType || '').trim().slice(0, 48)
+  const goal = String(meetingGoal || '').trim().slice(0, 260)
+  const participantCount = normalizeParticipantCount(expectedParticipantCount)
+  const expectedParticipants = participantCount ? [`${participantCount} participants`] : []
+  const importantTerms = parseTerms(meetingGoal)
   const industry = String(contextProfile?.industry || '').trim().slice(0, 48)
 
   const generatedKeyterms = Array.isArray(contextProfile?.generated_keyterms)
@@ -952,10 +837,8 @@ function buildMeetingContextPayload({
 
   const contextTerms = uniqueTerms([
     ...importantTerms,
-    ...expectedParticipants,
     ...profileTerms,
     ...correctionBoostTerms,
-    finalMeetingType,
     topic,
     goal,
   ]).slice(0, 200)
@@ -979,7 +862,7 @@ function buildMeetingContextPayload({
     goal,
     expectedParticipants,
     importantTerms,
-    meetingType: finalMeetingType,
+    meetingType: '',
     industry,
     knownParticipants,
     knownTerms,
@@ -1011,81 +894,12 @@ function uniqueTerms(values) {
   return out
 }
 
-function renderSuggestionChips({ profile, onUseTerm, onUseParticipant }) {
-  const participants = Array.isArray(profile?.participant_names) ? profile.participant_names.slice(0, 8) : []
-  const terms = uniqueTerms([
-    ...(Array.isArray(profile?.organization_terms) ? profile.organization_terms.slice(0, 8) : []),
-    ...(Array.isArray(profile?.custom_terms) ? profile.custom_terms.slice(0, 8) : []),
-    ...(Array.isArray(profile?.generated_keyterms) ? profile.generated_keyterms.slice(0, 8) : []),
-  ]).slice(0, 10)
-
-  if (participants.length === 0 && terms.length === 0) return null
-
-  return (
-    <div className="space-y-1.5">
-      {participants.length > 0 ? (
-        <div>
-          <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400">people suggestions</p>
-          <div className="flex flex-wrap gap-1.5">
-            {participants.map((name) => (
-              <button
-                key={name}
-                type="button"
-                onClick={() => onUseParticipant(name)}
-                className="rounded-full bg-white px-2.5 py-1 text-[11px] text-gray-600 border border-gray-200 hover:bg-gray-50"
-              >
-                + {name}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-      {terms.length > 0 ? (
-        <div>
-          <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400">term suggestions</p>
-          <div className="flex flex-wrap gap-1.5">
-            {terms.map((term) => (
-              <button
-                key={term}
-                type="button"
-                onClick={() => onUseTerm(term)}
-                className="rounded-full bg-white px-2.5 py-1 text-[11px] text-gray-600 border border-gray-200 hover:bg-gray-50"
-              >
-                + {term}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) : null}
-    </div>
-  )
-}
-
-function appendCommaSeparated(previous, value) {
-  const existing = String(previous || '').trim()
-  const cleaned = String(value || '').trim()
-  if (!cleaned) return existing
-  if (!existing) return cleaned
-  const existingSet = new Set(
-    existing
-      .split(/[\n,]/g)
-      .map((part) => part.trim().toLowerCase())
-      .filter(Boolean),
-  )
-  if (existingSet.has(cleaned.toLowerCase())) return existing
-  return `${existing}, ${cleaned}`
-}
-
-function getStoredMeetingType(userId) {
-  if (!userId || typeof window === 'undefined') return ''
-  return String(localStorage.getItem(LAST_MEETING_TYPE_KEY_PREFIX + userId) || '').trim()
-}
-
-function storeMeetingType(userId, value) {
-  if (!userId || typeof window === 'undefined') return
-  const cleaned = String(value || '').trim()
-  if (!cleaned) return
-  localStorage.setItem(LAST_MEETING_TYPE_KEY_PREFIX + userId, cleaned)
+function normalizeParticipantCount(value) {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) return ''
+  const rounded = Math.round(parsed)
+  if (rounded < 1) return ''
+  return String(Math.min(rounded, 50))
 }
 
 function Field({ label, value, onChange, placeholder, maxLength }) {
@@ -1096,6 +910,47 @@ function Field({ label, value, onChange, placeholder, maxLength }) {
         value={value}
         onChange={(event) => onChange(event.target.value.slice(0, maxLength))}
         placeholder={placeholder}
+        className="h-8 w-full rounded-lg border border-gray-200 bg-white px-2.5 text-xs text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+      />
+    </div>
+  )
+}
+
+function TextAreaField({ label, value, onChange, placeholder, maxLength }) {
+  return (
+    <div>
+      <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400">{label}</p>
+      <textarea
+        value={value}
+        onChange={(event) => onChange(event.target.value.slice(0, maxLength))}
+        placeholder={placeholder}
+        rows={3}
+        className="w-full resize-none rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+      />
+    </div>
+  )
+}
+
+function NumberField({ label, value, onChange, min = 1, max = 50 }) {
+  return (
+    <div>
+      <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400">{label}</p>
+      <input
+        type="number"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        step="1"
+        value={value}
+        onChange={(event) => {
+          const cleaned = event.target.value.replace(/[^\d]/g, '').slice(0, 2)
+          if (!cleaned) {
+            onChange('')
+            return
+          }
+          onChange(String(Math.min(Number(cleaned), max)))
+        }}
+        placeholder="4"
         className="h-8 w-full rounded-lg border border-gray-200 bg-white px-2.5 text-xs text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
       />
     </div>

@@ -91,10 +91,44 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
         return
       }
 
-      onOpenMeeting(data)
+      const meetingWithSpeakerLabels = await hydrateMeetingSpeakerLabels(data, user.id)
+      onOpenMeeting(meetingWithSpeakerLabels)
     } catch (err) {
       console.error('[History] Supabase error:', err)
       setError('Could not open meeting: ' + (err.message || 'Unknown error'))
+    }
+  }
+
+  async function hydrateMeetingSpeakerLabels(meeting, userId) {
+    if (!meeting?.id || !userId || String(meeting.id).startsWith('local_')) return meeting
+
+    try {
+      const { data, error } = await supabase
+        .from('meeting_speakers')
+        .select('raw_speaker_id, display_name')
+        .eq('meeting_id', meeting.id)
+
+      if (error || !Array.isArray(data) || data.length === 0) {
+        if (error) console.warn('[History] Could not load meeting speaker labels:', error.message)
+        return meeting
+      }
+
+      const mergedLabelMap = { ...(meeting.label_map || {}) }
+      for (const row of data) {
+        const speakerId = Number(row?.raw_speaker_id)
+        const displayName = String(row?.display_name || '').trim()
+        if (!Number.isFinite(speakerId) || !displayName) continue
+
+        const existing = String(mergedLabelMap[speakerId] || '').trim()
+        if (!existing || isGenericSpeakerLabel(existing)) {
+          mergedLabelMap[speakerId] = displayName
+        }
+      }
+
+      return { ...meeting, label_map: mergedLabelMap }
+    } catch (err) {
+      console.warn('[History] Could not hydrate speaker labels:', err?.message || err)
+      return meeting
     }
   }
 
@@ -188,6 +222,11 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
     if (diffDays === 1) return 'Yesterday'
     if (diffDays < 7) return diffDays + ' days ago'
     return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  }
+
+  function isGenericSpeakerLabel(value) {
+    const text = String(value || '').trim()
+    return !text || /^person\s*\d+$/i.test(text)
   }
 
   return (

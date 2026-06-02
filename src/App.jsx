@@ -25,7 +25,6 @@ export default function App() {
   const [enrollMode, setEnrollMode] = useState('initial')
   const [contextMode, setContextMode] = useState('initial')
   const [processingMessage, setProcessingMessage] = useState('')
-  const [transcriptionProvider, setTranscriptionProvider] = useState('assemblyai')
   const [currentUser, setCurrentUser] = useState(null)
   const [meetingSegments, setMeetingSegments] = useState([])
   const [meetingAudioBlob, setMeetingAudioBlob] = useState(null)
@@ -44,7 +43,6 @@ export default function App() {
   })
   const callbackContextRef = useRef(getAuthCallbackContext())
   const redirectTimeoutRef = useRef(null)
-  const compareModeAvailable = false
   const feedbackUrl = String(
     import.meta.env.VITE_FEEDBACK_FORM_URL || 'https://forms.gle/vJekpUCer7bX3M856',
   ).trim()
@@ -226,13 +224,8 @@ export default function App() {
     setScreen('auth')
   }
 
-  function getTranscriptionProviderLabel(provider) {
-    if (provider === 'assemblyai') return 'AssemblyAI'
-    return 'AssemblyAI'
-  }
-
   async function transcribeWithAssemblyAI(audioBlob, onStatus, options = {}) {
-    onStatus?.(`generating transcript with ${getTranscriptionProviderLabel('assemblyai')}...`)
+    onStatus?.('Generating transcript...')
     const parsed = await transcribeAudio(audioBlob, 'assemblyai', options)
     if (Array.isArray(parsed) && parsed.length > 0) {
       return repairSpeakerTurns(parsed)
@@ -581,11 +574,6 @@ export default function App() {
     <>
       <RecordScreen
         user={currentUser}
-        transcriptionProvider={transcriptionProvider}
-        onTranscriptionProviderChange={setTranscriptionProvider}
-        compareModeAvailable={compareModeAvailable}
-        compareModeEnabled={false}
-        onCompareModeChange={() => {}}
         onMeetingComplete={async (segments, audioBlob, hadLiveTranscript = true, meetingContextPayload = null) => {
           setMeetingAudioBlob(audioBlob)
           setMeetingContext(meetingContextPayload)
