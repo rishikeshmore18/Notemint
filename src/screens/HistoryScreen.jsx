@@ -195,7 +195,13 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
       <div className="flex items-center justify-between h-14 flex-shrink-0">
         <div className="w-8" aria-hidden="true" />
 
-        <span className="text-sm font-medium text-gray-900">recall</span>
+        <button
+          type="button"
+          onClick={onBack}
+          className="text-sm font-medium text-gray-900 hover:text-indigo-600"
+        >
+          notemint
+        </button>
 
         <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center">
           <span className="text-sm font-medium text-indigo-600">

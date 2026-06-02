@@ -138,7 +138,7 @@ export default function AuthScreen({ initialEmail = '', initialError = null, onA
   return (
     <div className="min-h-screen bg-white">
       <div className="mx-auto flex min-h-screen w-full max-w-[360px] flex-col px-6">
-        <div className="mt-[60px] text-[15px] font-medium text-gray-900">recall</div>
+        <div className="mt-[60px] text-[15px] font-medium text-gray-900">notemint</div>
         <p className="mb-10 mt-1 text-xs text-gray-400">meeting notes, no bots</p>
 
         <div className="mb-4 rounded-full bg-gray-100 p-1">

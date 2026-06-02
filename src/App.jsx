@@ -475,6 +475,7 @@ const compareModeAvailable = false
     return (
       <>
         <GlobalBackButton
+          onHome={() => handleReturnToAuth(null)}
           onClick={() => {
             handleReturnToAuth(null)
           }}
@@ -498,6 +499,7 @@ const compareModeAvailable = false
     return (
       <>
         <GlobalBackButton
+          onHome={() => setScreen('home')}
           onClick={() => {
             if (currentUser) {
               setScreen('home')
@@ -523,6 +525,7 @@ const compareModeAvailable = false
     return (
       <>
         <GlobalBackButton
+          onHome={() => setScreen('home')}
           onClick={() => {
             setContextMode('initial')
             setScreen('home')
@@ -548,7 +551,7 @@ const compareModeAvailable = false
   if (screen === 'processing') {
     return (
       <>
-        <GlobalBackButton onClick={() => setScreen('home')} />
+        <GlobalBackButton onClick={() => setScreen('home')} onHome={() => setScreen('home')} />
         <ProcessingScreen message={processingMessage} />
         <FloatingFeedbackButton url={feedbackUrl} />
       </>
@@ -558,7 +561,7 @@ const compareModeAvailable = false
   if (screen === 'results') {
     return (
       <>
-        <GlobalBackButton onClick={() => setScreen('home')} />
+        <GlobalBackButton onClick={() => setScreen('home')} onHome={() => setScreen('home')} />
         <ResultsScreen
           user={currentUser}
           segments={bestAvailableSegments}
@@ -591,7 +594,7 @@ const compareModeAvailable = false
   if (screen === 'speaker-review') {
     return (
       <>
-        <GlobalBackButton onClick={() => setScreen('home')} />
+        <GlobalBackButton onClick={() => setScreen('home')} onHome={() => setScreen('home')} />
         <SpeakerReviewScreen
           segments={bestAvailableSegments}
           audioBlob={meetingAudioBlob}
@@ -616,7 +619,7 @@ const compareModeAvailable = false
   if (screen === 'history') {
     return (
       <>
-        <GlobalBackButton onClick={() => setScreen('home')} />
+        <GlobalBackButton onClick={() => setScreen('home')} onHome={() => setScreen('home')} />
         <HistoryScreen
           user={currentUser}
           onBack={() => setScreen('home')}
@@ -633,7 +636,7 @@ const compareModeAvailable = false
   if (screen === 'past-meeting' && selectedMeeting) {
     return (
       <>
-        <GlobalBackButton onClick={() => setScreen('history')} />
+        <GlobalBackButton onClick={() => setScreen('history')} onHome={() => setScreen('home')} />
         <PastMeetingScreen
           user={currentUser}
           meeting={selectedMeeting}
@@ -737,6 +740,7 @@ const compareModeAvailable = false
           setContextMode('dictionary')
           setScreen('context-onboarding')
         }}
+        onGoHome={() => setScreen('home')}
         onViewHistory={() => setScreen('history')}
         onSignOut={handleSignOut}
       />
@@ -745,19 +749,29 @@ const compareModeAvailable = false
   )
 }
 
-function GlobalBackButton({ onClick }) {
+function GlobalBackButton({ onClick, onHome }) {
   if (typeof onClick !== 'function') return null
   return (
-    <div className="sticky top-0 z-40 bg-white/95 px-4 py-3 backdrop-blur">
-      <button
-        type="button"
-        onClick={onClick}
-        className="inline-flex h-10 min-w-10 items-center justify-center rounded-full bg-white px-3 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-black/5 hover:bg-gray-50"
-        aria-label="Go back"
-      >
-        <span aria-hidden="true" className="mr-1 text-base leading-none">‹</span>
-        back
-      </button>
+    <div className="sticky top-0 z-40 bg-white/95 px-4 py-2 backdrop-blur">
+      <div className="mx-auto grid h-10 max-w-2xl grid-cols-[auto_1fr_auto] items-center">
+        <button
+          type="button"
+          onClick={onClick}
+          className="inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-white px-3 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-black/5 hover:bg-gray-50"
+          aria-label="Go back"
+        >
+          <span aria-hidden="true" className="mr-1 text-base leading-none">{'<'}</span>
+          back
+        </button>
+        <button
+          type="button"
+          onClick={typeof onHome === 'function' ? onHome : onClick}
+          className="justify-self-center text-sm font-medium text-gray-900 hover:text-indigo-600"
+        >
+          notemint
+        </button>
+        <div className="h-9 w-[70px]" aria-hidden="true" />
+      </div>
     </div>
   )
 }

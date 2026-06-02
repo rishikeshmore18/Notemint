@@ -228,6 +228,23 @@ export async function saveContextProfileViaApi(profile) {
   return response.json()
 }
 
+export async function getContextProfileViaApi() {
+  const token = await getAuthToken()
+  const response = await fetch(`${BASE_URL}/api/context/profile`, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.error || 'Could not load context profile')
+  }
+
+  const payload = await response.json()
+  return payload?.profile || null
+}
+
 export async function enrollVoice(audioBlob) {
   const token = await getAuthToken()
   const formData = new FormData()

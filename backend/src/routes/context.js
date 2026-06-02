@@ -68,6 +68,48 @@ contextRouter.post('/generate-keyterms', requireAuth, async (req, res) => {
   }
 })
 
+contextRouter.get('/profile', requireAuth, async (req, res) => {
+  try {
+    const supabase = getServiceRoleClient()
+    const { data, error } = await supabase
+      .from('user_context_profiles')
+      .select(
+        'id, industry, role, meeting_types, participant_names, organization_terms, custom_terms, generated_keyterms, correction_terms, summary_context, do_not_infer',
+      )
+      .eq('user_id', req.user.id)
+      .maybeSingle()
+
+    if (error && isMissingColumnError(error, 'do_not_infer')) {
+      const fallback = await supabase
+        .from('user_context_profiles')
+        .select(
+          'id, industry, role, meeting_types, participant_names, organization_terms, custom_terms, generated_keyterms, correction_terms, summary_context',
+        )
+        .eq('user_id', req.user.id)
+        .maybeSingle()
+
+      if (fallback.error) {
+        console.warn('[Context] profile fallback failed:', fallback.error.message)
+        return res.status(500).json({ error: 'Could not load context profile' })
+      }
+
+      return res.json({
+        profile: fallback.data ? { ...fallback.data, do_not_infer: [] } : null,
+      })
+    }
+
+    if (error) {
+      console.warn('[Context] profile failed:', error.message)
+      return res.status(500).json({ error: 'Could not load context profile' })
+    }
+
+    return res.json({ profile: data || null })
+  } catch (err) {
+    console.warn('[Context] profile exception:', err?.message || err)
+    return res.status(500).json({ error: 'Could not load context profile' })
+  }
+})
+
 contextRouter.post('/save-profile', requireAuth, async (req, res) => {
   try {
     const supabase = getServiceRoleClient()

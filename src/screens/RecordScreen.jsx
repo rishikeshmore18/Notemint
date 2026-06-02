@@ -39,6 +39,7 @@ export default function RecordScreen({
   onReEnrollVoice,
   onEditContext,
   onOpenCorrectionDictionary,
+  onGoHome,
 }) {
   const [isRecording, setIsRecording] = useState(false)
   const liveTranscriptEnabled = false
@@ -449,7 +450,13 @@ export default function RecordScreen({
     <div className="min-h-screen bg-white flex flex-col max-w-2xl mx-auto px-5 md:px-8">
       <div className="w-full flex min-h-screen flex-col">
         <header className="flex h-14 items-center justify-between">
-          <p className="text-sm font-medium text-gray-900">recall</p>
+          <button
+            type="button"
+            onClick={() => onGoHome?.()}
+            className="text-sm font-medium text-gray-900 hover:text-indigo-600"
+          >
+            notemint
+          </button>
           <div className="flex items-center gap-3">
             <button
               onClick={onViewHistory}

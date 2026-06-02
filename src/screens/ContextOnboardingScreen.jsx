@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  INDUSTRY_OPTIONS,
-  ROLE_OPTIONS,
   getCorrectionMemory,
   getContextProfile,
   parseTerms,
@@ -12,9 +10,7 @@ import { generateContextKeyterms } from '../lib/api'
 
 export default function ContextOnboardingScreen({ user, mode = 'initial', onComplete, onSkip }) {
   const [industrySelection, setIndustrySelection] = useState('')
-  const [industryOtherInput, setIndustryOtherInput] = useState('')
   const [roleSelection, setRoleSelection] = useState('')
-  const [roleOtherInput, setRoleOtherInput] = useState('')
   const [importantTermsInput, setImportantTermsInput] = useState('')
   const [generatedKeyterms, setGeneratedKeyterms] = useState([])
   const [generatedSummaryContext, setGeneratedSummaryContext] = useState('')
@@ -46,20 +42,8 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
         const existing = await getContextProfile(supabase, user?.id)
         if (cancelled || !existing) return
 
-        const existingIndustry = String(existing.industry || '').trim()
-        const existingRole = String(existing.role || '').trim()
-        if (existingIndustry && INDUSTRY_OPTIONS.includes(existingIndustry)) {
-          setIndustrySelection(existingIndustry)
-        } else if (existingIndustry) {
-          setIndustrySelection('other')
-          setIndustryOtherInput(existingIndustry)
-        }
-        if (existingRole && ROLE_OPTIONS.includes(existingRole)) {
-          setRoleSelection(existingRole)
-        } else if (existingRole) {
-          setRoleSelection('other')
-          setRoleOtherInput(existingRole)
-        }
+        setIndustrySelection(String(existing.industry || '').trim())
+        setRoleSelection(String(existing.role || '').trim())
         const mergedTerms = uniqueTerms([
           ...toStringList(existing.participant_names),
           ...toStringList(existing.organization_terms),
@@ -93,13 +77,11 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
 
   const parsedImportantTerms = useMemo(() => parseTerms(importantTermsInput), [importantTermsInput])
   const normalizedIndustry = useMemo(() => {
-    if (industrySelection === 'other') return String(industryOtherInput || '').trim()
     return String(industrySelection || '').trim()
-  }, [industrySelection, industryOtherInput])
+  }, [industrySelection])
   const normalizedRole = useMemo(() => {
-    if (roleSelection === 'other') return String(roleOtherInput || '').trim()
     return String(roleSelection || '').trim()
-  }, [roleSelection, roleOtherInput])
+  }, [roleSelection])
   const normalizedGeneratedKeyterms = useMemo(
     () =>
       uniqueTerms(generatedKeyterms)
@@ -156,19 +138,6 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
     setGenerationWarning('')
     setSavePhase('saving')
     try {
-      if (!isDictionaryMode) {
-        if (industrySelection === 'other' && !normalizedIndustry) {
-          setError('please enter your industry')
-          setSavePhase('idle')
-          return
-        }
-        if (roleSelection === 'other' && !normalizedRole) {
-          setError('please enter your role')
-          setSavePhase('idle')
-          return
-        }
-      }
-
       let finalGeneratedKeyterms = normalizedGeneratedKeyterms
       let finalSummaryContext = generatedSummaryContext
       let finalDoNotInfer = generatedDoNotInfer
@@ -324,52 +293,24 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
             {mode !== 'dictionary' ? (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">industry</label>
-                <select
+                <input
                   value={industrySelection}
                   onChange={(event) => setIndustrySelection(event.target.value)}
+                  placeholder="Banking"
                   className="w-full h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
-                >
-                  <option value="">skip for now</option>
-                  {INDUSTRY_OPTIONS.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-                {industrySelection === 'other' ? (
-                  <input
-                    value={industryOtherInput}
-                    onChange={(event) => setIndustryOtherInput(event.target.value)}
-                    placeholder="enter your industry"
-                    className="mt-2 w-full h-10 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
-                  />
-                ) : null}
+                />
               </div>
             ) : null}
 
             {mode !== 'dictionary' ? (
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">role</label>
-                <select
+                <input
                   value={roleSelection}
                   onChange={(event) => setRoleSelection(event.target.value)}
+                  placeholder="Financial Analyst"
                   className="w-full h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
-                >
-                  <option value="">skip for now</option>
-                  {ROLE_OPTIONS.map((item) => (
-                    <option key={item} value={item}>
-                      {item}
-                    </option>
-                  ))}
-                </select>
-                {roleSelection === 'other' ? (
-                  <input
-                    value={roleOtherInput}
-                    onChange={(event) => setRoleOtherInput(event.target.value)}
-                    placeholder="enter your role"
-                    className="mt-2 w-full h-10 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
-                  />
-                ) : null}
+                />
               </div>
             ) : null}
 

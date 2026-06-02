@@ -410,7 +410,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
       return (
         <div className="min-h-screen bg-white flex flex-col max-w-md mx-auto px-5">
           <div className="flex items-center justify-between h-14">
-            <span className="text-sm font-medium text-gray-900">recall</span>
+            <span className="text-sm font-medium text-gray-900">notemint</span>
             <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center">
               <span className="text-sm font-medium text-indigo-600">{initial}</span>
             </div>
@@ -425,7 +425,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
     return (
       <div className="min-h-screen bg-white flex flex-col max-w-md mx-auto px-5">
         <div className="flex items-center justify-between h-14">
-          <span className="text-sm font-medium text-gray-900">recall</span>
+          <span className="text-sm font-medium text-gray-900">notemint</span>
           <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center">
             <span className="text-sm font-medium text-indigo-600">{initial}</span>
           </div>
@@ -461,7 +461,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
   return (
     <div className="min-h-screen bg-white flex flex-col max-w-md mx-auto px-5">
       <div className="flex items-center justify-between h-14">
-        <span className="text-sm font-medium text-gray-900">recall</span>
+        <span className="text-sm font-medium text-gray-900">notemint</span>
         {identifyingStatus === 'identifying' ? (
           <span className="text-xs text-indigo-400">matching voices...</span>
         ) : (

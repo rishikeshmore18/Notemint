@@ -464,7 +464,7 @@ export default function ResultsScreen({
   return (
     <div className="min-h-screen bg-white flex flex-col max-w-2xl mx-auto px-5 md:px-10">
       <div className="flex items-center justify-between h-14 flex-shrink-0">
-        <span className="text-sm font-medium text-gray-900">recall</span>
+        <span className="text-sm font-medium text-gray-900">notemint</span>
         <span className="text-xs text-gray-400">
           {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
         </span>

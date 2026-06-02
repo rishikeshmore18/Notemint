@@ -1,4 +1,4 @@
-import { saveContextProfileViaApi } from './api.js'
+import { getContextProfileViaApi, saveContextProfileViaApi } from './api.js'
 const CONTEXT_ONBOARDING_KEY_PREFIX = 'context_onboarding_done_'
 const CONTEXT_PROFILE_CACHE_KEY_PREFIX = 'context_profile_cache_'
 
@@ -48,17 +48,20 @@ export async function hasContextProfile(supabase, userId) {
 
     if (error) {
       console.warn('[ContextProfile] Could not read context profile:', error.message)
-      return false
+      const apiProfile = await loadContextProfileFromApi(userId)
+      return Boolean(apiProfile)
     }
 
     if (data?.id) {
       setContextOnboardingCompleted(userId)
       return true
     }
-    return false
+    const apiProfile = await loadContextProfileFromApi(userId)
+    return Boolean(apiProfile)
   } catch (err) {
     console.warn('[ContextProfile] Context profile check failed:', err?.message || err)
-    return false
+    const apiProfile = await loadContextProfileFromApi(userId)
+    return Boolean(apiProfile)
   }
 }
 
@@ -80,11 +83,13 @@ export async function getContextProfile(supabase, userId) {
       setCachedContextProfile(userId, normalized)
       return normalized
     }
-    return cached
+    return cached || (await loadContextProfileFromApi(userId))
   }
 
   if (!isMissingColumnError(error, 'do_not_infer')) {
     if (cached) return cached
+    const apiProfile = await loadContextProfileFromApi(userId)
+    if (apiProfile) return apiProfile
     throw new Error(error.message || 'Could not load context profile')
   }
 
@@ -96,6 +101,8 @@ export async function getContextProfile(supabase, userId) {
 
   if (fallback.error) {
     if (cached) return cached
+    const apiProfile = await loadContextProfileFromApi(userId)
+    if (apiProfile) return apiProfile
     throw new Error(fallback.error.message || 'Could not load context profile')
   }
 
@@ -104,7 +111,7 @@ export async function getContextProfile(supabase, userId) {
     setCachedContextProfile(userId, normalized)
     return normalized
   }
-  return cached
+  return cached || (await loadContextProfileFromApi(userId))
 }
 
 export async function upsertContextProfile(supabase, userId, profile) {
@@ -465,6 +472,21 @@ function isRlsViolation(error) {
   const code = String(error?.code || '')
   const message = String(error?.message || '').toLowerCase()
   return code === '42501' || message.includes('row-level security')
+}
+
+async function loadContextProfileFromApi(userId) {
+  if (!userId) return null
+  try {
+    const profile = await getContextProfileViaApi()
+    if (profile) {
+      setCachedContextProfile(userId, profile)
+      setContextOnboardingCompleted(userId)
+      return profile
+    }
+  } catch (err) {
+    console.warn('[ContextProfile] API profile fallback failed:', err?.message || err)
+  }
+  return null
 }
 
 function getCachedContextProfile(userId) {
