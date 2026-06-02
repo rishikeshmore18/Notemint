@@ -192,24 +192,6 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
 
   return (
     <div className="min-h-screen bg-white flex flex-col max-w-2xl mx-auto px-5 md:px-8">
-      <div className="flex items-center justify-between h-14 flex-shrink-0">
-        <div className="w-8" aria-hidden="true" />
-
-        <button
-          type="button"
-          onClick={onBack}
-          className="text-sm font-medium text-gray-900 hover:text-indigo-600"
-        >
-          notemint
-        </button>
-
-        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center">
-          <span className="text-sm font-medium text-indigo-600">
-            {user?.email?.[0]?.toUpperCase() || '?'}
-          </span>
-        </div>
-      </div>
-
       <p className="text-lg font-semibold text-gray-900 mb-1">past meetings</p>
       <p className="text-xs text-gray-400 mb-5">
         {meetings.length} meeting{meetings.length !== 1 ? 's' : ''} saved
@@ -241,7 +223,7 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
       )}
 
       {!loading && !error && meetings.length > 0 && (
-        <div className="flex flex-col gap-0 flex-1 overflow-y-auto" style={{ maxHeight: 'calc(100dvh - 160px)' }}>
+        <div className="flex flex-col gap-0 flex-1 overflow-y-auto" style={{ maxHeight: 'calc(100dvh - 112px)' }}>
           {meetings.map((meeting) => (
             <div key={meeting.id} className="relative group">
               <button

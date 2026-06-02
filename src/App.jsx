@@ -619,7 +619,24 @@ const compareModeAvailable = false
   if (screen === 'history') {
     return (
       <>
-        <GlobalBackButton onClick={() => setScreen('home')} onHome={() => setScreen('home')} />
+        <GlobalBackButton
+          onClick={() => setScreen('home')}
+          onHome={() => setScreen('home')}
+          user={currentUser}
+          onEditContext={() => {
+            setContextMode('edit')
+            setScreen('context-onboarding')
+          }}
+          onOpenCorrectionDictionary={() => {
+            setContextMode('dictionary')
+            setScreen('context-onboarding')
+          }}
+          onReEnrollVoice={() => {
+            setEnrollMode('reset')
+            setScreen('enroll')
+          }}
+          onSignOut={handleSignOut}
+        />
         <HistoryScreen
           user={currentUser}
           onBack={() => setScreen('home')}
@@ -749,7 +766,15 @@ const compareModeAvailable = false
   )
 }
 
-function GlobalBackButton({ onClick, onHome }) {
+function GlobalBackButton({
+  onClick,
+  onHome,
+  user = null,
+  onEditContext = null,
+  onOpenCorrectionDictionary = null,
+  onReEnrollVoice = null,
+  onSignOut = null,
+}) {
   if (typeof onClick !== 'function') return null
   return (
     <div className="sticky top-0 z-40 bg-white/95 px-4 py-2 backdrop-blur">
@@ -770,8 +795,80 @@ function GlobalBackButton({ onClick, onHome }) {
         >
           notemint
         </button>
-        <div className="h-9 w-[70px]" aria-hidden="true" />
+        <div className="flex h-9 w-[70px] items-center justify-end">
+          {user ? (
+            <TopBarProfileMenu
+              user={user}
+              onEditContext={onEditContext}
+              onOpenCorrectionDictionary={onOpenCorrectionDictionary}
+              onReEnrollVoice={onReEnrollVoice}
+              onSignOut={onSignOut}
+            />
+          ) : null}
+        </div>
       </div>
+    </div>
+  )
+}
+
+function TopBarProfileMenu({
+  user,
+  onEditContext,
+  onOpenCorrectionDictionary,
+  onReEnrollVoice,
+  onSignOut,
+}) {
+  const [open, setOpen] = useState(false)
+  const initial = user?.email?.[0]?.toUpperCase() || '?'
+
+  function handleAction(action) {
+    setOpen(false)
+    action?.()
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-label="Open profile menu"
+        className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-sm font-medium text-indigo-600"
+      >
+        {initial}
+      </button>
+
+      {open ? (
+        <div className="absolute right-0 mt-2 w-44 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+          <button
+            type="button"
+            onClick={() => handleAction(onEditContext)}
+            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+          >
+            edit work context
+          </button>
+          <button
+            type="button"
+            onClick={() => handleAction(onOpenCorrectionDictionary)}
+            className="w-full border-t border-gray-100 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+          >
+            correction dictionary
+          </button>
+          <button
+            type="button"
+            onClick={() => handleAction(onReEnrollVoice)}
+            className="w-full border-t border-gray-100 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+          >
+            re-enroll voice
+          </button>
+          <button
+            type="button"
+            onClick={() => handleAction(onSignOut)}
+            className="w-full border-t border-gray-100 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+          >
+            sign out
+          </button>
+        </div>
+      ) : null}
     </div>
   )
 }
