@@ -193,21 +193,7 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
   return (
     <div className="min-h-screen bg-white flex flex-col max-w-2xl mx-auto px-5 md:px-8">
       <div className="flex items-center justify-between h-14 flex-shrink-0">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 transition-colors"
-        >
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-            <path
-              d="M10 12L6 8L10 4"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
-          record
-        </button>
+        <div className="w-8" aria-hidden="true" />
 
         <span className="text-sm font-medium text-gray-900">recall</span>
 

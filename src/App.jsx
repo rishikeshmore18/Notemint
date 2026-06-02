@@ -748,15 +748,17 @@ const compareModeAvailable = false
 function GlobalBackButton({ onClick }) {
   if (typeof onClick !== 'function') return null
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="fixed left-4 top-4 z-40 inline-flex h-10 min-w-10 items-center justify-center rounded-full bg-white/95 px-3 text-sm font-medium text-gray-700 shadow-md ring-1 ring-black/5 backdrop-blur hover:bg-white"
-      aria-label="Go back"
-    >
-      <span aria-hidden="true" className="mr-1 text-base leading-none">‹</span>
-      back
-    </button>
+    <div className="sticky top-0 z-40 bg-white/95 px-4 py-3 backdrop-blur">
+      <button
+        type="button"
+        onClick={onClick}
+        className="inline-flex h-10 min-w-10 items-center justify-center rounded-full bg-white px-3 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-black/5 hover:bg-gray-50"
+        aria-label="Go back"
+      >
+        <span aria-hidden="true" className="mr-1 text-base leading-none">‹</span>
+        back
+      </button>
+    </div>
   )
 }
 
