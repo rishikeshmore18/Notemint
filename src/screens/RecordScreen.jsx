@@ -6,8 +6,6 @@ import { supabase } from '../lib/supabase'
 
 const TRANSCRIPTION_PROVIDERS = [
   { value: 'assemblyai', label: 'AssemblyAI', detail: 'Universal', recommended: true },
-  { value: 'deepgram', label: 'Deepgram', detail: 'Nova-3' },
-  { value: 'grok', label: 'Grok', detail: 'fast baseline' },
 ]
 const LAST_MEETING_TYPE_KEY_PREFIX = 'last_meeting_type_'
 const AUDIO_FILE_ACCEPT = 'audio/*,.aac,.aif,.aiff,.flac,.m4a,.mp3,.mp4,.oga,.ogg,.opus,.wav,.webm'

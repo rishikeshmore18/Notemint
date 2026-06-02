@@ -10,14 +10,12 @@ import HistoryScreen from './screens/HistoryScreen'
 import PastMeetingScreen from './screens/PastMeetingScreen'
 import LoadingDot from './components/LoadingDot'
 import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supabase'
-import { getVoiceStatus, streamSummary, transcribeAudio, transcribeAudioDetailed } from './lib/api'
+import { getVoiceStatus, transcribeAudio } from './lib/api'
 import { rememberSpeakerLabels } from './lib/speakerMemory'
 import { hasContextProfile } from './lib/contextProfile'
 import {
-  compressTranscript,
   createMeetingDraft,
   setMeetingAudioUploadStatus,
-  saveTranscriptionEvaluations,
   uploadMeetingAudio,
 } from './lib/summary'
 import { repairSpeakerTurns } from './lib/speakerTurnRepair'
@@ -46,7 +44,7 @@ export default function App() {
   })
   const callbackContextRef = useRef(getAuthCallbackContext())
   const redirectTimeoutRef = useRef(null)
-const compareModeAvailable = false
+  const compareModeAvailable = false
   const feedbackUrl = String(
     import.meta.env.VITE_FEEDBACK_FORM_URL || 'https://forms.gle/vJekpUCer7bX3M856',
   ).trim()
@@ -229,102 +227,17 @@ const compareModeAvailable = false
   }
 
   function getTranscriptionProviderLabel(provider) {
-    if (provider === 'deepgram') return 'Deepgram'
     if (provider === 'assemblyai') return 'AssemblyAI'
-    return 'Grok'
+    return 'AssemblyAI'
   }
 
-  function getProviderFallbackOrder(selectedProvider) {
-    const baseOrder = ['assemblyai', 'deepgram', 'grok']
-    return [selectedProvider, ...baseOrder.filter((provider) => provider !== selectedProvider)]
-  }
-
-  async function transcribeWithFallback(audioBlob, selectedProvider, onStatus, options = {}) {
-    const providers = getProviderFallbackOrder(selectedProvider)
-    let lastError = null
-
-    for (let i = 0; i < providers.length; i += 1) {
-      const provider = providers[i]
-      const label = getTranscriptionProviderLabel(provider)
-      if (i === 0) {
-        onStatus?.(`generating transcript with ${label}...`)
-      } else {
-        onStatus?.(`${getTranscriptionProviderLabel(selectedProvider)} failed, trying ${label}...`)
-      }
-
-      try {
-        const parsed = await transcribeAudio(audioBlob, provider, options)
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          return repairSpeakerTurns(parsed)
-        }
-      } catch (err) {
-        lastError = err
-      }
-    }
-
-    if (lastError) {
-      throw lastError
+  async function transcribeWithAssemblyAI(audioBlob, onStatus, options = {}) {
+    onStatus?.(`generating transcript with ${getTranscriptionProviderLabel('assemblyai')}...`)
+    const parsed = await transcribeAudio(audioBlob, 'assemblyai', options)
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return repairSpeakerTurns(parsed)
     }
     return []
-  }
-
-  async function runProviderCaptureInBackground(audioBlob, meetingContextPayload, targetMeetingId) {
-    if (!audioBlob || audioBlob.size === 0 || !currentUser?.id) return
-
-    const providers = ['assemblyai', 'deepgram', 'grok']
-    const transcriptionOptions = {
-      contextTerms: Array.isArray(meetingContextPayload?.contextTerms) ? meetingContextPayload.contextTerms : [],
-      meetingContext: meetingContextPayload && typeof meetingContextPayload === 'object' ? meetingContextPayload : null,
-      compareMode: true,
-    }
-
-    const rows = []
-    await Promise.allSettled(
-      providers.map(async (provider) => {
-        try {
-          const stt = await transcribeAudioDetailed(audioBlob, provider, transcriptionOptions)
-          const segments = Array.isArray(stt?.segments) ? repairSpeakerTurns(stt.segments) : []
-          const transcript = compressTranscript(segments, {})
-          if (!transcript || transcript.length < 20) return
-
-          const summary = await summarizeForCompare(transcript, meetingContextPayload)
-          const speakerCount = new Set(
-            segments.map((segment) => Number(segment?.speaker)).filter(Number.isFinite),
-          ).size
-
-          rows.push({
-            provider,
-            model: stt?.model || null,
-            segments,
-            summary,
-            durationMs: Number(stt?.durationMs || 0),
-            speakerCount,
-            segmentCount: segments.length,
-            correctionCount: 0,
-            transcriptRating: null,
-            summaryRating: null,
-            notes: '',
-            manualSpeakerFixes: 0,
-            bestTranscript: false,
-            bestSummary: false,
-          })
-        } catch (err) {
-          console.warn(`[App] Background provider capture failed for ${provider}:`, err?.message || err)
-        }
-      }),
-    )
-
-    if (rows.length === 0) return
-    try {
-      await saveTranscriptionEvaluations(supabase, {
-        userId: currentUser.id,
-        meetingId: targetMeetingId || null,
-        evaluations: rows,
-        compareRunId: `${Date.now()}`,
-      })
-    } catch (err) {
-      console.warn('[App] Could not persist background provider outputs:', err?.message || err)
-    }
   }
 
   async function prepareMeetingAudioPersistence(audioBlob) {
@@ -676,49 +589,45 @@ const compareModeAvailable = false
         onMeetingComplete={async (segments, audioBlob, hadLiveTranscript = true, meetingContextPayload = null) => {
           setMeetingAudioBlob(audioBlob)
           setMeetingContext(meetingContextPayload)
-          const draftMeetingId = await prepareMeetingAudioPersistence(audioBlob)
-          void runProviderCaptureInBackground(audioBlob, meetingContextPayload, draftMeetingId)
           setConfirmedLabelMap({})
-          setProcessingMessage('')
           setDiarizedSegments([])
+          setMeetingSegments(Array.isArray(segments) ? segments : [])
+          setProcessingMessage('Preparing your transcript...')
+          setScreen('processing')
+
+          await prepareMeetingAudioPersistence(audioBlob)
+
           const transcriptionOptions = {
             contextTerms: Array.isArray(meetingContextPayload?.contextTerms) ? meetingContextPayload.contextTerms : [],
             meetingContext: meetingContextPayload && typeof meetingContextPayload === 'object' ? meetingContextPayload : null,
           }
 
           if (hadLiveTranscript) {
-            setMeetingSegments(segments)
-
             if (!audioBlob || audioBlob.size === 0) {
               setScreen('speaker-review')
               return
             }
 
-            setScreen('speaker-review')
-            void (async () => {
-              try {
-                const parsed = await transcribeWithFallback(
-                  audioBlob,
-                  transcriptionProvider,
-                  undefined,
-                  transcriptionOptions,
-                )
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                  setDiarizedSegments(parsed)
-                } else {
-                  setDiarizedSegments([])
-                }
-              } catch (err) {
-                console.warn('[App] Diarization failed, using live segments fallback:', err?.message || err)
-                setDiarizedSegments([])
+            try {
+              const parsed = await transcribeWithAssemblyAI(
+                audioBlob,
+                setProcessingMessage,
+                transcriptionOptions,
+              )
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                setDiarizedSegments(parsed)
               }
-            })()
+            } catch (err) {
+              console.warn('[App] Diarization failed, using live segments fallback:', err?.message || err)
+              setDiarizedSegments([])
+            }
+
+            setScreen('speaker-review')
             return
           }
 
           setMeetingSegments([])
-          setProcessingMessage('')
-          setScreen('processing')
+          setProcessingMessage('Preparing your transcript...')
 
           if (!audioBlob || audioBlob.size === 0) {
             setScreen('results')
@@ -726,9 +635,8 @@ const compareModeAvailable = false
           }
 
           try {
-            const parsed = await transcribeWithFallback(
+            const parsed = await transcribeWithAssemblyAI(
               audioBlob,
-              transcriptionProvider,
               setProcessingMessage,
               transcriptionOptions,
             )
@@ -898,11 +806,11 @@ function FloatingFeedbackButton({ url }) {
 
 function ProcessingScreen({ message }) {
   return (
-    <div className="min-h-screen bg-white flex items-center justify-center px-6">
+    <div className="min-h-screen bg-white/85 flex items-center justify-center px-6 backdrop-blur-sm">
       <div className="text-center">
-        <div className="mx-auto mb-3 h-2 w-2 rounded-full bg-indigo-400 animate-pulse" />
-        <p className="text-sm font-medium text-gray-800">processing recording</p>
-        <p className="mt-1 text-xs text-gray-400">{message || 'generating transcript...'}</p>
+        <div className="mx-auto mb-4 h-9 w-9 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600" />
+        <p className="text-sm font-medium text-gray-900">Processing your meeting</p>
+        <p className="mt-1 text-xs text-gray-400">{message || 'Recognizing speakers...'}</p>
       </div>
     </div>
   )
@@ -950,23 +858,6 @@ function clearAuthCallbackUrl() {
 function getPendingConfirmationEmail() {
   if (typeof window === 'undefined') return ''
   return window.localStorage.getItem('pending_confirmation_email') ?? ''
-}
-
-async function summarizeForCompare(transcript, meetingContextPayload) {
-  return new Promise((resolve, reject) => {
-    let fullText = ''
-    streamSummary(
-      transcript,
-      (chunk) => {
-        fullText += chunk
-      },
-      (completed) => resolve(completed || fullText),
-      (err) => reject(new Error(err || 'Summary failed')),
-      {
-        meetingContext: meetingContextPayload && typeof meetingContextPayload === 'object' ? meetingContextPayload : null,
-      },
-    )
-  })
 }
 
 function withTimeout(promise, timeoutMs) {
