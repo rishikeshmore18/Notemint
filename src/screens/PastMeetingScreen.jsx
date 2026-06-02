@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { groupSegmentsByTime } from '../lib/grokStt'
-import { deleteMeetingAudio, getMeetingAudioSignedUrl, getMeetingProviderOutputs } from '../lib/summary'
+import { deleteMeetingAudio, getMeetingAudioSignedUrl } from '../lib/summary'
 import { supabase } from '../lib/supabase'
 
 export default function PastMeetingScreen({ user, meeting, onBack }) {
@@ -11,8 +11,6 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   const [audioStoragePath, setAudioStoragePath] = useState(meeting?.audio_storage_path || '')
   const [audioDeletedAt, setAudioDeletedAt] = useState(meeting?.audio_deleted_at || null)
   const [audioActionStatus, setAudioActionStatus] = useState('idle')
-  const [providerOutputs, setProviderOutputs] = useState([])
-  const [selectedProvider, setSelectedProvider] = useState('meeting')
   const [editableBlocks, setEditableBlocks] = useState([])
   const [editingBlockKey, setEditingBlockKey] = useState(null)
   const [editingBlockText, setEditingBlockText] = useState('')
@@ -71,49 +69,16 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   }, [meeting?.audio_storage_path, meeting?.id, user?.id])
 
   useEffect(() => {
-    let cancelled = false
-    setProviderOutputs([])
-    setSelectedProvider('meeting')
-    if (!user?.id || !meeting?.id || String(meeting.id).startsWith('local_')) return () => {}
-
-    ;(async () => {
-      try {
-        const rows = await getMeetingProviderOutputs(supabase, {
-          userId: user.id,
-          meetingId: meeting.id,
-        })
-        if (cancelled) return
-        setProviderOutputs(rows)
-      } catch (err) {
-        if (!cancelled) {
-          console.warn('[PastMeeting] Could not load provider outputs:', err?.message || err)
-          setProviderOutputs([])
-        }
-      }
-    })()
-
-    return () => {
-      cancelled = true
-    }
-  }, [meeting?.id, user?.id])
-
-  useEffect(() => {
-    const selectedRow =
-      selectedProvider === 'meeting'
-        ? null
-        : providerOutputs.find((row) => String(row?.provider || '').toLowerCase() === selectedProvider) || null
-    const segmentsForView = Array.isArray(selectedRow?.segments) ? selectedRow.segments : meeting?.segments
+    const segmentsForView = meeting?.segments
     const transcriptForView = buildTranscriptFromSegments(segmentsForView) || String(meeting?.transcript_compressed || '')
     const blocks = buildEditableBlocks(segmentsForView, transcriptForView)
     setEditableBlocks(blocks)
     setEditingBlockKey(null)
     setEditingBlockText('')
   }, [
-    selectedProvider,
     meeting?.id,
     meeting?.segments,
     meeting?.transcript_compressed,
-    providerOutputs,
   ])
 
   useEffect(() => {
@@ -238,7 +203,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   function renderAudioPlayer(blocks) {
     if (audioStatus === 'loading') {
       return (
-        <div className="mb-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3 text-xs text-gray-500">
+        <div className="sticky top-0 z-20 mb-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3 text-xs text-gray-500 shadow-sm">
           loading meeting audio...
         </div>
       )
@@ -246,7 +211,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
 
     if (audioStatus === 'error') {
       return (
-        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        <div className="sticky top-0 z-20 mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 shadow-sm">
           audio file could not be loaded. transcript is still available.
         </div>
       )
@@ -254,14 +219,14 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
 
     if (!audioUrl) {
       return (
-        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        <div className="sticky top-0 z-20 mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 shadow-sm">
           {audioDeletedAt ? 'audio was deleted. transcript and summary are still available.' : 'audio playback is not available for this meeting.'}
         </div>
       )
     }
 
     return (
-      <div className="mb-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
+      <div className="sticky top-0 z-20 mb-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3 shadow-sm">
         <audio
           ref={audioRef}
           src={audioUrl}
@@ -394,12 +359,8 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
     setEditingBlockText('')
   }
 
-  const selectedProviderRow =
-    selectedProvider === 'meeting'
-      ? null
-      : providerOutputs.find((row) => String(row?.provider || '').toLowerCase() === selectedProvider) || null
-  const effectiveSegments = Array.isArray(selectedProviderRow?.segments) ? selectedProviderRow.segments : meeting?.segments
-  const effectiveSummary = String(selectedProviderRow?.summary || meeting?.summary || '')
+  const effectiveSegments = meeting?.segments
+  const effectiveSummary = String(meeting?.summary || '')
   const effectiveTranscript = buildTranscriptFromSegments(effectiveSegments) || String(meeting?.transcript_compressed || '')
 
   return (
@@ -437,26 +398,6 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
         >
           transcript
         </button>
-      </div>
-
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <p className="text-xs text-gray-400">model output</p>
-        <select
-          value={selectedProvider}
-          onChange={(event) => setSelectedProvider(event.target.value)}
-          className="h-8 rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
-        >
-          <option value="meeting">Meeting (default)</option>
-          {providerOutputs.map((row) => {
-            const key = String(row?.provider || '').toLowerCase()
-            if (!key) return null
-            return (
-              <option key={key} value={key}>
-                {formatProviderLabel(key)}
-              </option>
-            )
-          })}
-        </select>
       </div>
 
       <div
@@ -571,14 +512,6 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
       </div>
     </div>
   )
-}
-
-function formatProviderLabel(provider) {
-  const key = String(provider || '').toLowerCase()
-  if (key === 'assemblyai') return 'AssemblyAI'
-  if (key === 'deepgram') return 'Deepgram'
-  if (key === 'grok') return 'Grok'
-  return provider
 }
 
 function findActiveBlockIndex(blocks, currentTime) {

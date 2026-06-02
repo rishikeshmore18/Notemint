@@ -581,7 +581,7 @@ export default function ResultsScreen({
 
         {activeTab === 'transcript' && (
           <div>
-            <div className="mb-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
+            <div className="sticky top-0 z-20 mb-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3 shadow-sm">
               {audioUrl ? (
                 <div>
                   <audio
