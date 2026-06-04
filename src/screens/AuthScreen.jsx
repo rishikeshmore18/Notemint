@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { resendSignupConfirmation, signIn, signUp } from '../lib/supabase'
 
 const EMAIL_CONFIRMATION_MESSAGE =
-  'Supabase email confirmation is enabled. Disable Confirm Email in Supabase to make signup instant.'
+  'check your email to confirm your account, then sign in'
 
 export default function AuthScreen({ initialEmail = '', initialError = null, onAuthenticated }) {
   const [mode, setMode] = useState('signin')
@@ -138,8 +138,7 @@ export default function AuthScreen({ initialEmail = '', initialError = null, onA
   return (
     <div className="min-h-screen bg-white">
       <div className="mx-auto flex min-h-screen w-full max-w-[360px] flex-col px-6">
-        <div className="mt-[60px] text-[15px] font-medium text-gray-900">notemint</div>
-        <p className="mb-10 mt-1 text-xs text-gray-400">meeting notes, no bots</p>
+        <div className="mb-10 mt-[60px] text-center text-xl font-semibold text-gray-900">Notemint</div>
 
         <div className="mb-4 rounded-full bg-gray-100 p-1">
           <div className="grid grid-cols-2 gap-1">

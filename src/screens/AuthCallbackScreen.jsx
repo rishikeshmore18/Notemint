@@ -5,8 +5,7 @@ export default function AuthCallbackScreen({ status, title, message, onContinue 
   return (
     <div className="min-h-screen bg-white">
       <div className="mx-auto flex min-h-screen w-full max-w-[360px] flex-col px-6">
-        <div className="mt-[60px] text-[15px] font-medium text-gray-900">notemint</div>
-        <p className="mt-1 text-xs text-gray-400">meeting notes, no bots</p>
+        <div className="mt-[60px] text-center text-xl font-semibold text-gray-900">Notemint</div>
 
         <div className="flex flex-1 flex-col items-center justify-center text-center">
           <div
