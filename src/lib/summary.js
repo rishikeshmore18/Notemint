@@ -4,7 +4,7 @@ const LIGHT_FILLER_REGEX = /\b(um+|uh+|er+|erm|hmm+|ah+)\b/gi
 const LOCAL_MEETINGS_KEY_PREFIX = 'local_meetings_'
 const MEETING_AUDIO_BUCKET = 'meeting-audio'
 const DEFAULT_AUDIO_RETENTION_DAYS = 7
-const KEEP_MEETING_AUDIO_FOREVER = true
+const KEEP_MEETING_AUDIO_FOREVER = import.meta.env.VITE_KEEP_MEETING_AUDIO_FOREVER !== 'false'
 
 export function compressTranscript(segments, labelMap) {
   if (!segments || segments.length === 0) {

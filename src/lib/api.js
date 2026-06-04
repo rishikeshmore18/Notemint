@@ -116,7 +116,7 @@ export async function streamSummary(transcript, onChunk, onComplete, onError, op
   }
 }
 
-export async function transcribeAudioDetailed(audioBlob, provider = 'grok', options = {}) {
+export async function transcribeAudioDetailed(audioBlob, provider = 'assemblyai', options = {}) {
   const token = await getAuthToken()
   const formData = new FormData()
   formData.append('audio', audioBlob, inferFileName(audioBlob))
@@ -156,13 +156,67 @@ export async function transcribeAudioDetailed(audioBlob, provider = 'grok', opti
   }
 }
 
-export async function transcribeAudio(audioBlob, provider = 'grok', options = {}) {
+export async function transcribeAudio(audioBlob, provider = 'assemblyai', options = {}) {
   const payload = await transcribeAudioDetailed(audioBlob, provider, options)
   return payload.segments
 }
 
 export async function grokDiarizeAudio(audioBlob) {
   return transcribeAudio(audioBlob, 'grok')
+}
+
+export async function startStoredAudioTranscription({
+  meetingId,
+  audioStoragePath = '',
+  contextTerms = [],
+  meetingContext = null,
+}) {
+  const token = await getAuthToken()
+  const response = await fetch(`${BASE_URL}/api/transcription/start`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({
+      meeting_id: meetingId,
+      audio_storage_path: audioStoragePath,
+      context_terms: Array.isArray(contextTerms) ? contextTerms : [],
+      meeting_context: meetingContext && typeof meetingContext === 'object' ? meetingContext : null,
+    }),
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.error || 'Could not start transcription')
+  }
+
+  return response.json()
+}
+
+export async function getStoredAudioTranscriptionStatus(meetingId) {
+  const token = await getAuthToken()
+  const response = await fetch(`${BASE_URL}/api/transcription/status/${encodeURIComponent(meetingId)}`, {
+    method: 'GET',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  })
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}))
+    throw new Error(payload.error || 'Could not check transcription status')
+  }
+
+  const payload = await response.json()
+  return {
+    status: String(payload?.status || 'idle'),
+    provider: String(payload?.provider || 'assemblyai'),
+    model: String(payload?.model || ''),
+    segments: Array.isArray(payload?.segments) ? payload.segments : [],
+    durationMs: Number(payload?.durationMs || 0),
+    error: payload?.error ? String(payload.error) : '',
+  }
 }
 
 export async function generateContextKeyterms(profile) {
@@ -384,6 +438,37 @@ export async function identifyVoice(audioBlob) {
     return response.json()
   } catch {
     return { identified_profile: null, confidence: 0, is_confident: false }
+  }
+}
+
+export async function identifySpeakersBatch(snippetsBySpeaker) {
+  const entries = Object.entries(snippetsBySpeaker || {}).filter(([, item]) => item?.blob)
+  if (entries.length === 0) return {}
+
+  try {
+    const token = await getAuthToken()
+    const formData = new FormData()
+    const speakerIds = []
+
+    for (const [speakerId, item] of entries) {
+      speakerIds.push(String(speakerId))
+      formData.append('audio', item.blob, inferFileName(item.blob))
+    }
+    formData.append('speaker_ids', JSON.stringify(speakerIds))
+
+    const response = await fetch(`${BASE_URL}/api/voice/identify-batch`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    })
+
+    if (!response.ok) return {}
+    const payload = await response.json()
+    return payload?.matches && typeof payload.matches === 'object' ? payload.matches : {}
+  } catch {
+    return {}
   }
 }
 

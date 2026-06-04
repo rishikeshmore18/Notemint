@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { getVoiceStatus, identifyContactVoice, identifyVoice, rememberContactVoice } from '../lib/api'
+import { getVoiceStatus, identifySpeakersBatch, rememberContactVoice } from '../lib/api'
 import { getSpeakerNameSuggestions } from '../lib/speakerMemory'
 
 export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfirmed, onSkip }) {
@@ -131,6 +131,9 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
           }
         }
 
+        const batchMatches = await identifySpeakersBatch(snippetMap)
+        if (cancelled) return
+
         if (status?.enrolled) {
           const selfMatches = []
           for (const speakerId of allSpeakers) {
@@ -138,8 +141,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
             if (!snippet?.blob) continue
             if (isTinySpeaker(speakerStatsMap[speakerId])) continue
 
-            const result = await identifyVoice(snippet.blob)
-            if (cancelled) return
+            const result = batchMatches?.[speakerId]?.self
 
             if (result?.identified_profile === 'self' && result?.is_confident) {
               const confidence = Number(result.confidence || 0)
@@ -196,8 +198,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
           if (!snippet?.blob) continue
           if (isTinySpeaker(speakerStatsMap[speakerId])) continue
 
-          const result = await identifyContactVoice(snippet.blob)
-          if (cancelled) return
+          const result = batchMatches?.[speakerId]?.contact
           if (!result?.display_name) continue
 
           const confidence = Number(result.confidence || 0)

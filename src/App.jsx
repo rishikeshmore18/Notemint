@@ -10,7 +10,12 @@ import HistoryScreen from './screens/HistoryScreen'
 import PastMeetingScreen from './screens/PastMeetingScreen'
 import LoadingDot from './components/LoadingDot'
 import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supabase'
-import { getVoiceStatus, transcribeAudio } from './lib/api'
+import {
+  getStoredAudioTranscriptionStatus,
+  getVoiceStatus,
+  startStoredAudioTranscription,
+  transcribeAudio,
+} from './lib/api'
 import { rememberSpeakerLabels } from './lib/speakerMemory'
 import { hasContextProfile } from './lib/contextProfile'
 import {
@@ -252,6 +257,57 @@ export default function App() {
     return []
   }
 
+  async function transcribeStoredMeetingAudio({ meetingId, audioStoragePath, onStatus, options = {} }) {
+    if (!meetingId || !audioStoragePath) {
+      throw new Error('Stored audio is not ready')
+    }
+
+    onStatus?.('Starting transcription...')
+    const started = await startStoredAudioTranscription({
+      meetingId,
+      audioStoragePath,
+      contextTerms: Array.isArray(options?.contextTerms) ? options.contextTerms : [],
+      meetingContext: options?.meetingContext || null,
+    })
+
+    if (started?.status === 'completed' && Array.isArray(started.segments) && started.segments.length > 0) {
+      return repairSpeakerTurns(started.segments)
+    }
+
+    const startedAt = Date.now()
+    const timeoutMs = 180000
+    while (Date.now() - startedAt < timeoutMs) {
+      onStatus?.('Processing your meeting...')
+      await delay(2500)
+      const status = await getStoredAudioTranscriptionStatus(meetingId)
+      if (status.status === 'completed') {
+        return repairSpeakerTurns(status.segments)
+      }
+      if (status.status === 'failed') {
+        throw new Error(status.error || 'Transcription failed')
+      }
+    }
+
+    throw new Error('Transcription timed out')
+  }
+
+  async function transcribeMeetingAudioOptimized({ audioBlob, audioPersistence, onStatus, options = {} }) {
+    if (audioPersistence?.meetingId && audioPersistence?.audioStoragePath) {
+      try {
+        return await transcribeStoredMeetingAudio({
+          meetingId: audioPersistence.meetingId,
+          audioStoragePath: audioPersistence.audioStoragePath,
+          onStatus,
+          options,
+        })
+      } catch (err) {
+        console.warn('[App] Stored-audio transcription failed, falling back to blob route:', err?.message || err)
+      }
+    }
+
+    return transcribeWithAssemblyAI(audioBlob, onStatus, options)
+  }
+
   async function prepareMeetingAudioPersistence(audioBlob) {
     setMeetingId(null)
     setAudioSaveMessage('')
@@ -308,18 +364,20 @@ export default function App() {
       })
 
     try {
-      await withTimeout(uploadPromise, 3000)
-    } catch (err) {
-      if (err?.name === 'TimeoutError') {
-        setAudioUploadStatus('pending')
-        setAudioSaveMessage('Audio is still saving in the background. Transcript is available.')
-      } else {
-        setAudioUploadStatus('failed')
-        setAudioSaveMessage('Audio playback could not be saved. Transcript is still available.')
+      const result = await uploadPromise
+      if (result?.ok) {
+        return {
+          meetingId: draftMeetingId,
+          audioStoragePath: result.path || '',
+        }
       }
+    } catch (err) {
+      console.warn('[App] Audio upload did not finish before transcription fallback:', err?.message || err)
+      setAudioUploadStatus('failed')
+      setAudioSaveMessage('Audio playback could not be saved. Transcript is still available.')
     }
 
-    return draftMeetingId
+    return { meetingId: draftMeetingId, audioStoragePath: '' }
   }
 
   async function retryMeetingAudioUpload() {
@@ -605,7 +663,7 @@ export default function App() {
           setProcessingMessage('Preparing your transcript...')
           setScreen('processing')
 
-          await prepareMeetingAudioPersistence(audioBlob)
+          const audioPersistence = await prepareMeetingAudioPersistence(audioBlob)
 
           const transcriptionOptions = {
             contextTerms: Array.isArray(meetingContextPayload?.contextTerms) ? meetingContextPayload.contextTerms : [],
@@ -619,11 +677,12 @@ export default function App() {
             }
 
             try {
-              const parsed = await transcribeWithAssemblyAI(
+              const parsed = await transcribeMeetingAudioOptimized({
                 audioBlob,
-                setProcessingMessage,
-                transcriptionOptions,
-              )
+                audioPersistence,
+                onStatus: setProcessingMessage,
+                options: transcriptionOptions,
+              })
               if (Array.isArray(parsed) && parsed.length > 0) {
                 setDiarizedSegments(parsed)
               }
@@ -645,11 +704,12 @@ export default function App() {
           }
 
           try {
-            const parsed = await transcribeWithAssemblyAI(
+            const parsed = await transcribeMeetingAudioOptimized({
               audioBlob,
-              setProcessingMessage,
-              transcriptionOptions,
-            )
+              audioPersistence,
+              onStatus: setProcessingMessage,
+              options: transcriptionOptions,
+            })
             if (Array.isArray(parsed) && parsed.length > 0) {
               setDiarizedSegments(parsed)
               setScreen('speaker-review')
@@ -899,20 +959,13 @@ function clearVoiceEnrollmentIssue(userId) {
   try {
     window.localStorage.removeItem(getVoiceEnrollmentFailureKey(userId))
     window.dispatchEvent(new CustomEvent('notemint:voice-enrollment-updated', { detail: { userId } }))
-  } catch {}
+  } catch (err) {
+    console.warn('[App] Could not clear voice enrollment issue:', err?.message || err)
+  }
 }
 
-function withTimeout(promise, timeoutMs) {
-  let timeoutId = null
-  const timeout = new Promise((_, reject) => {
-    timeoutId = setTimeout(() => {
-      const error = new Error('Operation timed out')
-      error.name = 'TimeoutError'
-      reject(error)
-    }, timeoutMs)
-  })
-
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timeoutId) clearTimeout(timeoutId)
+function delay(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
   })
 }

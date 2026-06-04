@@ -36,12 +36,21 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
     const localMeetings = getLocalMeetings(user.id)
 
     try {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('meetings')
-        .select('id, title, summary, created_at, duration_segments, audio_storage_path, audio_expires_at, audio_deleted_at, audio_upload_status')
+        .select('id, title, summary, created_at, duration_segments, audio_storage_path, audio_expires_at, audio_deleted_at, audio_upload_status, transcription_status')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(50)
+
+      if (error && isMissingColumnError(error, 'transcription_status')) {
+        ;({ data, error } = await supabase
+          .from('meetings')
+          .select('id, title, summary, created_at, duration_segments, audio_storage_path, audio_expires_at, audio_deleted_at, audio_upload_status')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false })
+          .limit(50))
+      }
 
       if (error) {
         console.error('[History] Supabase error:', error)
@@ -128,12 +137,21 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
     }
 
     try {
-      const { data, error } = await supabase
+      let { data, error } = await supabase
         .from('meetings')
-        .select('id, user_id, title, summary, created_at, duration_segments, transcript_compressed, segments, label_map, audio_storage_path, audio_mime_type, audio_size_bytes, audio_duration_seconds, audio_uploaded_at, audio_retention_days, audio_expires_at, audio_deleted_at, audio_upload_status')
+        .select('id, user_id, title, summary, created_at, duration_segments, transcript_compressed, segments, label_map, audio_storage_path, audio_mime_type, audio_size_bytes, audio_duration_seconds, audio_uploaded_at, audio_retention_days, audio_expires_at, audio_deleted_at, audio_upload_status, transcription_status, transcription_provider, transcription_model, transcription_duration_ms, transcription_error')
         .eq('id', meeting.id)
         .eq('user_id', user.id)
         .single()
+
+      if (error && isMissingColumnError(error, 'transcription_status')) {
+        ;({ data, error } = await supabase
+          .from('meetings')
+          .select('id, user_id, title, summary, created_at, duration_segments, transcript_compressed, segments, label_map, audio_storage_path, audio_mime_type, audio_size_bytes, audio_duration_seconds, audio_uploaded_at, audio_retention_days, audio_expires_at, audio_deleted_at, audio_upload_status')
+          .eq('id', meeting.id)
+          .eq('user_id', user.id)
+          .single())
+      }
 
       if (error) {
         console.error('[History] Supabase error:', error)
@@ -804,4 +822,11 @@ function normalizeSearchText(value) {
     .replace(/[^a-z0-9:]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+function isMissingColumnError(error, columnName) {
+  const message = String(error?.message || '').toLowerCase()
+  const code = String(error?.code || '')
+  const needle = String(columnName || '').toLowerCase()
+  return code === '42703' || (needle && message.includes(needle) && message.includes('column'))
 }

@@ -9,7 +9,11 @@ const upload = multer({
   limits: { fileSize: 200 * 1024 * 1024 },
 })
 
-const SUPPORTED_PROVIDERS = new Set(['grok', 'deepgram', 'assemblyai'])
+const SUPPORTED_PROVIDERS = new Set(
+  process.env.ENABLE_INTERNAL_STT_PROVIDERS === 'true'
+    ? ['grok', 'deepgram', 'assemblyai']
+    : ['assemblyai'],
+)
 
 grokRouter.post('/', requireAuth, upload.single('audio'), async (req, res) => {
   if (!req.file) {
@@ -177,11 +181,33 @@ async function transcribeWithAssemblyAI(file, hints = {}) {
     throw providerError('assemblyai', 502, 'AssemblyAI upload did not return an upload_url')
   }
 
+  const transcriptRequest = await startAssemblyAITranscriptFromUrl(uploadPayload.upload_url, hints)
+  const result = await pollAssemblyAITranscript(transcriptRequest.transcriptId)
+  return {
+    provider: 'assemblyai',
+    model: transcriptRequest.model,
+    usedKeyterms: transcriptRequest.usedKeyterms,
+    keytermCount: transcriptRequest.keytermCount,
+    segments: parseAssemblyAIResponse(result),
+  }
+}
+
+export async function startAssemblyAITranscriptFromUrl(audioUrl, hints = {}) {
+  if (!process.env.ASSEMBLYAI_KEY) {
+    throw httpError(500, 'ASSEMBLYAI_KEY is not configured on server')
+  }
+
+  const cleanAudioUrl = String(audioUrl || '').trim()
+  if (!cleanAudioUrl) {
+    throw httpError(400, 'audio_url is required')
+  }
+
   const selectedKeyterms = buildProviderKeyterms(hints.contextTerms, 'assemblyai')
   let usedKeyterms = selectedKeyterms.length > 0
   let keytermCount = selectedKeyterms.length
+  const model = 'universal-3-pro,universal-2'
   const transcriptBodyWithHints = {
-    audio_url: uploadPayload.upload_url,
+    audio_url: cleanAudioUrl,
     speech_models: ['universal-3-pro', 'universal-2'],
     language_code: 'en_us',
     speaker_labels: true,
@@ -215,7 +241,7 @@ async function transcribeWithAssemblyAI(file, hints = {}) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        audio_url: uploadPayload.upload_url,
+        audio_url: cleanAudioUrl,
         speech_models: ['universal-3-pro', 'universal-2'],
         language_code: 'en_us',
         speaker_labels: true,
@@ -236,17 +262,15 @@ async function transcribeWithAssemblyAI(file, hints = {}) {
     throw providerError('assemblyai', 502, 'AssemblyAI transcript request did not return an id')
   }
 
-  const result = await pollAssemblyAITranscript(transcriptPayload.id)
   return {
-    provider: 'assemblyai',
-    model: 'universal-3-pro,universal-2',
+    transcriptId: transcriptPayload.id,
+    model,
     usedKeyterms,
     keytermCount,
-    segments: parseAssemblyAIResponse(result),
   }
 }
 
-async function pollAssemblyAITranscript(transcriptId) {
+export async function pollAssemblyAITranscript(transcriptId) {
   const startedAt = Date.now()
   const timeoutMs = 180000
   const pollIntervalMs = 2500
@@ -275,6 +299,32 @@ async function pollAssemblyAITranscript(transcriptId) {
   }
 
   throw providerError('assemblyai', 504, 'AssemblyAI transcription timed out')
+}
+
+export async function getAssemblyAITranscript(transcriptId) {
+  if (!process.env.ASSEMBLYAI_KEY) {
+    throw httpError(500, 'ASSEMBLYAI_KEY is not configured on server')
+  }
+
+  const id = String(transcriptId || '').trim()
+  if (!id) {
+    throw httpError(400, 'transcript_id is required')
+  }
+
+  const response = await fetch(`https://api.assemblyai.com/v2/transcript/${id}`, {
+    method: 'GET',
+    headers: {
+      Authorization: process.env.ASSEMBLYAI_KEY,
+    },
+    signal: AbortSignal.timeout(30000),
+  })
+
+  if (!response.ok) {
+    const text = await response.text()
+    throw providerError('assemblyai', response.status, `AssemblyAI polling failed: ${text}`)
+  }
+
+  return response.json()
 }
 
 function parseGrokResponse(result) {
@@ -387,7 +437,7 @@ function parseDeepgramResponse(result) {
   return transcriptToFallbackSegment(transcript, 'deepgram')
 }
 
-function parseAssemblyAIResponse(result) {
+export function parseAssemblyAIResponse(result) {
   const utterances = result?.utterances
   if (Array.isArray(utterances) && utterances.length > 0) {
     return utterances
@@ -532,14 +582,14 @@ function transcriptToFallbackSegment(transcript, source) {
 }
 
 function normalizeProvider(value) {
-  const provider = String(value || 'grok').trim().toLowerCase()
+  const provider = String(value || 'assemblyai').trim().toLowerCase()
   if (provider === 'xai') return 'grok'
   if (provider === 'deepgram-nova-3') return 'deepgram'
   if (provider === 'assembly') return 'assemblyai'
   return provider
 }
 
-function extractTranscriptionHints(body) {
+export function extractTranscriptionHints(body) {
   const contextTerms = [
     ...parseTermsPayload(body?.context_terms),
     ...extractTermsFromMeetingContext(parseJsonPayload(body?.meeting_context)),

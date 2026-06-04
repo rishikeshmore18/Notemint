@@ -7,6 +7,7 @@ import { grokRouter } from './routes/grok.js'
 import { voiceRouter } from './routes/voice.js'
 import { contextRouter } from './routes/context.js'
 import { cleanupRouter } from './routes/cleanup.js'
+import { transcriptionRouter } from './routes/transcription.js'
 
 const app = express()
 const PORT = Number(process.env.PORT || 3001)
@@ -20,6 +21,7 @@ app.use(
 )
 
 app.use(express.json({ limit: '10mb' }))
+app.use(requestMetricsLogger)
 
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok' })
@@ -31,8 +33,10 @@ app.use('/api/grok', grokRouter)
 app.use('/api/voice', voiceRouter)
 app.use('/api/context', contextRouter)
 app.use('/api/cleanup', cleanupRouter)
+app.use('/api/transcription', transcriptionRouter)
 
 app.use((err, _req, res, _next) => {
+  void _next
   console.error('[Backend Error]', err)
   res.status(err.status || 500).json({
     error: err.message || 'Internal server error',
@@ -43,3 +47,25 @@ app.listen(PORT, () => {
   console.log(`[Backend] Notemint backend running on port ${PORT}`)
   console.log('[Backend] Allowed frontend origin:', process.env.FRONTEND_URL || '(not set)')
 })
+
+function requestMetricsLogger(req, res, next) {
+  const startedAt = Date.now()
+  res.on('finish', () => {
+    if (req.path === '/health') return
+    const mem = process.memoryUsage()
+    console.log('[Request]', {
+      method: req.method,
+      path: req.originalUrl,
+      status: res.statusCode,
+      durationMs: Date.now() - startedAt,
+      rssMb: bytesToMb(mem.rss),
+      heapUsedMb: bytesToMb(mem.heapUsed),
+      externalMb: bytesToMb(mem.external),
+    })
+  })
+  next()
+}
+
+function bytesToMb(value) {
+  return Math.round((Number(value || 0) / 1024 / 1024) * 10) / 10
+}

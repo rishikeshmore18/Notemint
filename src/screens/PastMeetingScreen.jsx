@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
+import { getStoredAudioTranscriptionStatus } from '../lib/api'
 import { groupSegmentsByTime } from '../lib/grokStt'
 import { deleteMeetingAudio, getMeetingAudioSignedUrl } from '../lib/summary'
 import { supabase } from '../lib/supabase'
@@ -11,6 +12,8 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   const [audioStoragePath, setAudioStoragePath] = useState(meeting?.audio_storage_path || '')
   const [audioDeletedAt, setAudioDeletedAt] = useState(meeting?.audio_deleted_at || null)
   const [audioActionStatus, setAudioActionStatus] = useState('idle')
+  const [transcriptionStatus, setTranscriptionStatus] = useState(meeting?.transcription_status || 'idle')
+  const [recoveredSegments, setRecoveredSegments] = useState(null)
   const [editableBlocks, setEditableBlocks] = useState([])
   const [editingBlockKey, setEditingBlockKey] = useState(null)
   const [editingBlockText, setEditingBlockText] = useState('')
@@ -69,7 +72,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   }, [meeting?.audio_storage_path, meeting?.id, user?.id])
 
   useEffect(() => {
-    const segmentsForView = meeting?.segments
+    const segmentsForView = Array.isArray(recoveredSegments) ? recoveredSegments : meeting?.segments
     const transcriptForView = buildTranscriptFromSegments(segmentsForView) || String(meeting?.transcript_compressed || '')
     const blocks = buildEditableBlocks(segmentsForView, transcriptForView)
     setEditableBlocks(blocks)
@@ -79,7 +82,45 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
     meeting?.id,
     meeting?.segments,
     meeting?.transcript_compressed,
+    recoveredSegments,
   ])
+
+  useEffect(() => {
+    let cancelled = false
+    setTranscriptionStatus(meeting?.transcription_status || 'idle')
+    setRecoveredSegments(null)
+
+    if (!user?.id || !meeting?.id || meeting?.transcription_status !== 'processing') {
+      return () => {
+        cancelled = true
+      }
+    }
+
+    async function pollProcessingMeeting() {
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        if (cancelled) return
+        try {
+          const result = await getStoredAudioTranscriptionStatus(meeting.id)
+          if (cancelled) return
+          setTranscriptionStatus(result.status)
+          if (result.status === 'completed') {
+            setRecoveredSegments(result.segments)
+            return
+          }
+          if (result.status === 'failed') return
+        } catch (err) {
+          console.warn('[PastMeeting] Could not recover transcription job:', err?.message || err)
+          return
+        }
+        await delay(2500)
+      }
+    }
+
+    void pollProcessingMeeting()
+    return () => {
+      cancelled = true
+    }
+  }, [meeting?.id, meeting?.transcription_status, user?.id])
 
   useEffect(() => {
     if (!autoScrollEnabled) return
@@ -359,7 +400,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
     setEditingBlockText('')
   }
 
-  const effectiveSegments = meeting?.segments
+  const effectiveSegments = Array.isArray(recoveredSegments) ? recoveredSegments : meeting?.segments
   const effectiveSummary = String(meeting?.summary || '')
   const effectiveTranscript = buildTranscriptFromSegments(effectiveSegments) || String(meeting?.transcript_compressed || '')
 
@@ -399,6 +440,18 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
           transcript
         </button>
       </div>
+
+      {transcriptionStatus === 'processing' ? (
+        <div className="mb-3 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+          transcript is still processing. this page will update automatically.
+        </div>
+      ) : null}
+
+      {transcriptionStatus === 'failed' ? (
+        <div className="mb-3 rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          transcription could not finish for this meeting.
+        </div>
+      ) : null}
 
       <div
         ref={scrollContainerRef}
@@ -639,4 +692,10 @@ function buildTranscriptFromBlocks(blocks) {
     lines.push(`[${label}]: ${text}`)
   }
   return lines.join('\n')
+}
+
+function delay(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms)
+  })
 }

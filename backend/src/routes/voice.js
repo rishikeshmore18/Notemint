@@ -473,6 +473,80 @@ voiceRouter.post('/identify-contact', requireAuth, upload.single('audio'), async
   }
 })
 
+voiceRouter.post('/identify-batch', requireAuth, upload.array('audio', 12), async (req, res) => {
+  const files = Array.isArray(req.files) ? req.files : []
+  if (files.length === 0) {
+    return res.status(400).json({ error: 'No audio files provided' })
+  }
+
+  const supabase = getSupabaseClient()
+  if (!supabase) {
+    return res.status(500).json({ error: 'Supabase is not configured on server' })
+  }
+  if (!process.env.VOICE_SERVICE_URL) {
+    return res.status(500).json({ error: 'VOICE_SERVICE_URL is not configured on server' })
+  }
+
+  const speakerIds = parseSpeakerIds(req.body?.speaker_ids, files.length)
+
+  try {
+    const [selfProfile, contactProfiles] = await Promise.all([
+      loadSelfVoiceProfile(supabase, req.user.id),
+      loadContactVoiceProfiles(supabase, req.user.id),
+    ])
+
+    const hasSelfProfile = Array.isArray(selfProfile?.embedding) && selfProfile.embedding.length > 0
+    const contacts = Array.isArray(contactProfiles) ? contactProfiles : []
+
+    if (!hasSelfProfile && contacts.length === 0) {
+      return res.json({ matches: buildEmptyBatchMatches(speakerIds) })
+    }
+
+    const selfThreshold = Number(process.env.VOICE_MATCH_THRESHOLD || 0.72)
+    const contactThreshold = Number(process.env.VOICE_CONTACT_MATCH_THRESHOLD || process.env.VOICE_MATCH_THRESHOLD || 0.74)
+    const matches = {}
+
+    for (let index = 0; index < files.length; index += 1) {
+      const speakerId = speakerIds[index]
+      const embedding = await createEmbedding(files[index])
+
+      let self = { identified_profile: null, confidence: 0, is_confident: false }
+      if (hasSelfProfile) {
+        const confidence = vectorScore(embedding, selfProfile.embedding)
+        self = {
+          identified_profile: confidence >= selfThreshold ? 'self' : null,
+          confidence,
+          is_confident: confidence >= selfThreshold,
+        }
+      }
+
+      let bestContact = null
+      for (const contact of contacts) {
+        const score = vectorScore(embedding, contact.embedding)
+        if (!Number.isFinite(score)) continue
+        if (!bestContact || score > bestContact.confidence) {
+          bestContact = {
+            identified_profile: score >= contactThreshold ? contact.id : null,
+            display_name: score >= contactThreshold ? contact.display_name : null,
+            confidence: score,
+            is_confident: score >= contactThreshold,
+          }
+        }
+      }
+
+      matches[speakerId] = {
+        self,
+        contact: bestContact || buildContactNoMatchPayload(),
+      }
+    }
+
+    return res.json({ matches })
+  } catch (err) {
+    console.warn('[Voice] Batch identify failed:', err?.message || err)
+    return res.json({ matches: buildEmptyBatchMatches(speakerIds) })
+  }
+})
+
 async function createEmbedding(file) {
   const formData = new FormData()
   const audioBlob = new Blob([file.buffer], { type: file.mimetype || 'audio/wav' })
@@ -492,6 +566,44 @@ async function createEmbedding(file) {
   }
 
   return normalizeVector(payload.embedding)
+}
+
+async function loadSelfVoiceProfile(supabase, userId) {
+  const { data, error } = await supabase
+    .from('user_voice_profiles')
+    .select('embedding, enrollment_status')
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (error) {
+    throw new Error(`Could not load voice profile: ${error.message}`)
+  }
+
+  if (!data?.embedding || !Array.isArray(data.embedding) || data.enrollment_status !== 'Enrolled') {
+    return null
+  }
+
+  return data
+}
+
+async function loadContactVoiceProfiles(supabase, userId) {
+  const { data, error } = await supabase
+    .from('speaker_profiles')
+    .select('id, display_name, embedding, sample_count, enrollment_status')
+    .eq('owner_user_id', userId)
+    .eq('profile_type', 'contact')
+
+  if (error) {
+    throw new Error(`Could not load contact profiles: ${error.message}`)
+  }
+
+  return (data || []).filter(
+    (row) =>
+      Array.isArray(row?.embedding) &&
+      row.embedding.length > 0 &&
+      Number(row?.sample_count || 0) >= CONTACT_MIN_IDENTIFY_SAMPLES &&
+      String(row?.enrollment_status || '') !== 'NotEnrolled',
+  )
 }
 
 async function enrollUserVoiceSample(supabase, userId, file) {
@@ -1002,6 +1114,47 @@ function normalizeVector(vec) {
   const magnitude = Math.sqrt(nums.reduce((acc, value) => acc + value * value, 0))
   if (!magnitude) return nums
   return nums.map((value) => value / magnitude)
+}
+
+function vectorScore(a, b) {
+  const left = normalizeVector(Array.isArray(a) ? a : [])
+  const right = normalizeVector(Array.isArray(b) ? b : [])
+  const len = Math.min(left.length, right.length)
+  if (len === 0) return 0
+
+  let score = 0
+  for (let index = 0; index < len; index += 1) {
+    score += Number(left[index] || 0) * Number(right[index] || 0)
+  }
+  return Math.max(0, Math.min(1, score))
+}
+
+function parseSpeakerIds(raw, fallbackLength) {
+  let parsed = null
+  if (Array.isArray(raw)) {
+    parsed = raw
+  } else if (typeof raw === 'string' && raw.trim()) {
+    try {
+      parsed = JSON.parse(raw)
+    } catch {
+      parsed = raw.split(',').map((item) => item.trim())
+    }
+  }
+
+  const list = Array.isArray(parsed) ? parsed : []
+  return Array.from({ length: fallbackLength }, (_, index) => String(list[index] ?? index).trim() || String(index))
+}
+
+function buildEmptyBatchMatches(speakerIds) {
+  return Object.fromEntries(
+    speakerIds.map((speakerId) => [
+      speakerId,
+      {
+        self: { identified_profile: null, confidence: 0, is_confident: false },
+        contact: buildContactNoMatchPayload(),
+      },
+    ]),
+  )
 }
 
 function mergeEmbeddings(existing, count, incoming) {
