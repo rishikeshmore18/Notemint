@@ -22,6 +22,7 @@ const AUDIO_FILE_EXTENSIONS = new Set([
 
 export default function RecordScreen({
   user,
+  voiceEnrollmentIssue = null,
   onMeetingComplete,
   onSignOut,
   onViewHistory,
@@ -518,6 +519,21 @@ export default function RecordScreen({
               className="hidden"
               onChange={handleAudioFileSelected}
             />
+            {voiceEnrollmentIssue ? (
+              <div className="mb-5 w-full max-w-xs rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-left shadow-sm">
+                <p className="text-sm font-medium text-amber-900">voice setup needs another try</p>
+                <p className="mt-1 text-xs leading-relaxed text-amber-700">
+                  We could not finish verifying your first voice setup in the background.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onReEnrollVoice?.()}
+                  className="mt-2 text-xs font-medium text-amber-900 underline underline-offset-2"
+                >
+                  re-enroll voice
+                </button>
+              </div>
+            ) : null}
             <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
               <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
                 <rect x="9" y="2" width="6" height="12" rx="3" stroke="#4F46E5" strokeWidth="1.5" />

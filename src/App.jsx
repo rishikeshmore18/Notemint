@@ -36,6 +36,7 @@ export default function App() {
   const [confirmedLabelMap, setConfirmedLabelMap] = useState({})
   const [selectedMeeting, setSelectedMeeting] = useState(null)
   const [authScreenError, setAuthScreenError] = useState(null)
+  const [voiceEnrollmentIssue, setVoiceEnrollmentIssue] = useState(null)
   const [callbackState, setCallbackState] = useState({
     status: 'pending',
     title: 'Confirming your email',
@@ -99,6 +100,22 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    const refreshIssue = () => {
+      setVoiceEnrollmentIssue(readVoiceEnrollmentIssue(currentUser?.id))
+    }
+
+    refreshIssue()
+    window.addEventListener('notemint:voice-enrollment-failed', refreshIssue)
+    window.addEventListener('notemint:voice-enrollment-updated', refreshIssue)
+    window.addEventListener('storage', refreshIssue)
+    return () => {
+      window.removeEventListener('notemint:voice-enrollment-failed', refreshIssue)
+      window.removeEventListener('notemint:voice-enrollment-updated', refreshIssue)
+      window.removeEventListener('storage', refreshIssue)
+    }
+  }, [currentUser?.id])
+
   function clearRedirectTimeout() {
     if (redirectTimeoutRef.current) {
       clearTimeout(redirectTimeoutRef.current)
@@ -159,6 +176,8 @@ export default function App() {
       setScreen('enroll')
       return
     }
+
+    setVoiceEnrollmentIssue(readVoiceEnrollmentIssue(user.id))
 
     const contextReady = await hasContextProfile(supabase, user.id)
     setScreen(contextReady ? 'home' : 'context-onboarding')
@@ -539,6 +558,8 @@ export default function App() {
           }}
           onReEnrollVoice={() => {
             setEnrollMode('reset')
+            clearVoiceEnrollmentIssue(currentUser?.id)
+            setVoiceEnrollmentIssue(null)
             setScreen('enroll')
           }}
           onSignOut={handleSignOut}
@@ -574,6 +595,7 @@ export default function App() {
     <>
       <RecordScreen
         user={currentUser}
+        voiceEnrollmentIssue={voiceEnrollmentIssue}
         onMeetingComplete={async (segments, audioBlob, hadLiveTranscript = true, meetingContextPayload = null) => {
           setMeetingAudioBlob(audioBlob)
           setMeetingContext(meetingContextPayload)
@@ -643,6 +665,8 @@ export default function App() {
         }}
         onReEnrollVoice={() => {
           setEnrollMode('reset')
+          clearVoiceEnrollmentIssue(currentUser?.id)
+          setVoiceEnrollmentIssue(null)
           setScreen('enroll')
         }}
         onEditContext={() => {
@@ -846,6 +870,36 @@ function clearAuthCallbackUrl() {
 function getPendingConfirmationEmail() {
   if (typeof window === 'undefined') return ''
   return window.localStorage.getItem('pending_confirmation_email') ?? ''
+}
+
+function getVoiceEnrollmentFailureKey(userId) {
+  return `voice_enrollment_failed_${userId}`
+}
+
+function readVoiceEnrollmentIssue(userId) {
+  if (!userId || typeof window === 'undefined') return null
+  try {
+    const raw = window.localStorage.getItem(getVoiceEnrollmentFailureKey(userId))
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    return {
+      message: String(parsed?.message || 'Voice setup needs another try.'),
+      createdAt: parsed?.createdAt || null,
+    }
+  } catch {
+    return {
+      message: 'Voice setup needs another try.',
+      createdAt: null,
+    }
+  }
+}
+
+function clearVoiceEnrollmentIssue(userId) {
+  if (!userId || typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(getVoiceEnrollmentFailureKey(userId))
+    window.dispatchEvent(new CustomEvent('notemint:voice-enrollment-updated', { detail: { userId } }))
+  } catch {}
 }
 
 function withTimeout(promise, timeoutMs) {

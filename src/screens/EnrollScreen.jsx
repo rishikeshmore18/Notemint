@@ -35,6 +35,7 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
   const validationPromisesRef = useRef({})
   const validationResultsRef = useRef({})
   const finishingRef = useRef(false)
+  const isOptimisticInitialEnrollment = mode === 'initial'
 
   useEffect(() => {
     let cancelled = false
@@ -135,9 +136,18 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
       validationResultsRef.current[phraseIndex] = null
       validationPromisesRef.current[phraseIndex] = enqueueVoiceClip(blob, phraseIndex)
 
+      if (isOptimisticInitialEnrollment) {
+        setPhraseStatus((prev) => prev.map((status, index) => (index === phraseIndex ? 'recorded' : status)))
+      }
+
       const shouldFinish = hasRecordedAllPhrases()
       if (shouldFinish) {
         if (!mountedRef.current) return
+        if (isOptimisticInitialEnrollment) {
+          void finishEnrollmentInBackground()
+          onComplete()
+          return
+        }
         await finishEnrollment()
         return
       }
@@ -269,6 +279,7 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
       setVoiceStatus(normalizeVoiceStatus(finalStatus))
       setVoiceError(null)
       void saveEnrollment(user.id)
+      clearVoiceEnrollmentFailure(user.id)
       onComplete()
     } catch (err) {
       if (!mountedRef.current) return
@@ -279,6 +290,34 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
         setIsFinishing(false)
       }
       finishingRef.current = false
+    }
+  }
+
+  async function finishEnrollmentInBackground() {
+    const userId = user?.id
+    if (!userId) return
+
+    clearVoiceEnrollmentFailure(userId)
+
+    try {
+      const results = await Promise.all(phrases.map((_, index) => validationPromisesRef.current[index]))
+      const failedResult = results.find((result) => !result?.accepted)
+
+      if (failedResult) {
+        markVoiceEnrollmentFailure(userId, failedResult?.message || 'voice setup needs another try')
+        return
+      }
+
+      const finalStatus = await finalizeVoiceEnrollment(enrollmentRunIdRef.current)
+      if (finalStatus?.enrolled) {
+        void saveEnrollment(userId)
+        clearVoiceEnrollmentFailure(userId)
+        return
+      }
+
+      markVoiceEnrollmentFailure(userId, 'voice setup needs another try')
+    } catch (err) {
+      markVoiceEnrollmentFailure(userId, err?.message || 'voice setup needs another try')
     }
   }
 
@@ -310,6 +349,8 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
 
             if (status === 'done') {
               colorClass = 'bg-indigo-600'
+            } else if (status === 'recorded') {
+              colorClass = 'bg-indigo-200'
             } else if (status === 'validating') {
               colorClass = 'bg-indigo-400'
             } else if (status === 'failed') {
@@ -352,12 +393,16 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
           {phrases.map((phrase, index) => (
             <div key={phrase} className="flex items-start gap-3 py-3 border-b border-gray-50">
               <div className="w-6 h-6 flex-shrink-0 mt-0.5">
-                {phraseStatus[index] === 'done' ? (
-                  <div className="w-6 h-6 rounded-full bg-indigo-600 flex items-center justify-center">
+                {phraseStatus[index] === 'done' || phraseStatus[index] === 'recorded' ? (
+                  <div
+                    className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                      phraseStatus[index] === 'recorded' ? 'bg-indigo-100 border border-indigo-200' : 'bg-indigo-600'
+                    }`}
+                  >
                     <svg viewBox="0 0 12 12" className="h-[10px] w-[10px]" fill="none" aria-hidden="true">
                       <path
                         d="M3 6L6 9L11 3"
-                        stroke="white"
+                        stroke={phraseStatus[index] === 'recorded' ? '#4F46E5' : 'white'}
                         strokeWidth="2.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -446,7 +491,9 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
           ) : null}
 
           {phraseStatus[currentPhrase] === 'validating' ? (
-            <p className="text-sm text-gray-400">checking phrase...</p>
+            <p className="text-sm text-gray-400">
+              {isOptimisticInitialEnrollment ? 'saving voice sample...' : 'checking phrase...'}
+            </p>
           ) : null}
 
           {isFinishing ? (
@@ -493,6 +540,34 @@ function createEnrollmentRunId() {
   }
 
   return `enroll_${Date.now()}_${Math.random().toString(36).slice(2)}`
+}
+
+function getVoiceEnrollmentFailureKey(userId) {
+  return `voice_enrollment_failed_${userId}`
+}
+
+function markVoiceEnrollmentFailure(userId, message) {
+  if (!userId || typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(
+      getVoiceEnrollmentFailureKey(userId),
+      JSON.stringify({
+        message: String(message || 'voice setup needs another try'),
+        createdAt: new Date().toISOString(),
+      }),
+    )
+    window.dispatchEvent(new CustomEvent('notemint:voice-enrollment-failed', { detail: { userId } }))
+  } catch (err) {
+    console.warn('[Enroll] Could not store voice enrollment failure:', err?.message || err)
+  }
+}
+
+function clearVoiceEnrollmentFailure(userId) {
+  if (!userId || typeof window === 'undefined') return
+  try {
+    window.localStorage.removeItem(getVoiceEnrollmentFailureKey(userId))
+    window.dispatchEvent(new CustomEvent('notemint:voice-enrollment-updated', { detail: { userId } }))
+  } catch {}
 }
 
 function mapErrorMessage(error) {
