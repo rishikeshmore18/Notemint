@@ -5,7 +5,12 @@ import { deleteLocalMeeting, deleteMeetingRecord, getLocalMeetings } from '../li
 export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
   const [meetings, setMeetings] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
-  const [dateFilter, setDateFilter] = useState('all')
+  const [dateFilter, setDateFilter] = useState({
+    mode: 'all',
+    startDate: '',
+    endDate: '',
+  })
+  const [dateFilterOpen, setDateFilterOpen] = useState(false)
   const [sortOrder, setSortOrder] = useState('newest')
   const [searchFocused, setSearchFocused] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -342,26 +347,27 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
             </div>
           ) : null}
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          {[
-            ['all', 'All'],
-            ['today', 'Today'],
-            ['week', '7 days'],
-            ['month', '30 days'],
-          ].map(([value, label]) => (
+        <div className="mt-3 flex items-center gap-2">
+          <div className="relative">
             <button
-              key={value}
               type="button"
-              onClick={() => setDateFilter(value)}
-              className={`h-8 rounded-full px-3 text-xs font-medium transition ${
-                dateFilter === value
-                  ? 'bg-gray-900 text-white'
-                  : 'bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+              onClick={() => setDateFilterOpen((prev) => !prev)}
+              className={`h-8 rounded-full border px-3 text-xs font-medium shadow-sm transition ${
+                dateFilter.mode === 'all'
+                  ? 'border-gray-100 bg-white text-gray-600 hover:bg-gray-50'
+                  : 'border-gray-900 bg-gray-900 text-white'
               }`}
             >
-              {label}
+              {getDateFilterLabel(dateFilter)}
             </button>
-          ))}
+            {dateFilterOpen ? (
+              <DateFilterPanel
+                value={dateFilter}
+                onChange={setDateFilter}
+                onClose={() => setDateFilterOpen(false)}
+              />
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={() => setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))}
@@ -482,6 +488,131 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
   )
 }
 
+function DateFilterPanel({ value, onChange, onClose }) {
+  const mode = value?.mode || 'all'
+  const startDate = value?.startDate || ''
+  const endDate = value?.endDate || ''
+
+  function setPreset(nextMode) {
+    onChange({
+      mode: nextMode,
+      startDate: '',
+      endDate: '',
+    })
+    if (nextMode !== 'exact' && nextMode !== 'range') {
+      onClose?.()
+    }
+  }
+
+  return (
+    <div className="absolute left-0 top-10 z-30 w-[min(320px,calc(100vw-40px))] rounded-2xl border border-gray-100 bg-white p-3 shadow-xl">
+      <div className="grid grid-cols-2 gap-1.5">
+        {[
+          ['all', 'All dates'],
+          ['today', 'Today'],
+          ['week', 'Last 7 days'],
+          ['month', 'Last 30 days'],
+        ].map(([nextMode, label]) => (
+          <button
+            key={nextMode}
+            type="button"
+            onClick={() => setPreset(nextMode)}
+            className={`h-9 rounded-xl px-2 text-xs font-medium transition ${
+              mode === nextMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-3 border-t border-gray-100 pt-3">
+        <button
+          type="button"
+          onClick={() => onChange({ mode: 'exact', startDate, endDate: '' })}
+          className={`mb-2 h-8 rounded-full px-3 text-xs font-medium ${
+            mode === 'exact' ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-600'
+          }`}
+        >
+          Exact date
+        </button>
+        <input
+          type="date"
+          value={startDate}
+          onChange={(event) => {
+            onChange({
+              mode: 'exact',
+              startDate: event.target.value,
+              endDate: '',
+            })
+          }}
+          className="h-9 w-full rounded-xl border border-gray-100 bg-white px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+        />
+      </div>
+
+      <div className="mt-3 border-t border-gray-100 pt-3">
+        <button
+          type="button"
+          onClick={() => onChange({ mode: 'range', startDate, endDate })}
+          className={`mb-2 h-8 rounded-full px-3 text-xs font-medium ${
+            mode === 'range' ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-600'
+          }`}
+        >
+          Date range
+        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <input
+            type="date"
+            value={startDate}
+            onChange={(event) => {
+              onChange({
+                mode: 'range',
+                startDate: event.target.value,
+                endDate,
+              })
+            }}
+            className="h-9 min-w-0 rounded-xl border border-gray-100 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            aria-label="Start date"
+          />
+          <input
+            type="date"
+            value={endDate}
+            onChange={(event) => {
+              onChange({
+                mode: 'range',
+                startDate,
+                endDate: event.target.value,
+              })
+            }}
+            className="h-9 min-w-0 rounded-xl border border-gray-100 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            aria-label="End date"
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={() => {
+            onChange({ mode: 'all', startDate: '', endDate: '' })
+            onClose?.()
+          }}
+          className="h-8 rounded-full px-3 text-xs text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+        >
+          clear
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          className="h-8 rounded-full bg-indigo-600 px-3 text-xs font-medium text-white hover:bg-indigo-700"
+        >
+          apply
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function meetingMatchesSearch(meeting, normalizedQuery) {
   if (!normalizedQuery) return true
   const haystack = buildMeetingSearchText(meeting)
@@ -491,23 +622,41 @@ function meetingMatchesSearch(meeting, normalizedQuery) {
 }
 
 function meetingMatchesDateFilter(meeting, filter) {
-  if (!filter || filter === 'all') return true
+  const mode = filter?.mode || 'all'
+  if (mode === 'all') return true
   const date = meeting?.created_at ? new Date(meeting.created_at) : null
   if (!date || Number.isNaN(date.getTime())) return false
 
   const now = new Date()
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const meetingDay = new Date(date.getFullYear(), date.getMonth(), date.getDate())
 
-  if (filter === 'today') {
+  if (mode === 'today') {
     return date >= startOfToday
   }
 
-  const days = filter === 'week' ? 7 : filter === 'month' ? 30 : null
-  if (!days) return true
+  if (mode === 'week' || mode === 'month') {
+    const days = mode === 'week' ? 7 : 30
+    const since = new Date(startOfToday)
+    since.setDate(since.getDate() - (days - 1))
+    return date >= since
+  }
 
-  const since = new Date(startOfToday)
-  since.setDate(since.getDate() - (days - 1))
-  return date >= since
+  if (mode === 'exact') {
+    const exactDate = parseDateInput(filter?.startDate)
+    if (!exactDate) return true
+    return meetingDay.getTime() === exactDate.getTime()
+  }
+
+  if (mode === 'range') {
+    const startDate = parseDateInput(filter?.startDate)
+    const endDate = parseDateInput(filter?.endDate)
+    if (startDate && meetingDay < startDate) return false
+    if (endDate && meetingDay > endDate) return false
+    return true
+  }
+
+  return true
 }
 
 function sortMeetingsByDate(meetings, sortOrder) {
@@ -556,6 +705,41 @@ function addSuggestion(suggestions, seen, type, rawValue, normalizedQuery) {
   if (seen.has(key)) return
   seen.add(key)
   suggestions.push({ type, value })
+}
+
+function getDateFilterLabel(filter) {
+  const mode = filter?.mode || 'all'
+  if (mode === 'today') return 'Today'
+  if (mode === 'week') return 'Last 7 days'
+  if (mode === 'month') return 'Last 30 days'
+
+  if (mode === 'exact') {
+    return filter?.startDate ? formatDateInputLabel(filter.startDate) : 'Exact date'
+  }
+
+  if (mode === 'range') {
+    const start = filter?.startDate ? formatDateInputLabel(filter.startDate) : 'Start'
+    const end = filter?.endDate ? formatDateInputLabel(filter.endDate) : 'End'
+    return `${start} - ${end}`
+  }
+
+  return 'Filter date'
+}
+
+function parseDateInput(value) {
+  const text = String(value || '').trim()
+  if (!text) return null
+  const [year, month, day] = text.split('-').map(Number)
+  if (!year || !month || !day) return null
+  const date = new Date(year, month - 1, day)
+  if (Number.isNaN(date.getTime())) return null
+  return date
+}
+
+function formatDateInputLabel(value) {
+  const date = parseDateInput(value)
+  if (!date) return ''
+  return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
 function buildMeetingSearchText(meeting) {
