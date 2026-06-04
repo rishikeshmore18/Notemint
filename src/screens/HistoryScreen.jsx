@@ -5,6 +5,9 @@ import { deleteLocalMeeting, deleteMeetingRecord, getLocalMeetings } from '../li
 export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
   const [meetings, setMeetings] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
+  const [dateFilter, setDateFilter] = useState('all')
+  const [sortOrder, setSortOrder] = useState('newest')
+  const [searchFocused, setSearchFocused] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [deletingMeetingId, setDeletingMeetingId] = useState('')
@@ -272,9 +275,13 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
   }
 
   const normalizedSearch = normalizeSearchText(searchQuery)
-  const visibleMeetings = normalizedSearch
+  const searchedMeetings = normalizedSearch
     ? meetings.filter((meeting) => meetingMatchesSearch(meeting, normalizedSearch))
     : meetings
+  const filteredMeetings = searchedMeetings.filter((meeting) => meetingMatchesDateFilter(meeting, dateFilter))
+  const visibleMeetings = sortMeetingsByDate(filteredMeetings, sortOrder)
+  const searchSuggestions = buildSearchSuggestions(meetings, normalizedSearch).slice(0, 5)
+  const showSuggestions = searchFocused && normalizedSearch.length >= 2 && searchSuggestions.length > 0
 
   return (
     <div className="min-h-screen bg-white flex flex-col max-w-2xl mx-auto px-5 md:px-8">
@@ -284,31 +291,84 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
       </p>
 
       <div className="sticky top-0 z-10 mb-4 bg-white/95 pb-2 backdrop-blur">
-        <div className="flex h-11 items-center gap-2 rounded-2xl border border-gray-100 bg-gray-50 px-3 shadow-sm">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-gray-400" aria-hidden="true">
-            <path
-              d="m20 20-4.2-4.2M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
+        <div className="relative">
+          <div className="flex h-11 items-center gap-2 rounded-2xl border border-gray-100 bg-gray-50 px-3 shadow-sm">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-gray-400" aria-hidden="true">
+              <path
+                d="m20 20-4.2-4.2M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+            </svg>
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => {
+                window.setTimeout(() => setSearchFocused(false), 120)
+              }}
+              placeholder="Search date, time, person..."
+              className="min-w-0 flex-1 bg-transparent text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none"
             />
-          </svg>
-          <input
-            value={searchQuery}
-            onChange={(event) => setSearchQuery(event.target.value)}
-            placeholder="Search by date, time, person..."
-            className="min-w-0 flex-1 bg-transparent text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none"
-          />
-          {searchQuery ? (
-            <button
-              type="button"
-              onClick={() => setSearchQuery('')}
-              className="rounded-full px-2 py-1 text-xs text-gray-400 hover:bg-white hover:text-gray-600"
-              aria-label="Clear search"
-            >
-              clear
-            </button>
+            {searchQuery ? (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="rounded-full px-2 py-1 text-xs text-gray-400 hover:bg-white hover:text-gray-600"
+                aria-label="Clear search"
+              >
+                clear
+              </button>
+            ) : null}
+          </div>
+          {showSuggestions ? (
+            <div className="absolute left-0 right-0 top-12 z-20 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">
+              {searchSuggestions.map((suggestion) => (
+                <button
+                  key={`${suggestion.type}_${suggestion.value}`}
+                  type="button"
+                  onMouseDown={(event) => {
+                    event.preventDefault()
+                    setSearchQuery(suggestion.value)
+                    setSearchFocused(false)
+                  }}
+                  className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-gray-50"
+                >
+                  <span className="truncate text-gray-800">{suggestion.value}</span>
+                  <span className="shrink-0 text-[11px] text-gray-400">{suggestion.type}</span>
+                </button>
+              ))}
+            </div>
           ) : null}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {[
+            ['all', 'All'],
+            ['today', 'Today'],
+            ['week', '7 days'],
+            ['month', '30 days'],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => setDateFilter(value)}
+              className={`h-8 rounded-full px-3 text-xs font-medium transition ${
+                dateFilter === value
+                  ? 'bg-gray-900 text-white'
+                  : 'bg-gray-50 text-gray-500 hover:bg-gray-100 hover:text-gray-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))}
+            className="h-8 rounded-full border border-gray-100 bg-white px-3 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 sm:ml-auto"
+          >
+            {sortOrder === 'newest' ? 'Newest first' : 'Oldest first'}
+          </button>
         </div>
         {normalizedSearch ? (
           <p className="mt-2 text-xs text-gray-400">
@@ -428,6 +488,74 @@ function meetingMatchesSearch(meeting, normalizedQuery) {
   const tokens = normalizedQuery.split(' ').filter(Boolean)
   if (tokens.length === 0) return true
   return tokens.every((token) => haystack.includes(token))
+}
+
+function meetingMatchesDateFilter(meeting, filter) {
+  if (!filter || filter === 'all') return true
+  const date = meeting?.created_at ? new Date(meeting.created_at) : null
+  if (!date || Number.isNaN(date.getTime())) return false
+
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+
+  if (filter === 'today') {
+    return date >= startOfToday
+  }
+
+  const days = filter === 'week' ? 7 : filter === 'month' ? 30 : null
+  if (!days) return true
+
+  const since = new Date(startOfToday)
+  since.setDate(since.getDate() - (days - 1))
+  return date >= since
+}
+
+function sortMeetingsByDate(meetings, sortOrder) {
+  const list = Array.isArray(meetings) ? [...meetings] : []
+  const direction = sortOrder === 'oldest' ? 1 : -1
+  return list.sort((a, b) => {
+    const aTime = new Date(a?.created_at || 0).getTime()
+    const bTime = new Date(b?.created_at || 0).getTime()
+    return direction * (aTime - bTime)
+  })
+}
+
+function buildSearchSuggestions(meetings, normalizedQuery) {
+  if (!normalizedQuery || normalizedQuery.length < 2) return []
+  const suggestions = []
+  const seen = new Set()
+
+  for (const meeting of Array.isArray(meetings) ? meetings : []) {
+    const speakerNames = Array.isArray(meeting?.speaker_names) ? meeting.speaker_names : []
+    for (const name of speakerNames) {
+      addSuggestion(suggestions, seen, 'person', name, normalizedQuery)
+    }
+
+    addSuggestion(suggestions, seen, 'title', meeting?.title, normalizedQuery)
+
+    const createdAt = meeting?.created_at ? new Date(meeting.created_at) : null
+    if (createdAt && !Number.isNaN(createdAt.getTime())) {
+      const dateValues = buildDateSearchParts(createdAt)
+        .filter(Boolean)
+        .filter((value) => String(value).length <= 24)
+      for (const value of dateValues) {
+        addSuggestion(suggestions, seen, 'date', value, normalizedQuery)
+      }
+    }
+  }
+
+  return suggestions.sort((a, b) => a.value.length - b.value.length)
+}
+
+function addSuggestion(suggestions, seen, type, rawValue, normalizedQuery) {
+  const value = String(rawValue || '').replace(/\s+/g, ' ').trim()
+  if (!value || value.length < 2 || value.length > 64) return
+  const normalizedValue = normalizeSearchText(value)
+  if (!normalizedValue.includes(normalizedQuery)) return
+  const key = `${type}:${normalizedValue}`
+  if (seen.has(key)) return
+  seen.add(key)
+  suggestions.push({ type, value })
 }
 
 function buildMeetingSearchText(meeting) {
