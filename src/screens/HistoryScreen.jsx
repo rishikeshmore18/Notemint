@@ -4,6 +4,7 @@ import { deleteLocalMeeting, deleteMeetingRecord, getLocalMeetings } from '../li
 
 export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
   const [meetings, setMeetings] = useState([])
+  const [searchQuery, setSearchQuery] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [deletingMeetingId, setDeletingMeetingId] = useState('')
@@ -47,7 +48,7 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
         return
       }
 
-      const remoteMeetings = data || []
+      const remoteMeetings = await attachSpeakerSearchNames(data || [])
       const merged = [...remoteMeetings]
       for (const localMeeting of localMeetings) {
         if (!merged.some((m) => m.id === localMeeting.id)) {
@@ -67,6 +68,47 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function attachSpeakerSearchNames(remoteMeetings) {
+    const list = Array.isArray(remoteMeetings) ? remoteMeetings : []
+    const meetingIds = list
+      .map((meeting) => meeting?.id)
+      .filter((id) => id && !String(id).startsWith('local_'))
+
+    if (meetingIds.length === 0) return list
+
+    try {
+      const { data, error } = await supabase
+        .from('meeting_speakers')
+        .select('meeting_id, display_name')
+        .in('meeting_id', meetingIds)
+
+      if (error || !Array.isArray(data)) {
+        if (error) console.warn('[History] Could not load speaker search names:', error.message)
+        return list
+      }
+
+      const namesByMeeting = new Map()
+      for (const row of data) {
+        const meetingId = row?.meeting_id
+        const displayName = String(row?.display_name || '').trim()
+        if (!meetingId || !displayName || isGenericSpeakerLabel(displayName)) continue
+        const current = namesByMeeting.get(meetingId) || []
+        if (!current.some((name) => name.toLowerCase() === displayName.toLowerCase())) {
+          current.push(displayName)
+        }
+        namesByMeeting.set(meetingId, current)
+      }
+
+      return list.map((meeting) => ({
+        ...meeting,
+        speaker_names: namesByMeeting.get(meeting.id) || [],
+      }))
+    } catch (err) {
+      console.warn('[History] Could not attach speaker search names:', err?.message || err)
+      return list
     }
   }
 
@@ -229,12 +271,51 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
     return !text || /^person\s*\d+$/i.test(text)
   }
 
+  const normalizedSearch = normalizeSearchText(searchQuery)
+  const visibleMeetings = normalizedSearch
+    ? meetings.filter((meeting) => meetingMatchesSearch(meeting, normalizedSearch))
+    : meetings
+
   return (
     <div className="min-h-screen bg-white flex flex-col max-w-2xl mx-auto px-5 md:px-8">
       <p className="text-lg font-semibold text-gray-900 mb-1">past meetings</p>
       <p className="text-xs text-gray-400 mb-5">
         {meetings.length} meeting{meetings.length !== 1 ? 's' : ''} saved
       </p>
+
+      <div className="sticky top-0 z-10 mb-4 bg-white/95 pb-2 backdrop-blur">
+        <div className="flex h-11 items-center gap-2 rounded-2xl border border-gray-100 bg-gray-50 px-3 shadow-sm">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-gray-400" aria-hidden="true">
+            <path
+              d="m20 20-4.2-4.2M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+          </svg>
+          <input
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+            placeholder="Search by date, time, person..."
+            className="min-w-0 flex-1 bg-transparent text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none"
+          />
+          {searchQuery ? (
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="rounded-full px-2 py-1 text-xs text-gray-400 hover:bg-white hover:text-gray-600"
+              aria-label="Clear search"
+            >
+              clear
+            </button>
+          ) : null}
+        </div>
+        {normalizedSearch ? (
+          <p className="mt-2 text-xs text-gray-400">
+            {visibleMeetings.length} result{visibleMeetings.length !== 1 ? 's' : ''} for "{searchQuery.trim()}"
+          </p>
+        ) : null}
+      </div>
 
       {loading && (
         <div className="flex justify-center py-12">
@@ -261,9 +342,16 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
         </div>
       )}
 
-      {!loading && !error && meetings.length > 0 && (
+      {!loading && !error && meetings.length > 0 && visibleMeetings.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <p className="text-sm text-gray-400 mb-1">no matching meetings</p>
+          <p className="text-xs text-gray-300">try a date, time, title, or participant name</p>
+        </div>
+      )}
+
+      {!loading && !error && visibleMeetings.length > 0 && (
         <div className="flex flex-col gap-0 flex-1 overflow-y-auto" style={{ maxHeight: 'calc(100dvh - 112px)' }}>
-          {meetings.map((meeting) => (
+          {visibleMeetings.map((meeting) => (
             <div key={meeting.id} className="relative group">
               <button
                 onClick={() => handleOpenMeeting(meeting)}
@@ -332,4 +420,76 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
       )}
     </div>
   )
+}
+
+function meetingMatchesSearch(meeting, normalizedQuery) {
+  if (!normalizedQuery) return true
+  const haystack = buildMeetingSearchText(meeting)
+  const tokens = normalizedQuery.split(' ').filter(Boolean)
+  if (tokens.length === 0) return true
+  return tokens.every((token) => haystack.includes(token))
+}
+
+function buildMeetingSearchText(meeting) {
+  const createdAt = meeting?.created_at
+  const createdDate = createdAt ? new Date(createdAt) : null
+  const dateParts = Number.isNaN(createdDate?.getTime?.()) ? [] : buildDateSearchParts(createdDate)
+  const speakerNames = Array.isArray(meeting?.speaker_names) ? meeting.speaker_names : []
+
+  return normalizeSearchText(
+    [
+      meeting?.title,
+      meeting?.summary,
+      ...speakerNames,
+      ...dateParts,
+    ].join(' '),
+  )
+}
+
+function buildDateSearchParts(date) {
+  const monthLong = date.toLocaleDateString('en-US', { month: 'long' })
+  const monthShort = date.toLocaleDateString('en-US', { month: 'short' })
+  const weekdayLong = date.toLocaleDateString('en-US', { weekday: 'long' })
+  const weekdayShort = date.toLocaleDateString('en-US', { weekday: 'short' })
+  const day = String(date.getDate())
+  const year = String(date.getFullYear())
+  const isoDate = date.toISOString().slice(0, 10)
+  const time12 = date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  const time24 = date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  const relative = getRelativeDateLabel(date)
+
+  return [
+    monthLong,
+    monthShort,
+    weekdayLong,
+    weekdayShort,
+    day,
+    year,
+    isoDate,
+    time12,
+    time24,
+    relative,
+    `${monthLong} ${day}`,
+    `${monthShort} ${day}`,
+  ]
+}
+
+function getRelativeDateLabel(date) {
+  const now = new Date()
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const startOfDate = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const diffDays = Math.round((startOfToday - startOfDate) / (1000 * 60 * 60 * 24))
+
+  if (diffDays === 0) return 'today'
+  if (diffDays === 1) return 'yesterday'
+  if (diffDays > 1 && diffDays < 7) return `${diffDays} days ago`
+  return ''
+}
+
+function normalizeSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9:]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
