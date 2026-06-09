@@ -3,10 +3,16 @@ import { getVoiceStatus, identifySpeakersBatch, rememberContactVoice } from '../
 import { getSpeakerNameSuggestions } from '../lib/speakerMemory'
 
 export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfirmed, onSkip }) {
+  const [reviewSegments, setReviewSegments] = useState([])
   const [speakerNames, setSpeakerNames] = useState({})
   const [editingSpeaker, setEditingSpeaker] = useState(null)
   const [inputValue, setInputValue] = useState('')
   const [snippets, setSnippets] = useState({})
+  const [expandedSpeaker, setExpandedSpeaker] = useState(null)
+  const [speakerClipSnippets, setSpeakerClipSnippets] = useState({})
+  const [missedExpanded, setMissedExpanded] = useState(false)
+  const [missedClipSnippets, setMissedClipSnippets] = useState([])
+  const [clipLoadingKey, setClipLoadingKey] = useState(null)
   const [playingSpeaker, setPlayingSpeaker] = useState(null)
   const [identifyingStatus, setIdentifyingStatus] = useState('idle')
   const [autoLabelMeta, setAutoLabelMeta] = useState({})
@@ -17,10 +23,28 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
   const snippetUrlsRef = useRef([])
   const autoConfirmedRef = useRef(false)
 
+  useEffect(() => {
+    setReviewSegments(Array.isArray(segments) ? segments.map((segment) => ({ ...segment })) : [])
+    setExpandedSpeaker(null)
+    setSpeakerClipSnippets({})
+    setMissedExpanded(false)
+    setMissedClipSnippets([])
+  }, [segments])
+
   const allSpeakers = useMemo(() => {
     if (!Array.isArray(segments)) return []
     return [...new Set(segments.map((s) => Number(s.speaker)).filter((n) => !Number.isNaN(n)))].sort((a, b) => a - b)
   }, [segments])
+
+  const displaySpeakers = useMemo(() => {
+    const source = reviewSegments.length > 0 ? reviewSegments : segments
+    if (!Array.isArray(source)) return []
+    return [...new Set(source.map((s) => Number(s.speaker)).filter((n) => !Number.isNaN(n)))].sort((a, b) => a - b)
+  }, [reviewSegments, segments])
+
+  const missedSpeakerCandidates = useMemo(() => {
+    return findPossibleMissedSpeakerCandidates(reviewSegments.length > 0 ? reviewSegments : segments, 6)
+  }, [reviewSegments, segments])
 
   const selfAssignedSpeaker = useMemo(() => {
     const row = Object.entries(speakerNames).find(([, value]) => value === 'You')
@@ -371,7 +395,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
     const labelMap = {}
     let personIndex = 1
 
-    for (const speakerId of allSpeakers) {
+    for (const speakerId of displaySpeakers) {
       if (speakerNames[speakerId]) {
         labelMap[speakerId] = speakerNames[speakerId]
       } else {
@@ -380,7 +404,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
       }
     }
 
-    const rememberTasks = allSpeakers
+    const rememberTasks = displaySpeakers
       .map((speakerId) => {
         const label = labelMap[speakerId]
         const snippetBlob = snippets[speakerId]?.blob
@@ -398,7 +422,186 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
       })
     }
 
-    onConfirmed(labelMap)
+    onConfirmed(labelMap, reviewSegments.length > 0 ? reviewSegments : segments)
+  }
+
+  async function handleToggleSpeakerClips(speakerId) {
+    const nextExpanded = expandedSpeaker === speakerId ? null : speakerId
+    setExpandedSpeaker(nextExpanded)
+    if (nextExpanded === null || speakerClipSnippets[speakerId]?.length > 0 || !audioBlob) return
+
+    setClipLoadingKey(`speaker-${speakerId}`)
+    try {
+      const sourceSegments = reviewSegments.length > 0 ? reviewSegments : segments
+      const candidates = findRepresentativeSegmentsForSpeaker(sourceSegments, speakerId, 6)
+      const clips = await extractClipSnippets(audioBlob, candidates, (url) => snippetUrlsRef.current.push(url))
+      setSpeakerClipSnippets((prev) => ({
+        ...prev,
+        [speakerId]: clips,
+      }))
+    } catch (err) {
+      console.warn('[SpeakerReview] Could not prepare speaker clips:', err?.message || err)
+    } finally {
+      setClipLoadingKey(null)
+    }
+  }
+
+  async function handleToggleMissedClips() {
+    const nextExpanded = !missedExpanded
+    setMissedExpanded(nextExpanded)
+    if (!nextExpanded || missedClipSnippets.length > 0 || !audioBlob) return
+
+    setClipLoadingKey('missed')
+    try {
+      const clips = await extractClipSnippets(audioBlob, missedSpeakerCandidates, (url) => snippetUrlsRef.current.push(url))
+      setMissedClipSnippets(clips)
+    } catch (err) {
+      console.warn('[SpeakerReview] Could not prepare missed speaker clips:', err?.message || err)
+    } finally {
+      setClipLoadingKey(null)
+    }
+  }
+
+  function moveClipToNewSpeaker(clip, reason = 'multiple_voices') {
+    if (!clip || !Number.isInteger(clip.segmentIndex)) return
+    const nextSpeaker = getNextSpeakerId(reviewSegments.length > 0 ? reviewSegments : segments)
+    reassignSegmentSpeaker(clip, nextSpeaker, reason)
+    setSpeakerNames((prev) => ({
+      ...prev,
+      [nextSpeaker]: prev[nextSpeaker] || '',
+    }))
+  }
+
+  function keepClipWithCurrentSpeaker(clip) {
+    if (!clip || !Number.isInteger(clip.segmentIndex)) return
+    setReviewSegments((prev) => {
+      const source = prev.length > 0 ? prev : (Array.isArray(segments) ? segments.map((segment) => ({ ...segment })) : [])
+      return source.map((segment, index) => {
+        if (index !== clip.segmentIndex) return segment
+        return {
+          ...segment,
+          reviewMeta: {
+            ...(segment.reviewMeta || {}),
+            speakerReview: 'confirmed_same_speaker',
+            reviewedAt: new Date().toISOString(),
+          },
+        }
+      })
+    })
+  }
+
+  function markClipUnclear(clip, reason = 'unclear_or_overlapping') {
+    if (!clip || !Number.isInteger(clip.segmentIndex)) return
+    setReviewSegments((prev) => {
+      const source = prev.length > 0 ? prev : (Array.isArray(segments) ? segments.map((segment) => ({ ...segment })) : [])
+      return source.map((segment, index) => {
+        if (index !== clip.segmentIndex) return segment
+        return {
+          ...segment,
+          uncertain: true,
+          reviewMeta: {
+            ...(segment.reviewMeta || {}),
+            speakerReview: reason,
+            reviewedAt: new Date().toISOString(),
+          },
+        }
+      })
+    })
+  }
+
+  function reassignSegmentSpeaker(clip, newSpeakerId, reason) {
+    setReviewSegments((prev) => {
+      const source = prev.length > 0 ? prev : (Array.isArray(segments) ? segments.map((segment) => ({ ...segment })) : [])
+      return source.map((segment, index) => {
+        if (index !== clip.segmentIndex) return segment
+        const originalSpeaker = segment.reviewMeta?.originalSpeaker ?? segment.speaker
+        return {
+          ...segment,
+          speaker: newSpeakerId,
+          uncertain: reason === 'possible_missed_speaker' ? true : segment.uncertain,
+          reviewMeta: {
+            ...(segment.reviewMeta || {}),
+            originalSpeaker,
+            reassignedFrom: segment.speaker,
+            reassignedTo: newSpeakerId,
+            speakerReview: reason,
+            reviewedAt: new Date().toISOString(),
+          },
+        }
+      })
+    })
+  }
+
+  function renderClipReview({ clips, loadingKey, emptyText, onCreateNew, unclearReason }) {
+    if (clipLoadingKey === loadingKey) {
+      return <p className="text-xs text-indigo-400 py-2">preparing audio clips...</p>
+    }
+
+    if (!audioBlob) {
+      return <p className="text-xs text-gray-400 py-2">clip review needs the meeting audio.</p>
+    }
+
+    if (!clips || clips.length === 0) {
+      return <p className="text-xs text-gray-400 py-2">{emptyText}</p>
+    }
+
+    return (
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
+        {clips.map((clip, clipIndex) => {
+          const key = `${loadingKey}-${clip.segmentIndex}-${clipIndex}`
+          const isClipPlaying = playingSpeaker === key
+          return (
+            <div key={key} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-gray-700">
+                    clip {clipIndex + 1} · {formatClipTime(clip.startTime)}
+                  </p>
+                  <p className="text-[11px] text-gray-400 line-clamp-2 mt-1">"{clip.text || 'audio snippet'}"</p>
+                </div>
+                <button
+                  onClick={() => toggleSnippet(key)}
+                  disabled={!clip.url}
+                  className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center ${
+                    clip.url ? 'bg-white hover:bg-gray-100' : 'bg-gray-100 opacity-50'
+                  }`}
+                >
+                  <span className="text-[11px] text-gray-600">{isClipPlaying ? '||' : 'play'}</span>
+                </button>
+              </div>
+              <audio
+                ref={(el) => {
+                  if (el) audioRefs.current[key] = el
+                }}
+                src={clip.url || ''}
+                onEnded={() => setPlayingSpeaker(null)}
+                style={{ display: 'none' }}
+              />
+              <div className="grid grid-cols-1 gap-1.5 mt-3">
+                <button
+                  onClick={() => keepClipWithCurrentSpeaker(clip)}
+                  className="h-8 rounded-lg bg-white text-xs text-gray-600 border border-gray-100"
+                >
+                  keep here
+                </button>
+                <button
+                  onClick={() => onCreateNew(clip)}
+                  className="h-8 rounded-lg bg-indigo-600 text-xs font-medium text-white"
+                >
+                  move to new person
+                </button>
+                <button
+                  onClick={() => markClipUnclear(clip, unclearReason)}
+                  className="h-8 rounded-lg bg-amber-50 text-xs font-medium text-amber-700"
+                >
+                  mark unclear
+                </button>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    )
   }
 
   if (allSpeakers.length === 1) {
@@ -473,11 +676,11 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
         </div>
       </div>
 
-      <p className="text-xl font-semibold text-gray-900 mt-4 mb-1">{allSpeakers.length} speakers found</p>
+      <p className="text-xl font-semibold text-gray-900 mt-4 mb-1">{displaySpeakers.length} speakers found</p>
       <p className="text-sm text-gray-400 mb-5">listen and identify each speaker</p>
 
       <div className="flex flex-col gap-3 flex-1">
-        {allSpeakers.map((sp, idx) => {
+        {displaySpeakers.map((sp, idx) => {
           const name = speakerNames[sp]
           const snippet = snippets[sp]
           const isPlaying = playingSpeaker === sp
@@ -622,11 +825,62 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
                       ))}
                     </div>
                   ) : null}
+
+                  <button
+                    onClick={() => handleToggleSpeakerClips(sp)}
+                    className="h-8 rounded-lg border border-dashed border-gray-200 text-xs text-gray-500 hover:bg-gray-50"
+                  >
+                    {expandedSpeaker === sp ? 'hide voice clips' : 'multiple voices?'}
+                  </button>
                 </div>
               )}
+
+              {expandedSpeaker === sp ? (
+                <div className="mt-3 border-t border-gray-100 pt-3">
+                  <p className="text-xs font-medium text-gray-700">Review clips from {name || `Person ${idx + 1}`}</p>
+                  <p className="text-[11px] text-gray-400 mt-1">
+                    If one clip sounds like someone else, move only that clip to a new person.
+                  </p>
+                  {renderClipReview({
+                    clips: speakerClipSnippets[sp] || [],
+                    loadingKey: `speaker-${sp}`,
+                    emptyText: 'No extra clips found for this speaker.',
+                    onCreateNew: (clip) => moveClipToNewSpeaker(clip, 'multiple_voices'),
+                    unclearReason: 'unclear_or_overlapping',
+                  })}
+                </div>
+              ) : null}
             </div>
           )
         })}
+
+        {missedSpeakerCandidates.length > 0 ? (
+          <div className="border border-amber-100 rounded-2xl p-4 bg-amber-50/40">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Possible missed speaker</p>
+                <p className="text-xs text-gray-500 mt-1">Review uncertain clips only if someone may have been merged.</p>
+              </div>
+              <button
+                onClick={handleToggleMissedClips}
+                className="h-8 px-3 rounded-lg bg-white border border-amber-100 text-xs text-amber-700"
+              >
+                {missedExpanded ? 'hide' : 'review'}
+              </button>
+            </div>
+            {missedExpanded ? (
+              <div className="mt-3">
+                {renderClipReview({
+                  clips: missedClipSnippets,
+                  loadingKey: 'missed',
+                  emptyText: 'No uncertain clips are available.',
+                  onCreateNew: (clip) => moveClipToNewSpeaker(clip, 'possible_missed_speaker'),
+                  unclearReason: 'unclear_or_overlapping',
+                })}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-2 pt-5 pb-8">
@@ -656,6 +910,137 @@ function findBestSegmentForSpeaker(segments, speakerId) {
     const curDur = Number(current?.endTime || 0) - Number(current?.startTime || 0)
     return curDur > bestDur ? current : best
   }, candidates[0])
+}
+
+function findRepresentativeSegmentsForSpeaker(segments, speakerId, limit = 6) {
+  const candidates = (Array.isArray(segments) ? segments : [])
+    .map((segment, index) => ({ ...segment, segmentIndex: index }))
+    .filter((segment) => {
+      if (Number(segment?.speaker) !== Number(speakerId)) return false
+      if (!String(segment?.text || '').trim()) return false
+      const start = Number(segment?.startTime)
+      const end = Number(segment?.endTime)
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return false
+      return end - start >= 0.8
+    })
+
+  if (candidates.length <= limit) return candidates
+
+  const sortedByTime = [...candidates].sort((a, b) => Number(a.startTime || 0) - Number(b.startTime || 0))
+  const picked = []
+  const bucketSize = Math.max(1, Math.floor(sortedByTime.length / limit))
+
+  for (let i = 0; i < sortedByTime.length && picked.length < limit; i += bucketSize) {
+    const bucket = sortedByTime.slice(i, i + bucketSize)
+    const best = bucket.reduce((winner, current) => {
+      const winnerScore = scoreReviewCandidate(winner)
+      const currentScore = scoreReviewCandidate(current)
+      return currentScore > winnerScore ? current : winner
+    }, bucket[0])
+    picked.push(best)
+  }
+
+  return picked.slice(0, limit)
+}
+
+function findPossibleMissedSpeakerCandidates(segments, limit = 6) {
+  const candidates = (Array.isArray(segments) ? segments : [])
+    .map((segment, index) => ({ ...segment, segmentIndex: index }))
+    .filter((segment) => {
+      const text = String(segment?.text || '').trim()
+      if (!text) return false
+      const start = Number(segment?.startTime)
+      const end = Number(segment?.endTime)
+      if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return false
+      const duration = end - start
+      const wordCount = text.split(/\s+/g).filter(Boolean).length
+      const confidence = firstFiniteNumber(segment?.speakerConfidence, segment?.confidence, segment?.wordConfidence)
+
+      return Boolean(
+        segment?.uncertain ||
+          segment?.repairMeta ||
+          segment?.reviewMeta?.speakerReview === 'unclear_or_overlapping' ||
+          (Number.isFinite(confidence) && confidence < 0.68) ||
+          duration < 1.2 ||
+          wordCount <= 4,
+      )
+    })
+    .sort((a, b) => {
+      const aScore = scoreMissedCandidate(a)
+      const bScore = scoreMissedCandidate(b)
+      return bScore - aScore
+    })
+
+  return candidates.slice(0, limit)
+}
+
+function scoreReviewCandidate(segment) {
+  const duration = Math.max(0, Number(segment?.endTime || 0) - Number(segment?.startTime || 0))
+  const words = String(segment?.text || '').trim().split(/\s+/g).filter(Boolean).length
+  const confidence = firstFiniteNumber(segment?.speakerConfidence, segment?.confidence, segment?.wordConfidence)
+  const confidenceScore = Number.isFinite(confidence) ? confidence * 2 : 1
+  return Math.min(duration, 8) + Math.min(words / 8, 2) + confidenceScore
+}
+
+function scoreMissedCandidate(segment) {
+  const duration = Math.max(0, Number(segment?.endTime || 0) - Number(segment?.startTime || 0))
+  const words = String(segment?.text || '').trim().split(/\s+/g).filter(Boolean).length
+  const confidence = firstFiniteNumber(segment?.speakerConfidence, segment?.confidence, segment?.wordConfidence)
+  let score = 0
+  if (segment?.uncertain) score += 3
+  if (segment?.repairMeta) score += 2
+  if (Number.isFinite(confidence) && confidence < 0.68) score += 2
+  if (duration < 1.2) score += 1
+  if (words <= 4) score += 1
+  return score
+}
+
+async function extractClipSnippets(audioBlob, candidates, onUrl) {
+  const clips = []
+  for (const candidate of Array.isArray(candidates) ? candidates : []) {
+    if (clips.length >= 6) break
+    const start = Number(candidate?.startTime || 0)
+    const end = Number(candidate?.endTime || 0)
+    if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) continue
+
+    const snippet = await extractAudioSlice(audioBlob, Math.max(0, start), Math.min(end, start + 8))
+    if (!snippet) continue
+    const url = URL.createObjectURL(snippet)
+    onUrl?.(url)
+    clips.push({
+      blob: snippet,
+      url,
+      text: candidate.text || '',
+      speaker: candidate.speaker,
+      segmentIndex: candidate.segmentIndex,
+      startTime: start,
+      endTime: end,
+    })
+  }
+  return clips
+}
+
+function getNextSpeakerId(segments) {
+  const speakers = (Array.isArray(segments) ? segments : [])
+    .map((segment) => Number(segment?.speaker))
+    .filter((speaker) => Number.isFinite(speaker))
+  if (speakers.length === 0) return 0
+  return Math.max(...speakers) + 1
+}
+
+function firstFiniteNumber(...values) {
+  for (const value of values) {
+    const number = Number(value)
+    if (Number.isFinite(number)) return number
+  }
+  return null
+}
+
+function formatClipTime(seconds) {
+  const total = Math.max(0, Math.floor(Number(seconds || 0)))
+  const minutes = Math.floor(total / 60)
+  const rest = total % 60
+  return `${minutes}:${String(rest).padStart(2, '0')}`
 }
 
 function getSpeakerStats(segments, speakerId) {

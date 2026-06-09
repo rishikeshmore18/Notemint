@@ -582,10 +582,17 @@ export default function App() {
           segments={bestAvailableSegments}
           audioBlob={meetingAudioBlob}
           user={currentUser}
-          onConfirmed={(labelMap) => {
+          onConfirmed={(labelMap, correctedSegments) => {
             void rememberSpeakerLabels(currentUser?.id, labelMap).catch((err) => {
               console.warn('[App] Could not remember speaker names:', err?.message || err)
             })
+            if (Array.isArray(correctedSegments) && correctedSegments.length > 0) {
+              if (diarizedSegments.length > 0) {
+                setDiarizedSegments(correctedSegments)
+              } else {
+                setMeetingSegments(correctedSegments)
+              }
+            }
             setConfirmedLabelMap(labelMap)
             setScreen('results')
           }}
