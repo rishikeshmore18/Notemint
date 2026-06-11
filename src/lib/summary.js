@@ -1,3 +1,4 @@
+import * as tus from 'tus-js-client'
 import { streamSummary } from './api.js'
 
 const LIGHT_FILLER_REGEX = /\b(um+|uh+|er+|erm|hmm+|ah+)\b/gi
@@ -5,6 +6,8 @@ const LOCAL_MEETINGS_KEY_PREFIX = 'local_meetings_'
 const MEETING_AUDIO_BUCKET = 'meeting-audio'
 const DEFAULT_AUDIO_RETENTION_DAYS = 7
 const KEEP_MEETING_AUDIO_FOREVER = import.meta.env.VITE_KEEP_MEETING_AUDIO_FOREVER !== 'false'
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
 
 export function compressTranscript(segments, labelMap) {
   if (!segments || segments.length === 0) {
@@ -133,7 +136,14 @@ export async function createMeetingDraft(supabase, userId, title = null) {
 
 export async function uploadMeetingAudio(
   supabase,
-  { userId, meetingId, audioBlob, durationSeconds = null, retentionDays = DEFAULT_AUDIO_RETENTION_DAYS },
+  {
+    userId,
+    meetingId,
+    audioBlob,
+    durationSeconds = null,
+    retentionDays = DEFAULT_AUDIO_RETENTION_DAYS,
+    onProgress = null,
+  },
 ) {
   if (!supabase || !userId || !meetingId || !audioBlob || audioBlob.size === 0) {
     return { ok: false, path: null, error: 'No audio captured.' }
@@ -147,15 +157,12 @@ export async function uploadMeetingAudio(
     ? null
     : new Date(Date.now() + safeRetentionDays * 24 * 60 * 60 * 1000).toISOString()
 
-  const upload = await supabase.storage.from(MEETING_AUDIO_BUCKET).upload(path, audioBlob, {
-    contentType: mimeType,
-    cacheControl: '3600',
-    upsert: true,
+  await uploadMeetingAudioObject(supabase, {
+    path,
+    audioBlob,
+    mimeType,
+    onProgress,
   })
-
-  if (upload.error) {
-    throw new Error(upload.error.message || 'Could not upload meeting audio')
-  }
 
   const { error: updateError } = await supabase
     .from('meetings')
@@ -201,6 +208,81 @@ export async function uploadMeetingAudio(
   }
 
   return { ok: true, path, error: null }
+}
+
+async function uploadMeetingAudioObject(supabase, { path, audioBlob, mimeType, onProgress }) {
+  try {
+    await uploadMeetingAudioResumable(supabase, {
+      path,
+      audioBlob,
+      mimeType,
+      onProgress,
+    })
+    return true
+  } catch (err) {
+    console.warn('[AudioUpload] Resumable upload failed, falling back to standard upload:', err?.message || err)
+  }
+
+  onProgress?.({ bytesUploaded: 0, bytesTotal: audioBlob.size || 0, percentage: 5 })
+  const upload = await supabase.storage.from(MEETING_AUDIO_BUCKET).upload(path, audioBlob, {
+    contentType: mimeType,
+    cacheControl: '3600',
+    upsert: true,
+  })
+
+  if (upload.error) {
+    throw new Error(upload.error.message || 'Could not upload meeting audio')
+  }
+  onProgress?.({ bytesUploaded: audioBlob.size || 0, bytesTotal: audioBlob.size || 0, percentage: 100 })
+  return true
+}
+
+async function uploadMeetingAudioResumable(supabase, { path, audioBlob, mimeType, onProgress }) {
+  const endpoint = getSupabaseTusEndpoint()
+  if (!endpoint) throw new Error('Missing Supabase upload endpoint')
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession()
+
+  const accessToken = session?.access_token
+  if (!accessToken) throw new Error('Missing Supabase session')
+
+  return new Promise((resolve, reject) => {
+    const upload = new tus.Upload(audioBlob, {
+      endpoint,
+      retryDelays: [0, 3000, 5000, 10000, 20000],
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        apikey: SUPABASE_ANON_KEY || '',
+        'x-upsert': 'true',
+      },
+      uploadDataDuringCreation: true,
+      removeFingerprintOnSuccess: true,
+      chunkSize: 6 * 1024 * 1024,
+      metadata: {
+        bucketName: MEETING_AUDIO_BUCKET,
+        objectName: path,
+        contentType: mimeType,
+        cacheControl: '3600',
+      },
+      onError: (error) => {
+        reject(error)
+      },
+      onProgress: (bytesUploaded, bytesTotal) => {
+        const total = Number(bytesTotal || audioBlob.size || 0)
+        const uploaded = Number(bytesUploaded || 0)
+        const percentage = total > 0 ? Math.min(100, Math.max(0, Math.round((uploaded / total) * 100))) : 0
+        onProgress?.({ bytesUploaded: uploaded, bytesTotal: total, percentage })
+      },
+      onSuccess: () => {
+        onProgress?.({ bytesUploaded: audioBlob.size || 0, bytesTotal: audioBlob.size || 0, percentage: 100 })
+        resolve(true)
+      },
+    })
+
+    upload.start()
+  })
 }
 
 export async function deleteMeetingAudio(supabase, { userId, meetingId, audioStoragePath }) {
@@ -695,6 +777,22 @@ function normalizeRetentionDays(value) {
   const parsed = Number(value)
   if (!Number.isFinite(parsed)) return DEFAULT_AUDIO_RETENTION_DAYS
   return Math.max(1, Math.min(365, Math.round(parsed)))
+}
+
+function getSupabaseTusEndpoint() {
+  const rawUrl = String(SUPABASE_URL || '').trim()
+  if (!rawUrl) return ''
+
+  try {
+    const url = new URL(rawUrl)
+    const host = url.hostname
+    if (host.endsWith('.supabase.co')) {
+      return `${url.protocol}//${host.replace('.supabase.co', '.storage.supabase.co')}/storage/v1/upload/resumable`
+    }
+    return `${url.origin}/storage/v1/upload/resumable`
+  } catch {
+    return ''
+  }
 }
 
 function buildMeetingAudioPath(userId, meetingId, extension) {

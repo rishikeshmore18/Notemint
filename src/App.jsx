@@ -21,8 +21,8 @@ import { hasContextProfile } from './lib/contextProfile'
 import {
   createMeetingDraft,
   setMeetingAudioUploadStatus,
-  uploadMeetingAudio,
 } from './lib/summary'
+import { retryPendingAudioUploads, saveAudioUploadBackup, uploadAudioWithBackup } from './lib/audioUploadQueue'
 import { repairSpeakerTurns } from './lib/speakerTurnRepair'
 
 export default function App() {
@@ -36,6 +36,7 @@ export default function App() {
   const [meetingId, setMeetingId] = useState(null)
   const [audioSaveMessage, setAudioSaveMessage] = useState('')
   const [audioUploadStatus, setAudioUploadStatus] = useState('pending')
+  const [audioUploadProgress, setAudioUploadProgress] = useState(0)
   const [meetingContext, setMeetingContext] = useState(null)
   const [diarizedSegments, setDiarizedSegments] = useState([])
   const [confirmedLabelMap, setConfirmedLabelMap] = useState({})
@@ -49,6 +50,7 @@ export default function App() {
   })
   const callbackContextRef = useRef(getAuthCallbackContext())
   const redirectTimeoutRef = useRef(null)
+  const uploadRetryInFlightRef = useRef(false)
   const feedbackUrl = String(
     import.meta.env.VITE_FEEDBACK_FORM_URL || 'https://forms.gle/vJekpUCer7bX3M856',
   ).trim()
@@ -104,6 +106,22 @@ export default function App() {
       subscription.unsubscribe()
     }
   }, [])
+
+  useEffect(() => {
+    if (!currentUser?.id) return
+
+    const retryUploads = () => {
+      void retryPendingMeetingAudioUploads()
+    }
+
+    retryUploads()
+    window.addEventListener('online', retryUploads)
+    window.addEventListener('focus', retryUploads)
+    return () => {
+      window.removeEventListener('online', retryUploads)
+      window.removeEventListener('focus', retryUploads)
+    }
+  }, [currentUser?.id])
 
   useEffect(() => {
     const refreshIssue = () => {
@@ -312,6 +330,7 @@ export default function App() {
     setMeetingId(null)
     setAudioSaveMessage('')
     setAudioUploadStatus('pending')
+    setAudioUploadProgress(0)
 
     if (!currentUser?.id || !audioBlob || audioBlob.size === 0) {
       setAudioUploadStatus('failed')
@@ -332,61 +351,98 @@ export default function App() {
       return null
     }
 
-    const uploadPromise = uploadMeetingAudio(supabase, {
-      userId: currentUser.id,
-      meetingId: draftMeetingId,
-      audioBlob,
-    })
-
-    uploadPromise
-      .then((result) => {
-        if (!result?.ok) {
-          setAudioUploadStatus('failed')
-          setAudioSaveMessage('Audio playback could not be saved. Transcript is still available.')
-        } else {
-          setAudioUploadStatus('uploaded')
-          setAudioSaveMessage('')
-        }
-      })
-      .catch(async (err) => {
-        console.warn('[App] Could not upload meeting audio:', err?.message || err)
-        setAudioUploadStatus('failed')
-        try {
-          await setMeetingAudioUploadStatus(supabase, {
-            userId: currentUser.id,
-            meetingId: draftMeetingId,
-            status: 'failed',
-          })
-        } catch (statusErr) {
-          console.warn('[App] Could not mark audio upload as failed:', statusErr?.message || statusErr)
-        }
-        setAudioSaveMessage('Audio playback could not be saved. Transcript is still available.')
-      })
-
     try {
-      const result = await uploadPromise
-      if (result?.ok) {
-        return {
-          meetingId: draftMeetingId,
-          audioStoragePath: result.path || '',
-        }
-      }
+      await saveAudioUploadBackup({
+        userId: currentUser.id,
+        meetingId: draftMeetingId,
+        audioBlob,
+      })
+      setAudioSaveMessage('Recording is backed up on this device and uploading.')
     } catch (err) {
-      console.warn('[App] Audio upload did not finish before transcription fallback:', err?.message || err)
-      setAudioUploadStatus('failed')
-      setAudioSaveMessage('Audio playback could not be saved. Transcript is still available.')
+      console.warn('[App] Could not create local audio backup:', err?.message || err)
+      setAudioSaveMessage('Recording is uploading. Keep this tab open until audio is saved.')
     }
 
-    return { meetingId: draftMeetingId, audioStoragePath: '' }
+    void uploadAudioWithBackup(
+      supabase,
+      {
+        userId: currentUser.id,
+        meetingId: draftMeetingId,
+        audioBlob,
+      },
+      {
+        onStatus: (status, result) => {
+          if (status === 'uploaded') {
+            setAudioUploadStatus('uploaded')
+            setAudioUploadProgress(100)
+            setAudioSaveMessage('')
+            return
+          }
+          if (status === 'pending_retry') {
+            console.warn('[App] Audio upload pending retry:', result?.error || result)
+            setAudioUploadStatus('pending')
+            setAudioSaveMessage('Recording is saved on this device. Upload will retry automatically.')
+            return
+          }
+          if (status === 'uploading' || status === 'backed_up') {
+            setAudioUploadStatus('pending')
+            setAudioSaveMessage('Recording is uploading in the background.')
+          }
+        },
+        onProgress: (progress) => {
+          setAudioUploadProgress(normalizeUploadProgress(progress))
+        },
+      },
+    )
+
+    return {
+      meetingId: draftMeetingId,
+      audioStoragePath: '',
+    }
+  }
+
+  async function retryPendingMeetingAudioUploads() {
+    if (!currentUser?.id || uploadRetryInFlightRef.current) return
+    uploadRetryInFlightRef.current = true
+    try {
+      await retryPendingAudioUploads(supabase, currentUser.id, {
+        onItemStatus: (record, status) => {
+          if (record?.meetingId !== meetingId) return
+          if (status === 'uploaded') {
+            setAudioUploadStatus('uploaded')
+            setAudioUploadProgress(100)
+            setAudioSaveMessage('')
+            return
+          }
+          if (status === 'uploading') {
+            setAudioUploadStatus('pending')
+            setAudioSaveMessage('Recording is uploading in the background.')
+          }
+        },
+        onItemProgress: (record, progress) => {
+          if (record?.meetingId !== meetingId) return
+          setAudioUploadProgress(normalizeUploadProgress(progress))
+        },
+      })
+    } catch (err) {
+      console.warn('[App] Pending audio retry failed:', err?.message || err)
+    } finally {
+      uploadRetryInFlightRef.current = false
+    }
   }
 
   async function retryMeetingAudioUpload() {
-    if (!currentUser?.id || !meetingId || !meetingAudioBlob || meetingAudioBlob.size === 0) {
+    if (!currentUser?.id || !meetingId) {
+      return
+    }
+
+    if (!meetingAudioBlob || meetingAudioBlob.size === 0) {
+      await retryPendingMeetingAudioUploads()
       return
     }
 
     setAudioUploadStatus('pending')
-    setAudioSaveMessage('Audio is still saving in the background. Transcript is available.')
+    setAudioSaveMessage('Recording is uploading in the background.')
 
     try {
       await setMeetingAudioUploadStatus(supabase, {
@@ -398,34 +454,37 @@ export default function App() {
       console.warn('[App] Could not mark audio upload as pending:', err?.message || err)
     }
 
-    try {
-      const result = await uploadMeetingAudio(supabase, {
+    void uploadAudioWithBackup(
+      supabase,
+      {
         userId: currentUser.id,
         meetingId,
         audioBlob: meetingAudioBlob,
-      })
-
-      if (result?.ok) {
-        setAudioUploadStatus('uploaded')
-        setAudioSaveMessage('')
-      } else {
-        setAudioUploadStatus('failed')
-        setAudioSaveMessage('Audio playback could not be saved. Transcript is still available.')
-      }
-    } catch (err) {
-      console.warn('[App] Retry audio upload failed:', err?.message || err)
-      setAudioUploadStatus('failed')
-      setAudioSaveMessage('Audio playback could not be saved. Transcript is still available.')
-      try {
-        await setMeetingAudioUploadStatus(supabase, {
-          userId: currentUser.id,
-          meetingId,
-          status: 'failed',
-        })
-      } catch (statusErr) {
-        console.warn('[App] Could not mark retry failure status:', statusErr?.message || statusErr)
-      }
-    }
+      },
+      {
+        onStatus: (status, result) => {
+          if (status === 'uploaded') {
+            setAudioUploadStatus('uploaded')
+            setAudioUploadProgress(100)
+            setAudioSaveMessage('')
+            return
+          }
+          if (status === 'pending_retry') {
+            console.warn('[App] Retry audio upload pending retry:', result?.error || result)
+            setAudioUploadStatus('pending')
+            setAudioSaveMessage('Recording is saved on this device. Upload will retry automatically.')
+            return
+          }
+          if (status === 'uploading' || status === 'backed_up') {
+            setAudioUploadStatus('pending')
+            setAudioSaveMessage('Recording is uploading in the background.')
+          }
+        },
+        onProgress: (progress) => {
+          setAudioUploadProgress(normalizeUploadProgress(progress))
+        },
+      },
+    )
   }
 
   const bestAvailableSegments = diarizedSegments.length > 0 ? diarizedSegments : meetingSegments
@@ -554,6 +613,7 @@ export default function App() {
           initialMeetingId={meetingId}
           audioSaveMessage={audioSaveMessage}
           audioUploadStatus={audioUploadStatus}
+          audioUploadProgress={audioUploadProgress}
           onRetryAudioUpload={retryMeetingAudioUpload}
           onNewMeeting={() => {
             setMeetingSegments([])
@@ -561,6 +621,7 @@ export default function App() {
             setMeetingId(null)
             setAudioSaveMessage('')
             setAudioUploadStatus('pending')
+            setAudioUploadProgress(0)
             setMeetingContext(null)
             setDiarizedSegments([])
             setConfirmedLabelMap({})
@@ -969,6 +1030,12 @@ function clearVoiceEnrollmentIssue(userId) {
   } catch (err) {
     console.warn('[App] Could not clear voice enrollment issue:', err?.message || err)
   }
+}
+
+function normalizeUploadProgress(progress) {
+  const percentage = Number(progress?.percentage)
+  if (!Number.isFinite(percentage)) return 0
+  return Math.max(0, Math.min(100, Math.round(percentage)))
 }
 
 function delay(ms) {

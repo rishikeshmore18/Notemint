@@ -21,6 +21,7 @@ export default function ResultsScreen({
   initialMeetingId = null,
   audioSaveMessage = '',
   audioUploadStatus = 'pending',
+  audioUploadProgress = 0,
   onRetryAudioUpload = null,
   onNewMeeting,
 }) {
@@ -476,7 +477,7 @@ export default function ResultsScreen({
       <div className="h-5 flex items-center justify-end mb-1">
         <div className="text-right">
           {audioUploadStatus === 'uploaded' && <p className="text-xs text-emerald-600">audio saved</p>}
-          {audioUploadStatus === 'pending' && <p className="text-xs text-amber-500">audio still uploading</p>}
+          {audioUploadStatus === 'pending' && <p className="text-xs text-amber-500">recording uploading in background</p>}
           {audioUploadStatus === 'failed' && (
             <div className="flex items-center justify-end gap-2">
               <p className="text-xs text-amber-600">audio unavailable</p>
@@ -616,9 +617,24 @@ export default function ResultsScreen({
                       </button>
                     ) : null}
                   </div>
+                  {audioUploadStatus === 'pending' ? (
+                    <AudioUploadProgress
+                      progress={audioUploadProgress}
+                      message="Saving recording to cloud. You can keep reviewing this transcript."
+                    />
+                  ) : null}
                 </div>
               ) : (
-                <p className="text-xs text-gray-500">audio playback unavailable for this meeting.</p>
+                <div>
+                  {audioUploadStatus === 'pending' ? (
+                    <AudioUploadProgress
+                      progress={audioUploadProgress}
+                      message="Saving recording. Playback will appear after upload finishes."
+                    />
+                  ) : (
+                    <p className="text-xs text-gray-500">audio playback unavailable for this meeting.</p>
+                  )}
+                </div>
               )}
             </div>
 
@@ -888,6 +904,22 @@ function getSpeakerBadgeClass(label) {
   if (labelLower === '1') return 'bg-emerald-100 text-emerald-700'
   if (labelLower === '2') return 'bg-amber-100 text-amber-700'
   return 'bg-gray-100 text-gray-600'
+}
+
+function AudioUploadProgress({ message, progress = 0 }) {
+  const safeProgress = Math.max(0, Math.min(100, Math.round(Number(progress) || 0)))
+  const width = safeProgress > 0 ? `${safeProgress}%` : '42%'
+  return (
+    <div className="mt-2 rounded-lg bg-white/80 border border-amber-100 px-2.5 py-2">
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-amber-100">
+        <div className="h-full rounded-full bg-amber-400 animate-pulse transition-all" style={{ width }} />
+      </div>
+      <p className="mt-1.5 text-[11px] leading-snug text-amber-700">
+        {safeProgress > 0 ? `${safeProgress}% - ` : ''}
+        {message}
+      </p>
+    </div>
+  )
 }
 
 function getFinalLabelMap(segments, confirmedLabelMap) {
