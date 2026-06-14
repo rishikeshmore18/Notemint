@@ -1,7 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { getStoredAudioTranscriptionStatus } from '../lib/api'
-import { groupSegmentsByTime } from '../lib/grokStt'
-import { deleteMeetingAudio, getMeetingAudioSignedUrl } from '../lib/summary'
+import {
+  compressTranscript,
+  deleteMeetingAudio,
+  getMeetingAudioSignedUrl,
+  saveMeetingSpeakers,
+  updateMeetingResults,
+} from '../lib/summary'
 import { supabase } from '../lib/supabase'
 
 export default function PastMeetingScreen({ user, meeting, onBack }) {
@@ -17,6 +22,10 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   const [editableBlocks, setEditableBlocks] = useState([])
   const [editingBlockKey, setEditingBlockKey] = useState(null)
   const [editingBlockText, setEditingBlockText] = useState('')
+  const [localLabelMap, setLocalLabelMap] = useState({})
+  const [editingSpeakerId, setEditingSpeakerId] = useState(null)
+  const [editingSpeakerName, setEditingSpeakerName] = useState('')
+  const [editSaveStatus, setEditSaveStatus] = useState('idle')
   const [activeLineIndex, setActiveLineIndex] = useState(-1)
   const [isPlaying, setIsPlaying] = useState(false)
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true)
@@ -78,12 +87,19 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
     setEditableBlocks(blocks)
     setEditingBlockKey(null)
     setEditingBlockText('')
+    setEditingSpeakerId(null)
+    setEditingSpeakerName('')
+    setEditSaveStatus('idle')
   }, [
     meeting?.id,
     meeting?.segments,
     meeting?.transcript_compressed,
     recoveredSegments,
   ])
+
+  useEffect(() => {
+    setLocalLabelMap(meeting?.label_map && typeof meeting.label_map === 'object' ? meeting.label_map : {})
+  }, [meeting?.id, meeting?.label_map])
 
   useEffect(() => {
     let cancelled = false
@@ -156,7 +172,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   }
 
   async function handleCopy(type) {
-    const text = type === 'summary' ? effectiveSummary || '' : buildTranscriptFromBlocks(editableBlocks) || effectiveTranscript || ''
+    const text = type === 'summary' ? effectiveSummary || '' : buildTranscriptFromBlocks(editableBlocks, localLabelMap) || effectiveTranscript || ''
     await copyToClipboard(text)
     setCopiedWhat(type)
     setTimeout(() => {
@@ -212,7 +228,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
     const regex = /\[S(\d+)\]/g
     let lastIndex = 0
     let match
-    const maxCitationId = Array.isArray(effectiveSegments) ? effectiveSegments.length : 0
+    const maxCitationId = getMaxCitationIndex(editableBlocks, effectiveSegments)
 
     while ((match = regex.exec(value)) !== null) {
       if (match.index > lastIndex) {
@@ -289,13 +305,16 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   }
 
   function handleSummaryCitationClick(citationId) {
-    const index = Number(citationId) - 1
-    if (!Number.isInteger(index) || index < 0 || !Array.isArray(effectiveSegments) || index >= effectiveSegments.length) return
+    const citationNumber = Number(citationId)
+    if (!Number.isInteger(citationNumber) || citationNumber < 1) return
 
-    const segment = effectiveSegments[index]
-    const startTime = toNumberOrNull(segment?.startTime)
-    const blockIndex = startTime === null ? index : findActiveBlockIndex(editableBlocks, startTime)
-    const nextLineIndex = blockIndex >= 0 ? blockIndex : index
+    const exactBlockIndex = editableBlocks.findIndex((block) => Number(block?.citationIndex) === citationNumber)
+    const fallbackIndex = citationNumber - 1
+    const nextLineIndex = exactBlockIndex >= 0 ? exactBlockIndex : fallbackIndex
+    if (nextLineIndex < 0 || nextLineIndex >= editableBlocks.length) return
+
+    const block = editableBlocks[nextLineIndex]
+    const startTime = toNumberOrNull(block?.startTime)
 
     setActiveTab('transcript')
     setActiveLineIndex(nextLineIndex)
@@ -463,18 +482,70 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
     setEditingBlockText(String(block?.text || ''))
   }
 
-  function saveEditingBlock(block) {
+  async function saveEditingBlock(block) {
     const nextText = String(editingBlockText || '').replace(/\s+/g, ' ').trim()
     if (!nextText) {
       setEditingBlockKey(null)
       setEditingBlockText('')
       return
     }
-    setEditableBlocks((prev) =>
-      prev.map((item) => (item.key === block.key ? { ...item, text: nextText, edited: true } : item)),
-    )
+
+    const nextBlocks = applyBlockTextEdit(editableBlocks, block, nextText)
+    setEditableBlocks(nextBlocks)
     setEditingBlockKey(null)
     setEditingBlockText('')
+    await persistMeetingTranscriptEdits(nextBlocks, localLabelMap)
+  }
+
+  function startEditingSpeaker(speakerId) {
+    setEditingSpeakerId(speakerId)
+    setEditingSpeakerName(getDisplaySpeakerLabel({ speaker: speakerId }, localLabelMap))
+  }
+
+  async function saveSpeakerName(speakerId) {
+    const name = String(editingSpeakerName || '').replace(/\s+/g, ' ').trim()
+    setEditingSpeakerId(null)
+    setEditingSpeakerName('')
+    if (!name) return
+
+    const nextLabelMap = {
+      ...localLabelMap,
+      [speakerId]: name,
+    }
+    setLocalLabelMap(nextLabelMap)
+    await persistMeetingTranscriptEdits(editableBlocks, nextLabelMap)
+  }
+
+  async function persistMeetingTranscriptEdits(blocks, labelMap) {
+    if (!meeting?.id || !user?.id) return
+
+    const segments = blocksToSegments(blocks)
+    const transcript = compressTranscript(segments, labelMap)
+    setEditSaveStatus('saving')
+    try {
+      await updateMeetingResults(supabase, meeting.id, {
+        userId: user.id,
+        transcript,
+        summary: effectiveSummary,
+        segments,
+        labelMap,
+      })
+      await saveMeetingSpeakers(supabase, {
+        userId: user.id,
+        meetingId: meeting.id,
+        segments,
+        labelMap,
+        confirmedByUser: true,
+      }).catch((err) => {
+        console.warn('[PastMeeting] Could not update speaker mappings:', err?.message || err)
+      })
+      setRecoveredSegments(segments)
+      setEditSaveStatus('saved')
+      window.setTimeout(() => setEditSaveStatus('idle'), 1400)
+    } catch (err) {
+      console.warn('[PastMeeting] Could not save transcript edits:', err?.message || err)
+      setEditSaveStatus('error')
+    }
   }
 
   const effectiveSegments = Array.isArray(recoveredSegments) ? recoveredSegments : meeting?.segments
@@ -544,7 +615,6 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
           (() => {
             const rawSegments = editableBlocks.length > 0 ? editableBlocks : null
             if (rawSegments) {
-              const labelMapFromDb = meeting.label_map || {}
               const blocks = rawSegments
 
               return (
@@ -569,12 +639,42 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
                       </div>
                       <span
                         className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(
-                          getDisplaySpeakerLabel(block, labelMapFromDb),
+                          getDisplaySpeakerLabel(block, localLabelMap),
                         )}`}
                       >
-                        {getDisplaySpeakerLabel(block, labelMapFromDb).toLowerCase()}
+                        {getDisplaySpeakerLabel(block, localLabelMap).toLowerCase()}
                       </span>
                       <div className="flex-1">
+                        {editingSpeakerId === block.speaker ? (
+                          <div className="mb-2 flex flex-col gap-2 sm:flex-row">
+                            <input
+                              value={editingSpeakerName}
+                              onChange={(event) => setEditingSpeakerName(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === 'Escape') {
+                                  setEditingSpeakerId(null)
+                                  setEditingSpeakerName('')
+                                  return
+                                }
+                                if (event.key === 'Enter') {
+                                  event.preventDefault()
+                                  void saveSpeakerName(block.speaker)
+                                }
+                              }}
+                              autoFocus
+                              maxLength={32}
+                              className="h-9 flex-1 rounded-lg border border-indigo-200 bg-white px-2.5 text-sm text-gray-800 focus:outline-none focus:border-indigo-400"
+                              placeholder="speaker name"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void saveSpeakerName(block.speaker)}
+                              className="h-9 rounded-lg bg-gray-900 px-4 text-sm font-medium text-white"
+                            >
+                              save name
+                            </button>
+                          </div>
+                        ) : null}
                         {editingBlockKey === block.key ? (
                           <div>
                             <textarea
@@ -589,24 +689,31 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
                                 }
                                 if (event.key === 'Enter' && !event.shiftKey) {
                                   event.preventDefault()
-                                  saveEditingBlock(block)
+                                  void saveEditingBlock(block)
                                 }
                               }}
                               rows={2}
                               className="w-full rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-sm text-gray-800 focus:outline-none focus:border-indigo-400 resize-y"
                             />
-                            <p className="mt-1 text-[11px] text-gray-500">enter to save, esc to cancel</p>
+                            <p className="mt-1 text-[11px] text-gray-500">enter to save, use / before enter to split into a new speaker</p>
                           </div>
                         ) : (
                           <>
                             <p className="text-sm text-gray-800 leading-relaxed">{block.text}</p>
-                            <div className="mt-1 flex items-center gap-2">
+                            <div className="mt-1 flex flex-wrap items-center gap-2">
                               <button
                                 type="button"
                                 onClick={() => startEditingBlock(block)}
                                 className="text-[11px] text-indigo-600 underline"
                               >
                                 edit
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => startEditingSpeaker(block.speaker)}
+                                className="text-[11px] text-indigo-600 underline"
+                              >
+                                rename speaker
                               </button>
                               {block.edited ? <span className="text-[11px] text-amber-700">edited</span> : null}
                             </div>
@@ -623,6 +730,15 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
       </div>
 
       <div className="flex flex-col gap-2 pt-4 flex-shrink-0" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
+        {editSaveStatus !== 'idle' ? (
+          <p
+            className={`text-center text-xs ${
+              editSaveStatus === 'error' ? 'text-red-500' : editSaveStatus === 'saving' ? 'text-gray-400' : 'text-emerald-600'
+            }`}
+          >
+            {editSaveStatus === 'saving' ? 'saving transcript edits...' : editSaveStatus === 'saved' ? 'transcript edits saved' : 'could not save edits'}
+          </p>
+        ) : null}
         <button
           onClick={() => handleCopy('summary')}
           disabled={!effectiveSummary}
@@ -678,6 +794,14 @@ function findActiveBlockIndex(blocks, currentTime) {
   return activeIndex >= 0 ? activeIndex : nearestIndex
 }
 
+function getMaxCitationIndex(blocks, fallbackSegments) {
+  const fromBlocks = (Array.isArray(blocks) ? blocks : [])
+    .map((block) => Number(block?.citationIndex))
+    .filter(Number.isFinite)
+  if (fromBlocks.length > 0) return Math.max(...fromBlocks)
+  return Array.isArray(fallbackSegments) ? fallbackSegments.length : 0
+}
+
 function getDisplaySpeakerLabel(block, labelMap) {
   const speakerId = block?.speaker
   const savedLabel = labelMap?.[speakerId]
@@ -717,23 +841,35 @@ function buildTranscriptFromSegments(segments) {
 }
 
 function buildEditableBlocks(segments, transcript) {
-  const grouped = Array.isArray(segments) && segments.length > 0 ? groupSegmentsByTime(segments) : []
-  if (grouped.length > 0) {
-    return grouped.map((block, index) => ({
-      key: `seg_${index}_${block.startTime ?? 'na'}`,
-      speaker: block.speaker,
-      label: Number.isFinite(Number(block.speaker)) ? `Person ${Number(block.speaker) + 1}` : String(block.label || 'person 1'),
-      text: String(block.text || ''),
-      timeLabel: block.timeLabel || null,
-      startTime: block.startTime,
-      endTime: block.endTime,
+  const sourceSegments = Array.isArray(segments) ? segments : []
+  if (sourceSegments.length > 0) {
+    return sourceSegments
+      .map((segment, index) => ({
+      key: `seg_${index}_${segment.startTime ?? 'na'}`,
+      segmentIndex: index,
+      citationIndex: Number.isFinite(Number(segment.citationIndex)) ? Number(segment.citationIndex) : index + 1,
+      speaker: segment.speaker,
+      label: Number.isFinite(Number(segment.speaker)) ? `Person ${Number(segment.speaker) + 1}` : String(segment.label || 'person 1'),
+      text: String(segment.text || ''),
+      timeLabel: formatBlockTime(segment.startTime),
+      startTime: toNumberOrNull(segment.startTime),
+      endTime: toNumberOrNull(segment.endTime),
+      source: segment.source || null,
+      confidence: segment.confidence ?? null,
+      speakerConfidence: segment.speakerConfidence ?? null,
+      wordConfidence: segment.wordConfidence ?? null,
+      uncertain: Boolean(segment.uncertain),
+      reviewMeta: segment.reviewMeta || null,
       edited: false,
     }))
+      .filter((block) => block.text.trim().length > 0)
   }
 
   const parsed = parseTranscriptLines(transcript)
   return parsed.map((block, index) => ({
     key: `line_${index}`,
+    segmentIndex: index,
+    citationIndex: index + 1,
     speaker: index % 4,
     label: block.label,
     text: block.text,
@@ -742,6 +878,98 @@ function buildEditableBlocks(segments, transcript) {
     endTime: null,
     edited: false,
   }))
+}
+
+function formatBlockTime(seconds) {
+  const value = toNumberOrNull(seconds)
+  if (value === null) return null
+  const total = Math.floor(value)
+  const minutes = Math.floor(total / 60)
+  const secs = total % 60
+  return `${minutes}:${String(secs).padStart(2, '0')}`
+}
+
+function applyBlockTextEdit(blocks, targetBlock, nextText) {
+  const list = Array.isArray(blocks) ? blocks : []
+  const slashParts = splitMergedSpeakerText(nextText)
+  if (slashParts.length < 2) {
+    return list.map((item) => (item.key === targetBlock.key ? { ...item, text: nextText, edited: true } : item))
+  }
+
+  const targetIndex = list.findIndex((item) => item.key === targetBlock.key)
+  if (targetIndex < 0) return list
+
+  const nextSpeaker = getNextSpeakerIdFromBlocks(list)
+  const replacement = createSplitBlocks(targetBlock, slashParts, nextSpeaker)
+  return [...list.slice(0, targetIndex), ...replacement, ...list.slice(targetIndex + 1)]
+}
+
+function splitMergedSpeakerText(text) {
+  return String(text || '')
+    .split('/')
+    .map((part) => part.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+}
+
+function createSplitBlocks(block, parts, nextSpeaker) {
+  const start = toNumberOrNull(block?.startTime)
+  const end = toNumberOrNull(block?.endTime)
+  const totalLength = parts.reduce((sum, part) => sum + part.length, 0) || parts.length
+  let elapsedRatio = 0
+
+  return parts.map((part, index) => {
+    const ratio = part.length / totalLength
+    const partStart = start !== null && end !== null ? start + (end - start) * elapsedRatio : start
+    elapsedRatio += ratio
+    const partEnd = start !== null && end !== null ? start + (end - start) * elapsedRatio : end
+    const speaker = index === 0 ? block.speaker : nextSpeaker + index - 1
+
+    return {
+      ...block,
+      key: `${block.key}_split_${index}_${Date.now()}`,
+      citationIndex: block.citationIndex,
+      speaker,
+      label: Number.isFinite(Number(speaker)) ? `Person ${Number(speaker) + 1}` : block.label,
+      text: part,
+      startTime: toNumberOrNull(partStart),
+      endTime: toNumberOrNull(partEnd),
+      edited: true,
+      uncertain: index === 0 ? block.uncertain : true,
+      reviewMeta: {
+        ...(block.reviewMeta || {}),
+        speakerReview: index === 0 ? 'split_original' : 'user_split_new_speaker',
+        splitFromSpeaker: block.speaker,
+        splitAt: new Date().toISOString(),
+      },
+    }
+  })
+}
+
+function getNextSpeakerIdFromBlocks(blocks) {
+  const speakers = (Array.isArray(blocks) ? blocks : [])
+    .map((block) => Number(block?.speaker))
+    .filter(Number.isFinite)
+  if (speakers.length === 0) return 0
+  return Math.max(...speakers) + 1
+}
+
+function blocksToSegments(blocks) {
+  return (Array.isArray(blocks) ? blocks : [])
+    .map((block) => ({
+      speaker: Number.isFinite(Number(block?.speaker)) ? Number(block.speaker) : 0,
+      citationIndex: Number.isFinite(Number(block?.citationIndex)) ? Number(block.citationIndex) : null,
+      text: String(block?.text || '').replace(/\s+/g, ' ').trim(),
+      startTime: toNumberOrNull(block?.startTime),
+      endTime: toNumberOrNull(block?.endTime),
+      confidence: block?.confidence ?? null,
+      source: block?.source || 'user_edited',
+      isFinal: true,
+      speakerConfidence: block?.speakerConfidence ?? null,
+      wordConfidence: block?.wordConfidence ?? null,
+      uncertain: Boolean(block?.uncertain),
+      reviewMeta: block?.reviewMeta || null,
+    }))
+    .filter((segment) => segment.text.length > 0)
 }
 
 function parseTranscriptLines(compressed) {
@@ -759,11 +987,11 @@ function parseTranscriptLines(compressed) {
     .filter(Boolean)
 }
 
-function buildTranscriptFromBlocks(blocks) {
+function buildTranscriptFromBlocks(blocks, labelMap = {}) {
   const list = Array.isArray(blocks) ? blocks : []
   const lines = []
   for (const block of list) {
-    const label = String(block?.label || 'Person 1').trim() || 'Person 1'
+    const label = getDisplaySpeakerLabel(block, labelMap)
     const text = String(block?.text || '').replace(/\s+/g, ' ').trim()
     if (!text) continue
     lines.push(`[${label}]: ${text}`)
