@@ -29,6 +29,10 @@ If none: - None.
 
 Grounding rules:
 - Use only transcript evidence. Do not infer missing facts.
+- If transcript lines include source IDs like [S12], every factual TL;DR sentence, decision, action item, discussion point, and follow-up item must end with one or more valid source IDs.
+- Put citations at the end of the sentence or bullet, for example: - Members asked about CD rates. [S3]
+- Use only source IDs that appear in the transcript. Never invent citation IDs.
+- If a statement cannot be supported by a source ID, do not include it.
 - Meeting context is for terminology disambiguation only.
 - If transcript conflicts with context, trust transcript.
 - Do not invent names, dates, deadlines, decisions, or action owners.
@@ -71,7 +75,7 @@ summarizeRouter.post('/', requireAuth, async (req, res) => {
       },
       body: JSON.stringify({
         model: 'claude-haiku-4-5-20251001',
-        max_tokens: 1024,
+        max_tokens: 1400,
         stream: true,
         system: SYSTEM_PROMPT,
         messages: [

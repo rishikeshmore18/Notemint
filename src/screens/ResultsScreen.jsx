@@ -142,6 +142,7 @@ export default function ResultsScreen({
       setSummaryError('Transcript is too short to summarize.')
       return
     }
+    const citedTranscript = buildCitedSummaryTranscript(selectedSegments, labelMapRef.current) || compressed
 
     setSummaryStatus('generating')
     setSummaryError(null)
@@ -149,7 +150,7 @@ export default function ResultsScreen({
     setSummaryText('')
 
     getSummary(
-      compressed,
+      citedTranscript,
       (chunk) => {
         if (!mountedRef.current) return
         summaryTextRef.current += chunk
@@ -413,6 +414,33 @@ export default function ResultsScreen({
     }, 450)
   }
 
+  function handleSummaryCitationClick(citationId) {
+    const index = Number(citationId) - 1
+    if (!Number.isInteger(index) || index < 0 || index >= editableSegments.length) return
+
+    const segment = editableSegments[index]
+    const startTime = toNumberOrNull(segment?.startTime)
+    setActiveTab('transcript')
+    setActiveLineIndex(index)
+    setAutoScrollEnabled(true)
+
+    window.setTimeout(() => {
+      const node = lineRefs.current[index]
+      if (node) {
+        programmaticScrollRef.current = true
+        node.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        window.setTimeout(() => {
+          programmaticScrollRef.current = false
+        }, 450)
+      }
+
+      if (startTime !== null && audioRef.current) {
+        audioRef.current.currentTime = Math.max(0, startTime)
+        audioRef.current.play().catch(() => {})
+      }
+    }, 80)
+  }
+
   function startEditing(segment) {
     if (!segment) return
     if (audioRef.current && !audioRef.current.paused) {
@@ -556,7 +584,10 @@ export default function ResultsScreen({
             {(summaryStatus === 'generating' || summaryStatus === 'done') && summaryText && (
               <div>
                 {summaryStatus === 'generating' && <p className="text-xs text-gray-300 text-right mb-2">writing...</p>}
-                {renderMarkdownLite(summaryText)}
+                {renderMarkdownLite(summaryText, {
+                  onCitationClick: handleSummaryCitationClick,
+                  maxCitationId: editableSegments.length,
+                })}
               </div>
             )}
 
@@ -790,6 +821,29 @@ function getSelectedSegments(segments) {
   return finals.length > 0 ? finals : list
 }
 
+function buildCitedSummaryTranscript(segments, labelMap) {
+  const list = Array.isArray(segments) ? segments : []
+  const lines = []
+
+  for (let index = 0; index < list.length; index += 1) {
+    const segment = list[index]
+    const text = String(segment?.text || '').replace(/\s+/g, ' ').trim()
+    if (text.length < 2) continue
+
+    const citationId = `S${index + 1}`
+    let label = labelMap?.[segment.speaker]
+    if (label === undefined || label === null) {
+      label = 'Person ' + (Number(segment.speaker) + 1)
+    }
+
+    const start = toNumberOrNull(segment?.startTime)
+    const time = start === null ? '' : ` [${formatTimeLabel(start)}]`
+    lines.push(`[${citationId}]${time} [${label}]: ${text}`)
+  }
+
+  return lines.join('\n')
+}
+
 function toEditableSegments(segments) {
   return (Array.isArray(segments) ? segments : [])
     .map((segment, index) => ({
@@ -852,7 +906,7 @@ function formatTimeLabel(seconds) {
   return `${minutes}:${String(secs).padStart(2, '0')}`
 }
 
-function renderMarkdownLite(text) {
+function renderMarkdownLite(text, citationOptions = {}) {
   if (!text) return null
   return text.split('\n').map((line, i) => {
     const trimmed = line.trim()
@@ -870,7 +924,9 @@ function renderMarkdownLite(text) {
       return (
         <div key={i} className="flex items-start gap-2 bg-indigo-50 rounded-lg px-3 py-2 mb-1.5">
           <span className="text-indigo-400 flex-shrink-0 mt-0.5 text-sm">-&gt;</span>
-          <span className="text-sm text-indigo-800 leading-relaxed">{actionText}</span>
+          <span className="text-sm text-indigo-800 leading-relaxed">
+            {renderTextWithCitations(actionText, citationOptions)}
+          </span>
         </div>
       )
     }
@@ -879,7 +935,9 @@ function renderMarkdownLite(text) {
       return (
         <div key={i} className="flex items-start gap-2 py-0.5">
           <span className="text-gray-300 flex-shrink-0 mt-1.5 text-xs">*</span>
-          <p className="text-sm text-gray-700 leading-relaxed">{trimmed.slice(2)}</p>
+          <p className="text-sm text-gray-700 leading-relaxed">
+            {renderTextWithCitations(trimmed.slice(2), citationOptions)}
+          </p>
         </div>
       )
     }
@@ -888,10 +946,56 @@ function renderMarkdownLite(text) {
 
     return (
       <p key={i} className="text-sm text-gray-700 leading-relaxed py-0.5">
-        {line}
+        {renderTextWithCitations(line, citationOptions)}
       </p>
     )
   })
+}
+
+function renderTextWithCitations(text, { onCitationClick = null, maxCitationId = 0 } = {}) {
+  const value = String(text || '')
+  const parts = []
+  const regex = /\[S(\d+)\]/g
+  let lastIndex = 0
+  let match
+
+  while ((match = regex.exec(value)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(value.slice(lastIndex, match.index))
+    }
+
+    const citationId = Number(match[1])
+    const isValid = Number.isInteger(citationId) && citationId >= 1 && citationId <= maxCitationId
+    const label = `[S${citationId}]`
+
+    if (isValid && typeof onCitationClick === 'function') {
+      parts.push(
+        <button
+          key={`${citationId}-${match.index}`}
+          type="button"
+          onClick={() => onCitationClick(citationId)}
+          className="inline text-indigo-600 hover:text-indigo-800 underline underline-offset-2"
+          title={`Jump to transcript at source ${citationId}`}
+        >
+          {label}
+        </button>,
+      )
+    } else {
+      parts.push(
+        <span key={`${citationId}-${match.index}`} className="text-gray-400">
+          {label}
+        </span>,
+      )
+    }
+
+    lastIndex = regex.lastIndex
+  }
+
+  if (lastIndex < value.length) {
+    parts.push(value.slice(lastIndex))
+  }
+
+  return parts.length > 0 ? parts : value
 }
 
 function getSpeakerBadgeClass(label) {

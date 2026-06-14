@@ -182,7 +182,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
         return (
           <div key={i} className="flex items-start gap-2 bg-indigo-50 rounded-lg px-3 py-2 mb-1.5">
             <span className="text-indigo-400 flex-shrink-0 mt-0.5 text-sm">-&gt;</span>
-            <span className="text-sm text-indigo-800 leading-relaxed">{actionText}</span>
+            <span className="text-sm text-indigo-800 leading-relaxed">{renderTextWithCitations(actionText)}</span>
           </div>
         )
       }
@@ -191,7 +191,7 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
         return (
           <div key={i} className="flex items-start gap-2 py-0.5">
             <span className="text-gray-300 flex-shrink-0 mt-1.5 text-xs">*</span>
-            <p className="text-sm text-gray-700 leading-relaxed">{trimmed.slice(2)}</p>
+            <p className="text-sm text-gray-700 leading-relaxed">{renderTextWithCitations(trimmed.slice(2))}</p>
           </div>
         )
       }
@@ -200,10 +200,57 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
 
       return (
         <p key={i} className="text-sm text-gray-700 leading-relaxed py-0.5">
-          {line}
+          {renderTextWithCitations(line)}
         </p>
       )
     })
+  }
+
+  function renderTextWithCitations(text) {
+    const value = String(text || '')
+    const parts = []
+    const regex = /\[S(\d+)\]/g
+    let lastIndex = 0
+    let match
+    const maxCitationId = Array.isArray(effectiveSegments) ? effectiveSegments.length : 0
+
+    while ((match = regex.exec(value)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(value.slice(lastIndex, match.index))
+      }
+
+      const citationId = Number(match[1])
+      const isValid = Number.isInteger(citationId) && citationId >= 1 && citationId <= maxCitationId
+      const label = `[S${citationId}]`
+
+      if (isValid) {
+        parts.push(
+          <button
+            key={`${citationId}-${match.index}`}
+            type="button"
+            onClick={() => handleSummaryCitationClick(citationId)}
+            className="inline text-indigo-600 hover:text-indigo-800 underline underline-offset-2"
+            title={`Jump to transcript at source ${citationId}`}
+          >
+            {label}
+          </button>,
+        )
+      } else {
+        parts.push(
+          <span key={`${citationId}-${match.index}`} className="text-gray-400">
+            {label}
+          </span>,
+        )
+      }
+
+      lastIndex = regex.lastIndex
+    }
+
+    if (lastIndex < value.length) {
+      parts.push(value.slice(lastIndex))
+    }
+
+    return parts.length > 0 ? parts : value
   }
 
   function getSpeakerBadgeClass(label) {
@@ -239,6 +286,36 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
     setTimeout(() => {
       programmaticScrollRef.current = false
     }, 450)
+  }
+
+  function handleSummaryCitationClick(citationId) {
+    const index = Number(citationId) - 1
+    if (!Number.isInteger(index) || index < 0 || !Array.isArray(effectiveSegments) || index >= effectiveSegments.length) return
+
+    const segment = effectiveSegments[index]
+    const startTime = toNumberOrNull(segment?.startTime)
+    const blockIndex = startTime === null ? index : findActiveBlockIndex(editableBlocks, startTime)
+    const nextLineIndex = blockIndex >= 0 ? blockIndex : index
+
+    setActiveTab('transcript')
+    setActiveLineIndex(nextLineIndex)
+    setAutoScrollEnabled(true)
+
+    window.setTimeout(() => {
+      const node = lineRefs.current[nextLineIndex]
+      if (node) {
+        programmaticScrollRef.current = true
+        node.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        window.setTimeout(() => {
+          programmaticScrollRef.current = false
+        }, 450)
+      }
+
+      if (startTime !== null && audioRef.current) {
+        audioRef.current.currentTime = Math.max(0, startTime)
+        audioRef.current.play().catch(() => {})
+      }
+    }, 80)
   }
 
   function renderAudioPlayer(blocks) {
