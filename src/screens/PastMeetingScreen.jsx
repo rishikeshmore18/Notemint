@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { getStoredAudioTranscriptionStatus } from '../lib/api'
+import { compareVoiceClips, getStoredAudioTranscriptionStatus } from '../lib/api'
 import {
   compressTranscript,
   deleteMeetingAudio,
@@ -8,6 +8,7 @@ import {
   updateMeetingResults,
 } from '../lib/summary'
 import { supabase } from '../lib/supabase'
+import { extractAudioSlice } from './SpeakerReviewScreen'
 
 export default function PastMeetingScreen({ user, meeting, onBack }) {
   const [activeTab, setActiveTab] = useState('summary')
@@ -26,6 +27,10 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   const [editingSpeakerId, setEditingSpeakerId] = useState(null)
   const [editingSpeakerName, setEditingSpeakerName] = useState('')
   const [editSaveStatus, setEditSaveStatus] = useState('idle')
+  const [splitReview, setSplitReview] = useState(null)
+  const [splitReviewStatus, setSplitReviewStatus] = useState('idle')
+  const [splitReviewError, setSplitReviewError] = useState('')
+  const [selectedSplitMatches, setSelectedSplitMatches] = useState({})
   const [activeLineIndex, setActiveLineIndex] = useState(-1)
   const [isPlaying, setIsPlaying] = useState(false)
   const [autoScrollEnabled, setAutoScrollEnabled] = useState(true)
@@ -96,6 +101,13 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
     meeting?.transcript_compressed,
     recoveredSegments,
   ])
+
+  useEffect(() => {
+    setSplitReview(null)
+    setSplitReviewStatus('idle')
+    setSplitReviewError('')
+    setSelectedSplitMatches({})
+  }, [meeting?.id])
 
   useEffect(() => {
     setLocalLabelMap(meeting?.label_map && typeof meeting.label_map === 'object' ? meeting.label_map : {})
@@ -490,11 +502,18 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
       return
     }
 
-    const nextBlocks = applyBlockTextEdit(editableBlocks, block, nextText)
+    const editResult = applyBlockTextEdit(editableBlocks, block, nextText)
+    const nextBlocks = editResult.blocks
     setEditableBlocks(nextBlocks)
     setEditingBlockKey(null)
     setEditingBlockText('')
     await persistMeetingTranscriptEdits(nextBlocks, localLabelMap)
+    if (editResult.splitReview) {
+      setSplitReview(buildSplitReviewPayload(nextBlocks, editResult.splitReview))
+      setSplitReviewStatus('idle')
+      setSplitReviewError('')
+      setSelectedSplitMatches({})
+    }
   }
 
   function startEditingSpeaker(speakerId) {
@@ -546,6 +565,106 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
       console.warn('[PastMeeting] Could not save transcript edits:', err?.message || err)
       setEditSaveStatus('error')
     }
+  }
+
+  async function runSplitReviewSearch() {
+    if (!splitReview) return
+
+    const candidates = Array.isArray(splitReview.candidates) ? splitReview.candidates.slice(0, 8) : []
+    if (!audioUrl || !splitReview.reference || candidates.length === 0) {
+      setSplitReviewError('audio is not available for voice matching. you can still rename/apply manually.')
+      setSplitReviewStatus('failed')
+      return
+    }
+
+    setSplitReviewStatus('running')
+    setSplitReviewError('')
+    try {
+      const audioBlob = await fetchAudioBlob(audioUrl)
+      const referenceBlob = await extractClipForBlock(audioBlob, splitReview.reference)
+      if (!referenceBlob) {
+        throw new Error('Could not prepare the corrected voice sample.')
+      }
+
+      const candidateClips = []
+      for (const candidate of candidates) {
+        const blob = await extractClipForBlock(audioBlob, candidate)
+        if (!blob) continue
+        candidateClips.push({
+          id: candidate.key,
+          blob,
+        })
+      }
+
+      const scores = await compareVoiceClips(referenceBlob, candidateClips)
+      const scoreById = new Map(scores.map((item) => [String(item.candidate_id), Number(item.confidence || 0)]))
+      const reviewedCandidates = candidates
+        .map((candidate) => ({
+          ...candidate,
+          confidence: scoreById.get(String(candidate.key)) ?? null,
+        }))
+        .filter((candidate) => candidate.confidence === null || candidate.confidence >= 0.62)
+        .sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0))
+
+      setSplitReview((prev) => ({
+        ...prev,
+        candidates: reviewedCandidates.length > 0 ? reviewedCandidates : candidates,
+        searched: true,
+      }))
+      setSelectedSplitMatches(
+        Object.fromEntries(
+          reviewedCandidates
+            .filter((candidate) => Number(candidate.confidence || 0) >= 0.72)
+            .map((candidate) => [candidate.key, true]),
+        ),
+      )
+      setSplitReviewStatus('review')
+    } catch (err) {
+      console.warn('[PastMeeting] Could not find similar speaker moments:', err?.message || err)
+      setSplitReviewError('could not compare voice clips. you can still select matching lines manually.')
+      setSplitReviewStatus('failed')
+    }
+  }
+
+  async function applySplitReviewMatches() {
+    if (!splitReview) return
+    const selectedKeys = new Set(
+      Object.entries(selectedSplitMatches)
+        .filter(([, selected]) => Boolean(selected))
+        .map(([key]) => key),
+    )
+    if (selectedKeys.size === 0) {
+      setSplitReview(null)
+      return
+    }
+
+    const nextBlocks = editableBlocks.map((block) => {
+      if (!selectedKeys.has(block.key)) return block
+      return {
+        ...block,
+        speaker: splitReview.newSpeaker,
+        edited: true,
+        uncertain: true,
+        reviewMeta: {
+          ...(block.reviewMeta || {}),
+          speakerReview: 'user_confirmed_similar_split_speaker',
+          matchedFromSplitSpeaker: splitReview.newSpeaker,
+          matchedAt: new Date().toISOString(),
+        },
+      }
+    })
+    setEditableBlocks(nextBlocks)
+    await persistMeetingTranscriptEdits(nextBlocks, localLabelMap)
+    setSplitReview(null)
+    setSelectedSplitMatches({})
+    setSplitReviewStatus('idle')
+  }
+
+  function toggleSplitReviewMatch(key) {
+    setSelectedSplitMatches((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }))
   }
 
   const effectiveSegments = Array.isArray(recoveredSegments) ? recoveredSegments : meeting?.segments
@@ -729,6 +848,110 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
           })()}
       </div>
 
+      {splitReview ? (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/20 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-base font-semibold text-gray-900">Find similar speaker moments?</p>
+                <p className="mt-1 text-sm text-gray-500">
+                  You created {getDisplaySpeakerLabel({ speaker: splitReview.newSpeaker }, localLabelMap).toLowerCase()}.
+                  Notemint can check other lines that may be the same person.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSplitReview(null)}
+                className="rounded-full px-2 py-1 text-sm text-gray-400 hover:bg-gray-100"
+                aria-label="Close speaker review"
+              >
+                x
+              </button>
+            </div>
+
+            {splitReviewStatus === 'idle' ? (
+              <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                <button
+                  type="button"
+                  onClick={() => void runSplitReviewSearch()}
+                  className="h-11 flex-1 rounded-xl bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700"
+                >
+                  find similar moments
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSplitReview(null)}
+                  className="h-11 flex-1 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50"
+                >
+                  skip
+                </button>
+              </div>
+            ) : null}
+
+            {splitReviewStatus === 'running' ? (
+              <div className="mt-4 flex items-center gap-3 rounded-xl bg-indigo-50 px-3 py-3">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600" />
+                <p className="text-sm text-indigo-700">checking similar voice moments...</p>
+              </div>
+            ) : null}
+
+            {splitReviewError ? (
+              <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-700">{splitReviewError}</p>
+            ) : null}
+
+            {(splitReviewStatus === 'review' || splitReviewStatus === 'failed') ? (
+              <div className="mt-4">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-400">possible matches</p>
+                <div className="mt-2 max-h-72 overflow-y-auto rounded-xl border border-gray-100">
+                  {splitReview.candidates.length > 0 ? (
+                    splitReview.candidates.slice(0, 8).map((candidate) => (
+                      <label
+                        key={candidate.key}
+                        className="flex cursor-pointer items-start gap-3 border-b border-gray-50 px-3 py-2.5 last:border-0"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selectedSplitMatches[candidate.key])}
+                          onChange={() => toggleSplitReviewMatch(candidate.key)}
+                          className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-xs text-gray-400">
+                            {candidate.timeLabel || 'no timestamp'}
+                            {Number.isFinite(candidate.confidence)
+                              ? ` · ${Math.round(candidate.confidence * 100)}% voice match`
+                              : ''}
+                          </span>
+                          <span className="mt-0.5 block line-clamp-2 text-sm text-gray-700">{candidate.text}</span>
+                        </span>
+                      </label>
+                    ))
+                  ) : (
+                    <p className="px-3 py-4 text-sm text-gray-400">No similar lines found.</p>
+                  )}
+                </div>
+                <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+                  <button
+                    type="button"
+                    onClick={() => void applySplitReviewMatches()}
+                    className="h-11 flex-1 rounded-xl bg-gray-900 text-sm font-medium text-white"
+                  >
+                    apply selected
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSplitReview(null)}
+                    className="h-11 flex-1 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50"
+                  >
+                    skip
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       <div className="flex flex-col gap-2 pt-4 flex-shrink-0" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
         {editSaveStatus !== 'idle' ? (
           <p
@@ -893,15 +1116,27 @@ function applyBlockTextEdit(blocks, targetBlock, nextText) {
   const list = Array.isArray(blocks) ? blocks : []
   const slashParts = splitMergedSpeakerText(nextText)
   if (slashParts.length < 2) {
-    return list.map((item) => (item.key === targetBlock.key ? { ...item, text: nextText, edited: true } : item))
+    return {
+      blocks: list.map((item) => (item.key === targetBlock.key ? { ...item, text: nextText, edited: true } : item)),
+      splitReview: null,
+    }
   }
 
   const targetIndex = list.findIndex((item) => item.key === targetBlock.key)
-  if (targetIndex < 0) return list
+  if (targetIndex < 0) return { blocks: list, splitReview: null }
 
   const nextSpeaker = getNextSpeakerIdFromBlocks(list)
-  const replacement = createSplitBlocks(targetBlock, slashParts, nextSpeaker)
-  return [...list.slice(0, targetIndex), ...replacement, ...list.slice(targetIndex + 1)]
+  const splitGroupId = `split_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  const replacement = createSplitBlocks(targetBlock, slashParts, nextSpeaker, splitGroupId)
+  return {
+    blocks: [...list.slice(0, targetIndex), ...replacement, ...list.slice(targetIndex + 1)],
+    splitReview: {
+      originalSpeaker: targetBlock.speaker,
+      newSpeaker: nextSpeaker,
+      referenceKey: replacement[1]?.key || replacement[0]?.key || null,
+      splitGroupId,
+    },
+  }
 }
 
 function splitMergedSpeakerText(text) {
@@ -911,11 +1146,12 @@ function splitMergedSpeakerText(text) {
     .filter(Boolean)
 }
 
-function createSplitBlocks(block, parts, nextSpeaker) {
+function createSplitBlocks(block, parts, nextSpeaker, splitGroupId) {
   const start = toNumberOrNull(block?.startTime)
   const end = toNumberOrNull(block?.endTime)
   const totalLength = parts.reduce((sum, part) => sum + part.length, 0) || parts.length
   let elapsedRatio = 0
+  const splitAt = new Date().toISOString()
 
   return parts.map((part, index) => {
     const ratio = part.length / totalLength
@@ -926,7 +1162,7 @@ function createSplitBlocks(block, parts, nextSpeaker) {
 
     return {
       ...block,
-      key: `${block.key}_split_${index}_${Date.now()}`,
+      key: `${block.key}_split_${index}_${splitGroupId}`,
       citationIndex: block.citationIndex,
       speaker,
       label: Number.isFinite(Number(speaker)) ? `Person ${Number(speaker) + 1}` : block.label,
@@ -938,11 +1174,56 @@ function createSplitBlocks(block, parts, nextSpeaker) {
       reviewMeta: {
         ...(block.reviewMeta || {}),
         speakerReview: index === 0 ? 'split_original' : 'user_split_new_speaker',
+        splitGroupId,
         splitFromSpeaker: block.speaker,
-        splitAt: new Date().toISOString(),
+        splitAt,
       },
     }
   })
+}
+
+function buildSplitReviewPayload(blocks, splitReview) {
+  if (!splitReview) return null
+  const list = Array.isArray(blocks) ? blocks : []
+  const reference = list.find((block) => block.key === splitReview.referenceKey)
+  if (!reference) return null
+
+  const candidates = list
+    .filter((block) => {
+      if (!block || block.key === reference.key) return false
+      if (block.reviewMeta?.splitGroupId === splitReview.splitGroupId) return false
+      if (Number(block.speaker) !== Number(splitReview.originalSpeaker)) return false
+      if (toNumberOrNull(block.startTime) === null || toNumberOrNull(block.endTime) === null) return false
+      return String(block.text || '').trim().length > 0
+    })
+    .sort((a, b) => {
+      const aDistance = Math.abs(Number(a.startTime || 0) - Number(reference.startTime || 0))
+      const bDistance = Math.abs(Number(b.startTime || 0) - Number(reference.startTime || 0))
+      return aDistance - bDistance
+    })
+    .slice(0, 8)
+
+  return {
+    ...splitReview,
+    reference,
+    candidates,
+    searched: false,
+  }
+}
+
+async function fetchAudioBlob(url) {
+  const response = await fetch(url)
+  if (!response.ok) throw new Error('Could not load meeting audio')
+  return response.blob()
+}
+
+async function extractClipForBlock(audioBlob, block) {
+  const start = toNumberOrNull(block?.startTime)
+  const end = toNumberOrNull(block?.endTime)
+  if (start === null) return null
+  const safeEnd = end === null ? start + 6 : Math.min(end, start + 8)
+  if (safeEnd <= start + 0.5) return null
+  return extractAudioSlice(audioBlob, Math.max(0, start), safeEnd)
 }
 
 function getNextSpeakerIdFromBlocks(blocks) {

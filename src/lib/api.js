@@ -472,6 +472,39 @@ export async function identifySpeakersBatch(snippetsBySpeaker) {
   }
 }
 
+export async function compareVoiceClips(referenceBlob, candidates = []) {
+  const validCandidates = (Array.isArray(candidates) ? candidates : []).filter((item) => item?.blob)
+  if (!referenceBlob || validCandidates.length === 0) return []
+
+  try {
+    const token = await getAuthToken()
+    const formData = new FormData()
+    const candidateIds = []
+
+    formData.append('reference', referenceBlob, inferFileName(referenceBlob))
+    for (const candidate of validCandidates.slice(0, 12)) {
+      const id = String(candidate.id ?? candidate.key ?? candidate.index ?? candidateIds.length)
+      candidateIds.push(id)
+      formData.append('candidate', candidate.blob, inferFileName(candidate.blob))
+    }
+    formData.append('candidate_ids', JSON.stringify(candidateIds))
+
+    const response = await fetch(`${BASE_URL}/api/voice/compare-clips`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+      body: formData,
+    })
+
+    if (!response.ok) return []
+    const payload = await response.json()
+    return Array.isArray(payload?.scores) ? payload.scores : []
+  } catch {
+    return []
+  }
+}
+
 export async function resetVoiceProfile() {
   const token = await getAuthToken()
 

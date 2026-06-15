@@ -547,6 +547,48 @@ voiceRouter.post('/identify-batch', requireAuth, upload.array('audio', 12), asyn
   }
 })
 
+voiceRouter.post(
+  '/compare-clips',
+  requireAuth,
+  upload.fields([
+    { name: 'reference', maxCount: 1 },
+    { name: 'candidate', maxCount: 12 },
+  ]),
+  async (req, res) => {
+    const referenceFile = Array.isArray(req.files?.reference) ? req.files.reference[0] : null
+    const candidateFiles = Array.isArray(req.files?.candidate) ? req.files.candidate : []
+    if (!referenceFile || candidateFiles.length === 0) {
+      return res.status(400).json({ error: 'Reference and candidate audio clips are required' })
+    }
+
+    if (!process.env.VOICE_SERVICE_URL) {
+      return res.status(500).json({ error: 'VOICE_SERVICE_URL is not configured on server' })
+    }
+
+    const candidateIds = parseSpeakerIds(req.body?.candidate_ids, candidateFiles.length)
+
+    try {
+      const referenceEmbedding = await createEmbedding(referenceFile)
+      const scores = []
+
+      for (let index = 0; index < candidateFiles.length; index += 1) {
+        const embedding = await createEmbedding(candidateFiles[index])
+        const confidence = vectorScore(referenceEmbedding, embedding)
+        scores.push({
+          candidate_id: candidateIds[index],
+          confidence: Number.isFinite(confidence) ? Number(confidence.toFixed(4)) : 0,
+        })
+      }
+
+      scores.sort((a, b) => Number(b.confidence || 0) - Number(a.confidence || 0))
+      return res.json({ scores })
+    } catch (err) {
+      console.warn('[Voice] Clip comparison failed:', err?.message || err)
+      return res.status(500).json({ error: 'Could not compare speaker clips' })
+    }
+  },
+)
+
 async function createEmbedding(file) {
   const formData = new FormData()
   const audioBlob = new Blob([file.buffer], { type: file.mimetype || 'audio/wav' })
