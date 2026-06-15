@@ -494,7 +494,18 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
     setEditingBlockText(String(block?.text || ''))
   }
 
+  function cancelEditingBlock() {
+    setEditingBlockKey(null)
+    setEditingBlockText('')
+  }
+
+  function getEditingBlock() {
+    if (!editingBlockKey) return null
+    return editableBlocks.find((block) => block.key === editingBlockKey) || null
+  }
+
   async function saveEditingBlock(block) {
+    if (!block) return
     const nextText = String(editingBlockText || '').replace(/\s+/g, ' ').trim()
     if (!nextText) {
       setEditingBlockKey(null)
@@ -794,50 +805,24 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
                             </button>
                           </div>
                         ) : null}
-                        {editingBlockKey === block.key ? (
-                          <div>
-                            <textarea
-                              value={editingBlockText}
-                              onChange={(event) => setEditingBlockText(event.target.value)}
-                              onKeyDown={(event) => {
-                                if (event.key === 'Escape') {
-                                  event.preventDefault()
-                                  setEditingBlockKey(null)
-                                  setEditingBlockText('')
-                                  return
-                                }
-                                if (event.key === 'Enter' && !event.shiftKey) {
-                                  event.preventDefault()
-                                  void saveEditingBlock(block)
-                                }
-                              }}
-                              rows={2}
-                              className="w-full rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-sm text-gray-800 focus:outline-none focus:border-indigo-400 resize-y"
-                            />
-                            <p className="mt-1 text-[11px] text-gray-500">enter to save, use / before enter to split into a new speaker</p>
-                          </div>
-                        ) : (
-                          <>
-                            <p className="text-sm text-gray-800 leading-relaxed">{block.text}</p>
-                            <div className="mt-1 flex flex-wrap items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() => startEditingBlock(block)}
-                                className="text-[11px] text-indigo-600 underline"
-                              >
-                                edit
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => startEditingSpeaker(block.speaker)}
-                                className="text-[11px] text-indigo-600 underline"
-                              >
-                                rename speaker
-                              </button>
-                              {block.edited ? <span className="text-[11px] text-amber-700">edited</span> : null}
-                            </div>
-                          </>
-                        )}
+                        <p className="text-sm text-gray-800 leading-relaxed">{block.text}</p>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => startEditingBlock(block)}
+                            className="text-[11px] text-indigo-600 underline"
+                          >
+                            edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => startEditingSpeaker(block.speaker)}
+                            className="text-[11px] text-indigo-600 underline"
+                          >
+                            rename speaker
+                          </button>
+                          {block.edited ? <span className="text-[11px] text-amber-700">edited</span> : null}
+                        </div>
                       </div>
                     </div>
                   ))}
@@ -948,6 +933,72 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
                 </div>
               </div>
             ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {getEditingBlock() ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-4 py-6 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-2xl">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-base font-semibold text-gray-900">Edit transcript text</p>
+                <p className="mt-1 text-xs text-gray-400">
+                  {getDisplaySpeakerLabel(getEditingBlock(), localLabelMap).toLowerCase()}
+                  {getEditingBlock()?.timeLabel ? ` · ${getEditingBlock().timeLabel}` : ''}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={cancelEditingBlock}
+                className="rounded-full px-2 py-1 text-sm text-gray-400 hover:bg-gray-100"
+                aria-label="Close transcript editor"
+              >
+                x
+              </button>
+            </div>
+
+            <textarea
+              value={editingBlockText}
+              onChange={(event) => setEditingBlockText(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  cancelEditingBlock()
+                  return
+                }
+                if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+                  event.preventDefault()
+                  void saveEditingBlock(getEditingBlock())
+                }
+              }}
+              autoFocus
+              rows={6}
+              className="mt-4 w-full rounded-xl border border-indigo-100 bg-gray-50 px-3 py-3 text-sm leading-relaxed text-gray-900 focus:border-indigo-400 focus:bg-white focus:outline-none"
+            />
+
+            <p className="mt-2 text-xs text-gray-500">
+              Use <span className="font-semibold text-gray-700">/</span> to split merged speakers. Example: first speaker text / second speaker text.
+            </p>
+            <p className="mt-1 text-[11px] text-gray-400">Ctrl+Enter saves on desktop. On phone, use the save button.</p>
+
+            <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+              <button
+                type="button"
+                onClick={() => void saveEditingBlock(getEditingBlock())}
+                disabled={editSaveStatus === 'saving'}
+                className="h-11 flex-1 rounded-xl bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {editSaveStatus === 'saving' ? 'saving...' : 'save'}
+              </button>
+              <button
+                type="button"
+                onClick={cancelEditingBlock}
+                className="h-11 flex-1 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50"
+              >
+                cancel
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
