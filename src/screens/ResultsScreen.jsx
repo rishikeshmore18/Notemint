@@ -504,8 +504,15 @@ export default function ResultsScreen({
 
       <div className="h-5 flex items-center justify-end mb-1">
         <div className="text-right">
-          {audioUploadStatus === 'uploaded' && <p className="text-xs text-emerald-600">audio saved</p>}
-          {audioUploadStatus === 'pending' && <p className="text-xs text-amber-500">recording uploading in background</p>}
+          {audioUploadStatus === 'uploaded' && <p className="text-xs text-emerald-600">Recording saved</p>}
+          {audioUploadStatus === 'pending' && (
+            <p className="text-xs text-amber-500">
+              Recording saved on this device. Uploading{audioUploadProgress > 0 ? `... ${audioUploadProgress}%` : '...'}
+            </p>
+          )}
+          {audioUploadStatus === 'backup_failed' && (
+            <p className="text-xs text-red-500">Keep this tab open. Recording is not safely backed up yet.</p>
+          )}
           {audioUploadStatus === 'failed' && (
             <div className="flex items-center justify-end gap-2">
               <p className="text-xs text-amber-600">audio unavailable</p>
@@ -651,8 +658,11 @@ export default function ResultsScreen({
                   {audioUploadStatus === 'pending' ? (
                     <AudioUploadProgress
                       progress={audioUploadProgress}
-                      message="Saving recording to cloud. You can keep reviewing this transcript."
+                      message="Recording saved on this device. Uploading to cloud."
                     />
+                  ) : null}
+                  {audioUploadStatus === 'backup_failed' ? (
+                    <p className="mt-2 text-xs text-red-500">Keep this tab open. Recording is not safely backed up yet.</p>
                   ) : null}
                 </div>
               ) : (
@@ -660,8 +670,10 @@ export default function ResultsScreen({
                   {audioUploadStatus === 'pending' ? (
                     <AudioUploadProgress
                       progress={audioUploadProgress}
-                      message="Saving recording. Playback will appear after upload finishes."
+                      message="Recording saved on this device. Playback will appear after upload finishes."
                     />
+                  ) : audioUploadStatus === 'backup_failed' ? (
+                    <p className="text-xs text-red-500">Keep this tab open. Recording is not safely backed up yet.</p>
                   ) : (
                     <p className="text-xs text-gray-500">audio playback unavailable for this meeting.</p>
                   )}

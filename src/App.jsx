@@ -22,7 +22,7 @@ import {
   createMeetingDraft,
   setMeetingAudioUploadStatus,
 } from './lib/summary'
-import { retryPendingAudioUploads, saveAudioUploadBackup, uploadAudioWithBackup } from './lib/audioUploadQueue'
+import { retryPendingAudioUploads, uploadAudioWithBackup } from './lib/audioUploadQueue'
 import { repairSpeakerTurns } from './lib/speakerTurnRepair'
 
 export default function App() {
@@ -115,9 +115,11 @@ export default function App() {
     }
 
     retryUploads()
+    const retryInterval = window.setInterval(retryUploads, 180000)
     window.addEventListener('online', retryUploads)
     window.addEventListener('focus', retryUploads)
     return () => {
+      window.clearInterval(retryInterval)
       window.removeEventListener('online', retryUploads)
       window.removeEventListener('focus', retryUploads)
     }
@@ -351,18 +353,6 @@ export default function App() {
       return null
     }
 
-    try {
-      await saveAudioUploadBackup({
-        userId: currentUser.id,
-        meetingId: draftMeetingId,
-        audioBlob,
-      })
-      setAudioSaveMessage('Recording is backed up on this device and uploading.')
-    } catch (err) {
-      console.warn('[App] Could not create local audio backup:', err?.message || err)
-      setAudioSaveMessage('Recording is uploading. Keep this tab open until audio is saved.')
-    }
-
     void uploadAudioWithBackup(
       supabase,
       {
@@ -372,21 +362,49 @@ export default function App() {
       },
       {
         onStatus: (status, result) => {
-          if (status === 'uploaded') {
+          if (status === 'uploaded_verified') {
             setAudioUploadStatus('uploaded')
             setAudioUploadProgress(100)
             setAudioSaveMessage('')
             return
           }
+          if (status === 'uploaded') {
+            setAudioUploadStatus('pending')
+            setAudioUploadProgress(100)
+            setAudioSaveMessage('Recording uploaded. Verifying playback...')
+            return
+          }
+          if (status === 'backup_failed') {
+            console.warn('[App] Audio backup failed:', result?.error || result)
+            setAudioUploadStatus('backup_failed')
+            setAudioSaveMessage('Keep this tab open. Recording is not safely backed up yet.')
+            return
+          }
           if (status === 'pending_retry') {
             console.warn('[App] Audio upload pending retry:', result?.error || result)
             setAudioUploadStatus('pending')
-            setAudioSaveMessage('Recording is saved on this device. Upload will retry automatically.')
+            setAudioSaveMessage('Recording saved on this device. Upload will retry automatically when connection returns.')
             return
           }
-          if (status === 'uploading' || status === 'backed_up') {
+          if (status === 'pending_retry_unbacked') {
+            console.warn('[App] Audio upload failed without local backup:', result?.error || result)
+            setAudioUploadStatus('backup_failed')
+            setAudioSaveMessage('Keep this tab open. Recording is not safely backed up yet.')
+            return
+          }
+          if (status === 'backed_up') {
             setAudioUploadStatus('pending')
-            setAudioSaveMessage('Recording is uploading in the background.')
+            setAudioSaveMessage('Recording saved on this device. Uploading...')
+            return
+          }
+          if (status === 'uploading') {
+            setAudioUploadStatus('pending')
+            setAudioSaveMessage('Recording saved on this device. Uploading...')
+            return
+          }
+          if (status === 'uploading_unbacked') {
+            setAudioUploadStatus('backup_failed')
+            setAudioSaveMessage('Keep this tab open. Recording is not safely backed up yet.')
           }
         },
         onProgress: (progress) => {
@@ -408,15 +426,26 @@ export default function App() {
       await retryPendingAudioUploads(supabase, currentUser.id, {
         onItemStatus: (record, status) => {
           if (record?.meetingId !== meetingId) return
-          if (status === 'uploaded') {
+          if (status === 'uploaded_verified') {
             setAudioUploadStatus('uploaded')
             setAudioUploadProgress(100)
             setAudioSaveMessage('')
             return
           }
+          if (status === 'uploaded') {
+            setAudioUploadStatus('pending')
+            setAudioUploadProgress(100)
+            setAudioSaveMessage('Recording uploaded. Verifying playback...')
+            return
+          }
           if (status === 'uploading') {
             setAudioUploadStatus('pending')
-            setAudioSaveMessage('Recording is uploading in the background.')
+            setAudioSaveMessage('Recording saved on this device. Uploading...')
+            return
+          }
+          if (status === 'pending') {
+            setAudioUploadStatus('pending')
+            setAudioSaveMessage('Recording saved on this device. Upload will retry automatically when connection returns.')
           }
         },
         onItemProgress: (record, progress) => {
@@ -463,21 +492,49 @@ export default function App() {
       },
       {
         onStatus: (status, result) => {
-          if (status === 'uploaded') {
+          if (status === 'uploaded_verified') {
             setAudioUploadStatus('uploaded')
             setAudioUploadProgress(100)
             setAudioSaveMessage('')
             return
           }
+          if (status === 'uploaded') {
+            setAudioUploadStatus('pending')
+            setAudioUploadProgress(100)
+            setAudioSaveMessage('Recording uploaded. Verifying playback...')
+            return
+          }
+          if (status === 'backup_failed') {
+            console.warn('[App] Retry audio backup failed:', result?.error || result)
+            setAudioUploadStatus('backup_failed')
+            setAudioSaveMessage('Keep this tab open. Recording is not safely backed up yet.')
+            return
+          }
           if (status === 'pending_retry') {
             console.warn('[App] Retry audio upload pending retry:', result?.error || result)
             setAudioUploadStatus('pending')
-            setAudioSaveMessage('Recording is saved on this device. Upload will retry automatically.')
+            setAudioSaveMessage('Recording saved on this device. Upload will retry automatically when connection returns.')
             return
           }
-          if (status === 'uploading' || status === 'backed_up') {
+          if (status === 'pending_retry_unbacked') {
+            console.warn('[App] Retry audio upload failed without local backup:', result?.error || result)
+            setAudioUploadStatus('backup_failed')
+            setAudioSaveMessage('Keep this tab open. Recording is not safely backed up yet.')
+            return
+          }
+          if (status === 'backed_up') {
             setAudioUploadStatus('pending')
-            setAudioSaveMessage('Recording is uploading in the background.')
+            setAudioSaveMessage('Recording saved on this device. Uploading...')
+            return
+          }
+          if (status === 'uploading') {
+            setAudioUploadStatus('pending')
+            setAudioSaveMessage('Recording saved on this device. Uploading...')
+            return
+          }
+          if (status === 'uploading_unbacked') {
+            setAudioUploadStatus('backup_failed')
+            setAudioSaveMessage('Keep this tab open. Recording is not safely backed up yet.')
           }
         },
         onProgress: (progress) => {
@@ -693,6 +750,7 @@ export default function App() {
         <HistoryScreen
           user={currentUser}
           onBack={() => setScreen('home')}
+          onRetryPendingAudioUploads={retryPendingMeetingAudioUploads}
           onOpenMeeting={(meeting) => {
             setSelectedMeeting(meeting)
             setScreen('past-meeting')
@@ -711,6 +769,7 @@ export default function App() {
           user={currentUser}
           meeting={selectedMeeting}
           onBack={() => setScreen('history')}
+          onRetryPendingAudioUploads={retryPendingMeetingAudioUploads}
         />
         <FloatingFeedbackButton url={feedbackUrl} />
       </>

@@ -1,4 +1,4 @@
-import { uploadMeetingAudio } from './summary'
+import { getMeetingAudioSignedUrl, setMeetingAudioUploadStatus, uploadMeetingAudio } from './summary'
 
 const DB_NAME = 'notemint-audio-backups'
 const DB_VERSION = 1
@@ -32,11 +32,75 @@ export async function removeAudioUploadBackup(userId, meetingId) {
   return true
 }
 
+export async function hasAudioUploadBackup(userId, meetingId) {
+  if (!userId || !meetingId) return false
+  try {
+    const db = await openAudioDb()
+    const record = await getRecord(db, buildBackupId(userId, meetingId))
+    return Boolean(record?.audioBlob && record?.status !== 'verified')
+  } catch {
+    return false
+  }
+}
+
+export async function getPendingAudioUploadBackups(userId) {
+  if (!userId) return []
+  try {
+    const db = await openAudioDb()
+    return (await getAllRecords(db)).filter(
+      (record) => record?.userId === userId && record?.audioBlob && record?.status !== 'verified',
+    )
+  } catch {
+    return []
+  }
+}
+
+export async function verifyAndRemoveAudioUploadBackup(supabase, { userId, meetingId, path }) {
+  if (!supabase || !userId || !meetingId || !path) {
+    return { ok: false, error: 'Missing audio verification data.' }
+  }
+
+  let db = null
+  let record = null
+  try {
+    db = await openAudioDb()
+    record = await getRecord(db, buildBackupId(userId, meetingId))
+  } catch {}
+
+  try {
+    await verifyUploadedMeetingAudio(supabase, { userId, meetingId, path })
+    if (db) {
+      try {
+        await deleteRecord(db, buildBackupId(userId, meetingId))
+      } catch (deleteErr) {
+        if (record) {
+          await markRecordVerified(db, record, deleteErr?.message || 'Local backup cleanup failed')
+        }
+      }
+    }
+    return { ok: true, path }
+  } catch (err) {
+    if (db && record) {
+      try {
+        await markRecordFailed(db, record, err?.message || 'Audio verification failed')
+      } catch {}
+    }
+    await setMeetingAudioUploadStatus(supabase, {
+      userId,
+      meetingId,
+      status: 'pending',
+    }).catch(() => {})
+    return { ok: false, path, error: err?.message || 'Audio verification failed' }
+  }
+}
+
 export async function retryPendingAudioUploads(supabase, userId, callbacks = {}) {
   if (!supabase || !userId) return []
 
   const db = await openAudioDb()
-  const records = (await getAllRecords(db)).filter((record) => record?.userId === userId && record?.audioBlob)
+  const records = (await getAllRecords(db)).filter(
+    (record) => record?.userId === userId && record?.audioBlob && record?.status !== 'verified',
+  )
   const results = []
 
   for (const record of records) {
@@ -52,9 +116,19 @@ export async function retryPendingAudioUploads(supabase, userId, callbacks = {})
       })
 
       if (result?.ok) {
-        await deleteRecord(db, record.id)
         callbacks.onItemStatus?.(record, 'uploaded', result)
-        results.push({ meetingId: record.meetingId, ok: true, path: result.path })
+        const verified = await verifyAndRemoveAudioUploadBackup(supabase, {
+          userId: record.userId,
+          meetingId: record.meetingId,
+          path: result.path,
+        })
+        if (verified.ok) {
+          callbacks.onItemStatus?.(record, 'uploaded_verified', verified)
+          results.push({ meetingId: record.meetingId, ok: true, path: result.path, verified: true })
+        } else {
+          callbacks.onItemStatus?.(record, 'pending', verified)
+          results.push({ meetingId: record.meetingId, ok: false, path: result.path, error: verified.error })
+        }
       } else {
         await markRecordFailed(db, record, result?.error || 'Upload did not complete')
         callbacks.onItemStatus?.(record, 'pending', result)
@@ -79,11 +153,20 @@ export async function uploadAudioWithBackup(
     return { ok: false, path: null, error: 'No audio captured.' }
   }
 
-  await saveAudioUploadBackup({ userId, meetingId, audioBlob, durationSeconds, retentionDays })
-  callbacks.onStatus?.('backed_up')
+  let backupAvailable = false
+  try {
+    backupAvailable = await saveAudioUploadBackup({ userId, meetingId, audioBlob, durationSeconds, retentionDays })
+    if (backupAvailable) {
+      callbacks.onStatus?.('backed_up')
+    } else {
+      callbacks.onStatus?.('backup_failed', { error: 'Local backup was not created' })
+    }
+  } catch (err) {
+    callbacks.onStatus?.('backup_failed', { error: err?.message || 'Local backup failed' })
+  }
 
   try {
-    callbacks.onStatus?.('uploading')
+    callbacks.onStatus?.(backupAvailable ? 'uploading' : 'uploading_unbacked')
     const result = await uploadMeetingAudio(supabase, {
       userId,
       meetingId,
@@ -94,15 +177,25 @@ export async function uploadAudioWithBackup(
     })
 
     if (result?.ok) {
-      await removeAudioUploadBackup(userId, meetingId)
       callbacks.onStatus?.('uploaded', result)
-      return result
+      const verified = await verifyAndRemoveAudioUploadBackup(supabase, {
+        userId,
+        meetingId,
+        path: result.path,
+      })
+      if (verified.ok) {
+        callbacks.onStatus?.('uploaded_verified', verified)
+        return { ...result, verified: true }
+      }
+
+      callbacks.onStatus?.(backupAvailable ? 'pending_retry' : 'pending_retry_unbacked', verified)
+      return { ok: false, path: result.path, error: verified.error || 'Upload could not be verified' }
     }
 
-    callbacks.onStatus?.('pending_retry', result)
+    callbacks.onStatus?.(backupAvailable ? 'pending_retry' : 'pending_retry_unbacked', result)
     return { ok: false, path: null, error: result?.error || 'Upload did not complete' }
   } catch (err) {
-    callbacks.onStatus?.('pending_retry', { error: err?.message || 'Upload failed' })
+    callbacks.onStatus?.(backupAvailable ? 'pending_retry' : 'pending_retry_unbacked', { error: err?.message || 'Upload failed' })
     return { ok: false, path: null, error: err?.message || 'Upload failed' }
   }
 }
@@ -136,6 +229,10 @@ function putRecord(db, record) {
   return runStoreRequest(db, 'readwrite', (store) => store.put(record))
 }
 
+function getRecord(db, id) {
+  return runStoreRequest(db, 'readonly', (store) => store.get(id))
+}
+
 function deleteRecord(db, id) {
   return runStoreRequest(db, 'readwrite', (store) => store.delete(id))
 }
@@ -152,6 +249,49 @@ async function markRecordFailed(db, record, error) {
     lastError: String(error || '').slice(0, 500),
     updatedAt: new Date().toISOString(),
   })
+}
+
+async function markRecordVerified(db, record, note) {
+  await putRecord(db, {
+    ...record,
+    status: 'verified',
+    lastError: String(note || '').slice(0, 500),
+    updatedAt: new Date().toISOString(),
+  })
+}
+
+async function verifyUploadedMeetingAudio(supabase, { userId, meetingId, path }) {
+  const { data, error } = await supabase
+    .from('meetings')
+    .select('audio_storage_path, audio_upload_status')
+    .eq('id', meetingId)
+    .eq('user_id', userId)
+    .maybeSingle()
+
+  if (error) throw new Error(error.message || 'Could not verify meeting audio metadata')
+  if (!data || data.audio_storage_path !== path) {
+    throw new Error('Meeting audio metadata is not saved yet')
+  }
+
+  const signedUrl = await getMeetingAudioSignedUrl(supabase, {
+    audioStoragePath: path,
+    userId,
+    meetingId,
+    expiresInSeconds: 120,
+  })
+  if (!signedUrl) throw new Error('Could not create playback URL')
+
+  const response = await fetch(signedUrl, {
+    method: 'GET',
+    headers: {
+      Range: 'bytes=0-0',
+    },
+  })
+  if (!response.ok) {
+    throw new Error('Playback URL could not be verified')
+  }
+
+  return true
 }
 
 function runStoreRequest(db, mode, action) {

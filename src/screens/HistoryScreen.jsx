@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { getPendingAudioUploadBackups } from '../lib/audioUploadQueue'
 import { deleteLocalMeeting, deleteMeetingRecord, getLocalMeetings } from '../lib/summary'
 
-export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
+export default function HistoryScreen({ user, onBack, onOpenMeeting, onRetryPendingAudioUploads = null }) {
   const [meetings, setMeetings] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
   const [dateFilter, setDateFilter] = useState({
@@ -17,6 +18,7 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
   const [error, setError] = useState(null)
   const [deletingMeetingId, setDeletingMeetingId] = useState('')
   const [revealedMeetingId, setRevealedMeetingId] = useState('')
+  const [pendingBackupIds, setPendingBackupIds] = useState(new Set())
   const touchState = React.useRef({
     id: '',
     x: 0,
@@ -27,7 +29,20 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
 
   useEffect(() => {
     loadMeetings()
+    void refreshPendingAudioBackups()
+    const retry = onRetryPendingAudioUploads?.()
+    if (retry?.finally) {
+      void retry.finally(() => {
+        void refreshPendingAudioBackups()
+      })
+    }
   }, [])
+
+  async function refreshPendingAudioBackups() {
+    if (!user?.id) return
+    const records = await getPendingAudioUploadBackups(user.id)
+    setPendingBackupIds(new Set(records.map((record) => record.meetingId).filter(Boolean)))
+  }
 
   async function loadMeetings() {
     setLoading(true)
@@ -463,16 +478,26 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting }) {
                 )}
                 {meeting.audio_storage_path ? (
                   <span className="text-xs text-gray-300 mt-1">
-                    {meeting.audio_expires_at
-                      ? `audio kept until ${formatDate(meeting.audio_expires_at)}`
-                      : 'audio kept (no expiry)'}
+                    {meeting.audio_upload_status === 'pending'
+                      ? 'audio uploaded, verifying'
+                      : meeting.audio_expires_at
+                        ? `audio kept until ${formatDate(meeting.audio_expires_at)}`
+                        : 'audio saved'}
                   </span>
                 ) : null}
-                {meeting.audio_upload_status === 'pending' && (
-                  <span className="text-xs text-amber-500 mt-1">audio still uploading</span>
+                {meeting.audio_upload_status === 'pending' && !meeting.audio_storage_path && (
+                  <span className="text-xs text-amber-500 mt-1">
+                    {pendingBackupIds.has(meeting.id)
+                      ? 'recording saved on this device, uploading'
+                      : 'audio uploading'}
+                  </span>
                 )}
                 {meeting.audio_upload_status === 'failed' && (
-                  <span className="text-xs text-amber-600 mt-1">audio unavailable</span>
+                  <span className="text-xs text-amber-600 mt-1">
+                    {pendingBackupIds.has(meeting.id)
+                      ? 'upload will retry automatically'
+                      : 'audio unavailable'}
+                  </span>
                 )}
               </button>
               <button

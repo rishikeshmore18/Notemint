@@ -10,7 +10,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { extractAudioSlice } from './SpeakerReviewScreen'
 
-export default function PastMeetingScreen({ user, meeting, onBack }) {
+export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendingAudioUploads = null }) {
   const [activeTab, setActiveTab] = useState('summary')
   const [copiedWhat, setCopiedWhat] = useState(null)
   const [audioUrl, setAudioUrl] = useState('')
@@ -112,6 +112,16 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
   useEffect(() => {
     setLocalLabelMap(meeting?.label_map && typeof meeting.label_map === 'object' ? meeting.label_map : {})
   }, [meeting?.id, meeting?.label_map])
+
+  useEffect(() => {
+    if (meeting?.audio_upload_status !== 'pending') return
+    const retry = onRetryPendingAudioUploads?.()
+    if (retry?.catch) {
+      retry.catch((err) => {
+        console.warn('[PastMeeting] Pending audio retry failed:', err?.message || err)
+      })
+    }
+  }, [meeting?.id, meeting?.audio_upload_status])
 
   useEffect(() => {
     let cancelled = false
@@ -367,9 +377,14 @@ export default function PastMeetingScreen({ user, meeting, onBack }) {
     }
 
     if (!audioUrl) {
+      const isPendingUpload = meeting?.audio_upload_status === 'pending'
       return (
         <div className="sticky top-0 z-20 mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 shadow-sm">
-          {audioDeletedAt ? 'audio was deleted. transcript and summary are still available.' : 'audio playback is not available for this meeting.'}
+          {isPendingUpload
+            ? 'recording upload is still pending. playback will appear after upload finishes.'
+            : audioDeletedAt
+              ? 'audio was deleted. transcript and summary are still available.'
+              : 'audio playback is not available for this meeting.'}
         </div>
       )
     }
