@@ -534,39 +534,39 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
 
   function renderClipReview({ clips, loadingKey, emptyText, onCreateNew, unclearReason }) {
     if (clipLoadingKey === loadingKey) {
-      return <p className="text-xs text-indigo-400 py-2">preparing audio clips...</p>
+      return <p className="py-2 text-xs text-[var(--mint-d)]">preparing audio clips...</p>
     }
 
     if (!audioBlob) {
-      return <p className="text-xs text-gray-400 py-2">clip review needs the meeting audio.</p>
+      return <p className="py-2 text-xs text-[var(--ink3)]">clip review needs the meeting audio.</p>
     }
 
     if (!clips || clips.length === 0) {
-      return <p className="text-xs text-gray-400 py-2">{emptyText}</p>
+      return <p className="py-2 text-xs text-[var(--ink3)]">{emptyText}</p>
     }
 
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-2">
+      <div className="grid grid-cols-1 gap-2 pt-2 sm:grid-cols-2">
         {clips.map((clip, clipIndex) => {
           const key = `${loadingKey}-${clip.segmentIndex}-${clipIndex}`
           const isClipPlaying = playingSpeaker === key
           return (
-            <div key={key} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+            <div key={key} className="rounded-[18px] border border-[var(--line)] bg-white/80 p-3 shadow-[var(--sh-sm)]">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-xs font-medium text-gray-700">
+                  <p className="text-xs font-bold text-[var(--ink2)]">
                     clip {clipIndex + 1} · {formatClipTime(clip.startTime)}
                   </p>
-                  <p className="text-[11px] text-gray-400 line-clamp-2 mt-1">"{clip.text || 'audio snippet'}"</p>
+                  <p className="mt-1 line-clamp-2 text-[11px] text-[var(--ink3)]">"{clip.text || 'audio snippet'}"</p>
                 </div>
                 <button
                   onClick={() => toggleSnippet(key)}
                   disabled={!clip.url}
-                  className={`w-8 h-8 shrink-0 rounded-full flex items-center justify-center ${
-                    clip.url ? 'bg-white hover:bg-gray-100' : 'bg-gray-100 opacity-50'
+                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                    clip.url ? 'bg-[var(--paper)] hover:bg-[var(--mint-soft)]' : 'bg-gray-100 opacity-50'
                   }`}
                 >
-                  <span className="text-[11px] text-gray-600">{isClipPlaying ? '||' : 'play'}</span>
+                  <span className="text-[11px] text-[var(--ink2)]">{isClipPlaying ? 'pause' : 'play'}</span>
                 </button>
               </div>
               <audio
@@ -577,22 +577,22 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
                 onEnded={() => setPlayingSpeaker(null)}
                 style={{ display: 'none' }}
               />
-              <div className="grid grid-cols-1 gap-1.5 mt-3">
+              <div className="mt-3 grid grid-cols-1 gap-1.5">
                 <button
                   onClick={() => keepClipWithCurrentSpeaker(clip)}
-                  className="h-8 rounded-lg bg-white text-xs text-gray-600 border border-gray-100"
+                  className="h-8 rounded-xl border border-[var(--line)] bg-white text-xs font-medium text-[var(--ink2)]"
                 >
                   keep here
                 </button>
                 <button
                   onClick={() => onCreateNew(clip)}
-                  className="h-8 rounded-lg bg-indigo-600 text-xs font-medium text-white"
+                  className="h-8 rounded-xl bg-[var(--mint-d)] text-xs font-bold text-white"
                 >
                   move to new person
                 </button>
                 <button
                   onClick={() => markClipUnclear(clip, unclearReason)}
-                  className="h-8 rounded-lg bg-amber-50 text-xs font-medium text-amber-700"
+                  className="h-8 rounded-xl bg-amber-50 text-xs font-bold text-amber-700"
                 >
                   mark unclear
                 </button>
@@ -612,31 +612,31 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
 
     if (identifyingStatus === 'identifying') {
       return (
-        <div className="min-h-screen bg-white flex flex-col max-w-md mx-auto px-5">
-          <div className="flex items-center justify-between h-14">
-            <span className="text-sm font-medium text-gray-900">notemint</span>
-            <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center">
-              <span className="text-sm font-medium text-indigo-600">{initial}</span>
+        <div className="nm-screen mx-auto flex min-h-screen max-w-md flex-col px-5">
+          <div className="flex h-14 items-center justify-between">
+            <span className="text-sm font-bold text-[var(--ink)]">notemint</span>
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--mint-soft)]">
+              <span className="text-sm font-bold text-[var(--mint-d)]">{initial}</span>
             </div>
           </div>
           <div className="flex flex-1 items-center justify-center">
-            <p className="text-sm text-indigo-400">matching your voice...</p>
+            <p className="text-sm text-[var(--mint-d)]">matching your voice...</p>
           </div>
         </div>
       )
     }
 
     return (
-      <div className="min-h-screen bg-white flex flex-col max-w-md mx-auto px-5">
-        <div className="flex items-center justify-between h-14">
-          <span className="text-sm font-medium text-gray-900">notemint</span>
-          <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center">
-            <span className="text-sm font-medium text-indigo-600">{initial}</span>
+      <div className="nm-screen mx-auto flex min-h-screen max-w-md flex-col px-5">
+        <div className="flex h-14 items-center justify-between">
+          <span className="text-sm font-bold text-[var(--ink)]">notemint</span>
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--mint-soft)]">
+            <span className="text-sm font-bold text-[var(--mint-d)]">{initial}</span>
           </div>
         </div>
 
-        <p className="text-xl font-semibold text-gray-900 mt-6 mb-1">one speaker detected</p>
-        <p className="text-sm text-gray-400 mb-6">
+        <p className="nm-title mb-1 mt-6 text-2xl">one speaker detected</p>
+        <p className="nm-muted mb-6 text-sm">
           {singleReviewState === 'low confidence' && singleMeta?.source === 'self'
             ? 'possible match to your voice - confirm before saving.'
             : singleName === 'You'
@@ -647,13 +647,13 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
         <div className="flex gap-3">
           <button
             onClick={() => onConfirmed({ [onlySpeaker]: 'You' })}
-            className="flex-1 h-11 bg-indigo-600 text-white rounded-xl text-sm font-medium"
+            className="nm-btn nm-btn-primary flex-1"
           >
             yes, that's me
           </button>
           <button
             onClick={onSkip}
-            className="flex-1 h-11 border border-gray-200 text-gray-600 rounded-xl text-sm"
+            className="nm-btn nm-btn-soft flex-1"
           >
             skip
           </button>
@@ -663,21 +663,21 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col max-w-md mx-auto px-5">
-      <div className="flex items-center justify-between h-14">
-        <span className="text-sm font-medium text-gray-900">notemint</span>
+    <div className="nm-screen mx-auto flex min-h-screen max-w-md flex-col px-5">
+      <div className="flex h-14 items-center justify-between">
+        <span className="text-sm font-bold text-[var(--ink)]">notemint</span>
         {identifyingStatus === 'identifying' ? (
-          <span className="text-xs text-indigo-400">matching voices...</span>
+          <span className="text-xs text-[var(--mint-d)]">matching voices...</span>
         ) : (
-          <span className="text-xs text-gray-300">review speakers</span>
+          <span className="text-xs text-[var(--muted)]">review speakers</span>
         )}
-        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center">
-          <span className="text-sm font-medium text-indigo-600">{initial}</span>
+        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--mint-soft)]">
+          <span className="text-sm font-bold text-[var(--mint-d)]">{initial}</span>
         </div>
       </div>
 
-      <p className="text-xl font-semibold text-gray-900 mt-4 mb-1">{displaySpeakers.length} speakers found</p>
-      <p className="text-sm text-gray-400 mb-5">listen and identify each speaker</p>
+      <p className="nm-title mb-1 mt-4 text-2xl">{displaySpeakers.length} speakers found</p>
+      <p className="nm-muted mb-5 text-sm">listen and identify each speaker</p>
 
       <div className="flex flex-col gap-3 flex-1">
         {displaySpeakers.map((sp, idx) => {
@@ -703,18 +703,18 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
                 : 'bg-gray-100 text-gray-600'
 
           return (
-            <div key={sp} className="border border-gray-100 rounded-2xl p-4">
+            <div key={sp} className="nm-card p-4">
               <div className="flex items-center justify-between mb-2.5">
                 <div className="flex items-center gap-2">
                   <span
                     className={`text-xs font-medium px-2.5 py-1 rounded-full ${
-                      name === 'You' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600'
+                      name === 'You' ? 'bg-[var(--mint-soft)] text-[var(--mint-d)]' : 'bg-[var(--paper)] text-[var(--ink2)]'
                     }`}
                   >
                     {name || `Speaker ${idx + 1}`}
                   </span>
                   {typeof autoInfo?.confidence === 'number' ? (
-                    <span className="text-xs text-indigo-400">
+                    <span className="text-xs text-[var(--mint-d)]">
                       {autoInfo.source === 'self' ? 'auto self' : 'auto match'} {autoInfo.confidence.toFixed(2)}
                     </span>
                   ) : null}
@@ -727,11 +727,11 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
                   onClick={() => toggleSnippet(sp)}
                   disabled={!snippet?.url}
                   className={`w-9 h-9 rounded-full flex items-center justify-center ${
-                    snippet?.url ? 'bg-gray-100 hover:bg-gray-200' : 'bg-gray-50 opacity-50'
+                    snippet?.url ? 'bg-[var(--paper)] hover:bg-[var(--mint-soft)]' : 'bg-gray-50 opacity-50'
                   }`}
                 >
                   {isPlaying ? (
-                    <span className="text-xs text-indigo-600">||</span>
+                    <span className="text-xs text-[var(--mint-d)]">pause</span>
                   ) : (
                     <span className="text-xs text-gray-600">▶</span>
                   )}
@@ -754,7 +754,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
               {editingSpeaker === sp ? (
                 <div className="flex gap-2">
                   <input
-                    className="flex-1 h-9 border border-indigo-200 rounded-lg px-3 text-sm focus:outline-none focus:border-indigo-400"
+                    className="nm-input h-10 flex-1 rounded-xl px-3 text-sm"
                     value={inputValue}
                     onChange={(e) => setInputValue(e.target.value)}
                     onKeyDown={(e) => {
@@ -770,7 +770,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
                   />
                   <button
                     onClick={() => saveName(sp)}
-                    className="h-9 px-4 bg-gray-900 text-white text-sm rounded-lg font-medium"
+                    className="h-10 rounded-xl bg-[var(--ink)] px-4 text-sm font-bold text-white"
                   >
                     save
                   </button>
@@ -788,10 +788,10 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
                       disabled={anotherSpeakerIsYou}
                       className={`flex-1 h-9 rounded-lg text-sm font-medium ${
                         name === 'You'
-                          ? 'bg-indigo-600 text-white'
+                          ? 'bg-[var(--mint-d)] text-white'
                           : anotherSpeakerIsYou
                             ? 'bg-gray-50 text-gray-300 cursor-not-allowed'
-                            : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                            : 'bg-[var(--mint-soft)] text-[var(--mint-d)] hover:bg-[var(--paper)]'
                       }`}
                     >
                       {name === 'You' ? 'this is you' : 'this is me'}
@@ -801,7 +801,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
                         setEditingSpeaker(sp)
                         setInputValue(name && name !== 'You' ? name : '')
                       }}
-                      className="flex-1 h-9 rounded-lg text-sm border border-gray-200 text-gray-600 hover:bg-gray-50"
+                      className="h-9 flex-1 rounded-xl border border-[var(--line)] bg-white text-sm text-[var(--ink2)] hover:bg-[var(--paper)]"
                     >
                       {name && name !== 'You' ? name : 'name person'}
                     </button>
@@ -818,7 +818,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
                               [sp]: suggestedName,
                             }))
                           }
-                          className="h-7 px-2.5 rounded-full text-xs border border-gray-200 text-gray-600 hover:bg-gray-50"
+                          className="h-7 rounded-full border border-[var(--line)] bg-white px-2.5 text-xs text-[var(--ink2)] hover:bg-[var(--paper)]"
                         >
                           {suggestedName}
                         </button>
@@ -828,7 +828,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
 
                   <button
                     onClick={() => handleToggleSpeakerClips(sp)}
-                    className="h-8 rounded-lg border border-dashed border-gray-200 text-xs text-gray-500 hover:bg-gray-50"
+                    className="h-8 rounded-xl border border-dashed border-[var(--line)] text-xs text-[var(--ink3)] hover:bg-[var(--paper)]"
                   >
                     {expandedSpeaker === sp ? 'hide voice clips' : 'multiple voices?'}
                   </button>
@@ -836,9 +836,9 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
               )}
 
               {expandedSpeaker === sp ? (
-                <div className="mt-3 border-t border-gray-100 pt-3">
-                  <p className="text-xs font-medium text-gray-700">Review clips from {name || `Person ${idx + 1}`}</p>
-                  <p className="text-[11px] text-gray-400 mt-1">
+                <div className="mt-3 border-t border-[var(--line)] pt-3">
+                  <p className="text-xs font-bold text-[var(--ink2)]">Review clips from {name || `Person ${idx + 1}`}</p>
+                  <p className="mt-1 text-[11px] text-[var(--ink3)]">
                     If one clip sounds like someone else, move only that clip to a new person.
                   </p>
                   {renderClipReview({
@@ -855,15 +855,15 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
         })}
 
         {missedSpeakerCandidates.length > 0 ? (
-          <div className="border border-amber-100 rounded-2xl p-4 bg-amber-50/40">
+          <div className="rounded-[24px] border border-amber-100 bg-amber-50/50 p-4 shadow-[var(--sh-sm)]">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-semibold text-gray-900">Possible missed speaker</p>
-                <p className="text-xs text-gray-500 mt-1">Review uncertain clips only if someone may have been merged.</p>
+                <p className="text-sm font-bold text-[var(--ink)]">Possible missed speaker</p>
+                <p className="mt-1 text-xs text-[var(--ink3)]">Review uncertain clips only if someone may have been merged.</p>
               </div>
               <button
                 onClick={handleToggleMissedClips}
-                className="h-8 px-3 rounded-lg bg-white border border-amber-100 text-xs text-amber-700"
+                className="h-8 rounded-xl border border-amber-100 bg-white px-3 text-xs font-bold text-amber-700"
               >
                 {missedExpanded ? 'hide' : 'review'}
               </button>
@@ -886,11 +886,11 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
       <div className="flex flex-col gap-2 pt-5 pb-8">
         <button
           onClick={handleConfirm}
-          className="h-11 w-full rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700"
+          className="nm-btn nm-btn-primary w-full"
         >
           confirm speakers
         </button>
-        <button onClick={() => onSkip()} className="h-9 text-xs text-gray-400 underline">
+        <button onClick={() => onSkip()} className="h-9 text-xs text-[var(--ink3)] underline">
           skip for now
         </button>
       </div>

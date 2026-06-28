@@ -325,7 +325,7 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
   const progressPercent = Math.min(100, Math.round((sampleCount / 5) * 100))
 
   return (
-    <div className="min-h-screen bg-white flex flex-col items-center px-6">
+    <div className="nm-screen flex flex-col items-center px-6">
       <style>{`
         @keyframes scaleIn {
           from { transform: scale(1.2); opacity: 0.7; }
@@ -342,21 +342,21 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
         }
       `}</style>
 
-      <div className="w-full max-w-md mt-16 md:mt-20">
+      <div className="nm-fade-in w-full max-w-md mt-16 md:mt-20">
         <div className="flex gap-1.5">
           {phraseStatus.map((status, index) => {
             let colorClass = 'bg-gray-100'
 
             if (status === 'done') {
-              colorClass = 'bg-indigo-600'
+              colorClass = 'bg-[var(--mint-d)]'
             } else if (status === 'recorded') {
-              colorClass = 'bg-indigo-200'
+              colorClass = 'bg-[var(--mint-soft)]'
             } else if (status === 'validating') {
-              colorClass = 'bg-indigo-400'
+              colorClass = 'bg-[var(--mint)]'
             } else if (status === 'failed') {
               colorClass = 'bg-red-400'
             } else if (index === currentPhrase) {
-              colorClass = 'bg-indigo-300'
+              colorClass = 'bg-[rgba(6,177,122,.30)]'
             }
 
             return <div key={phrases[index]} className={`h-1 flex-1 rounded-full ${colorClass}`} />
@@ -365,22 +365,22 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
 
         {mode === 'reset' ? (
           <>
-            <h2 className="text-xl font-semibold text-gray-900 mt-5 mb-1">re-enrol your voice</h2>
-            <p className="text-sm text-gray-400 mb-3">
+            <h2 className="nm-title mt-5 mb-1 text-3xl">re-enrol your voice</h2>
+            <p className="mb-3 text-sm font-medium text-[var(--ink3)]">
               your old voice profile will be replaced. say each phrase clearly.
             </p>
           </>
         ) : (
           <>
-            <h2 className="text-xl font-semibold text-gray-900 mt-5 mb-1">recognise your voice</h2>
-            <p className="text-sm text-gray-400 mb-3">
+            <h2 className="nm-title mt-5 mb-1 text-3xl">recognise your voice</h2>
+            <p className="mb-3 text-sm font-medium text-[var(--ink3)]">
               say each phrase clearly when prompted. takes about 30 seconds.
             </p>
           </>
         )}
 
         {resetStatus === 'resetting' ? (
-          <p className="text-xs text-gray-400 mb-3">resetting your old voice profile...</p>
+          <p className="mb-3 text-xs font-medium text-[var(--ink3)]">resetting your old voice profile...</p>
         ) : null}
         {resetStatus === 'done' && mode === 'reset' ? (
           <p className="text-xs text-emerald-600 mb-3">old voice cleared - record 5 fresh phrases</p>
@@ -391,18 +391,18 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
 
         <div>
           {phrases.map((phrase, index) => (
-            <div key={phrase} className="flex items-start gap-3 py-3 border-b border-gray-50">
+            <div key={phrase} className="nm-card mb-2 flex items-start gap-3 px-3 py-3">
               <div className="w-6 h-6 flex-shrink-0 mt-0.5">
                 {phraseStatus[index] === 'done' || phraseStatus[index] === 'recorded' ? (
                   <div
                     className={`w-6 h-6 rounded-full flex items-center justify-center ${
-                      phraseStatus[index] === 'recorded' ? 'bg-indigo-100 border border-indigo-200' : 'bg-indigo-600'
+                      phraseStatus[index] === 'recorded' ? 'border border-[rgba(6,177,122,.25)] bg-[var(--mint-soft)]' : 'bg-[var(--mint-d)]'
                     }`}
                   >
                     <svg viewBox="0 0 12 12" className="h-[10px] w-[10px]" fill="none" aria-hidden="true">
                       <path
                         d="M3 6L6 9L11 3"
-                        stroke={phraseStatus[index] === 'recorded' ? '#4F46E5' : 'white'}
+                        stroke={phraseStatus[index] === 'recorded' ? '#04936A' : 'white'}
                         strokeWidth="2.5"
                         strokeLinecap="round"
                         strokeLinejoin="round"
@@ -417,8 +417,8 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
                   (phraseStatus[index] === 'pending' ||
                     phraseStatus[index] === 'recording' ||
                     phraseStatus[index] === 'validating') ? (
-                  <div className="w-6 h-6 rounded-full bg-indigo-50 border border-indigo-200 flex items-center justify-center">
-                    <span className="text-xs font-medium text-indigo-600">{index + 1}</span>
+                  <div className="w-6 h-6 rounded-full bg-[var(--mint-soft)] border border-[rgba(6,177,122,.25)] flex items-center justify-center">
+                    <span className="text-xs font-bold text-[var(--mint-d)]">{index + 1}</span>
                   </div>
                 ) : (
                   <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center">
@@ -435,13 +435,13 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
         </div>
 
         <div className="mt-4">
-          <div className="flex items-center justify-between text-xs text-gray-500 mb-1.5">
+          <div className="mb-1.5 flex items-center justify-between text-xs font-medium text-[var(--ink3)]">
             <span>{sampleCount} / 5 clips accepted</span>
             <span>{Math.max(0, Number(voiceStatus.remaining_clips_needed || 0))} remaining</span>
           </div>
-          <div className="h-1.5 w-full rounded-full bg-gray-100 overflow-hidden">
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white">
             <div
-              className="h-full bg-indigo-500 transition-all duration-300"
+              className="h-full bg-[var(--mint-d)] transition-all duration-300"
               style={{ width: `${progressPercent}%` }}
             />
           </div>
@@ -456,7 +456,7 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
             <button
               type="button"
               onClick={handleRecordClick}
-              className="w-full h-11 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-medium rounded-xl transition-colors"
+              className="nm-btn nm-btn-primary w-full text-sm"
             >
               {phraseStatus[currentPhrase] === 'failed' ? 'record phrase again' : `record phrase ${currentPhrase + 1}`}
             </button>
@@ -467,11 +467,11 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
               <div
                 key={countdown}
                 style={{ animation: 'scaleIn 0.3s ease-out' }}
-                className="text-6xl font-bold text-indigo-600 text-center"
+                className="text-center text-6xl font-extrabold text-[var(--mint-d)]"
               >
                 {countdown}
               </div>
-              <p className="text-xs text-gray-400 mt-2">get ready...</p>
+              <p className="mt-2 text-xs font-medium text-[var(--ink3)]">get ready...</p>
             </>
           ) : null}
 
@@ -481,23 +481,23 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
                 {[0, 100, 200, 100, 0].map((delayValue, index) => (
                   <div
                     key={`bar_${index}`}
-                    className="wave-bar w-1.5 rounded-full bg-indigo-500"
+                    className="wave-bar w-1.5 rounded-full bg-[var(--mint-d)]"
                     style={{ animationDelay: `${delayValue}ms` }}
                   />
                 ))}
               </div>
-              <p className="text-sm text-gray-400">listening...</p>
+              <p className="text-sm font-medium text-[var(--ink3)]">listening...</p>
             </>
           ) : null}
 
           {phraseStatus[currentPhrase] === 'validating' ? (
-            <p className="text-sm text-gray-400">
+            <p className="text-sm font-medium text-[var(--ink3)]">
               {isOptimisticInitialEnrollment ? 'saving voice sample...' : 'checking phrase...'}
             </p>
           ) : null}
 
           {isFinishing ? (
-            <p className="text-sm text-gray-400">finishing voice setup...</p>
+            <p className="text-sm font-medium text-[var(--ink3)]">finishing voice setup...</p>
           ) : null}
         </div>
 
@@ -508,7 +508,7 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
               <button
                 type="button"
                 onClick={handleRetry}
-                className="text-xs text-indigo-600 underline mt-1"
+                className="mt-1 text-xs font-bold text-[var(--mint-d)] underline"
               >
                 try again
               </button>
@@ -520,7 +520,7 @@ export default function EnrollScreen({ user, onComplete, mode = 'initial' }) {
       <button
         type="button"
         onClick={handleSkip}
-        className="mt-auto pb-8 text-xs text-gray-300 hover:text-gray-400 underline"
+        className="mt-auto pb-8 text-xs font-bold text-[var(--ink3)] hover:text-[var(--ink)] underline"
       >
         skip for now
       </button>

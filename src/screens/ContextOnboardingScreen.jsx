@@ -240,10 +240,10 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
   }
 
   return (
-    <div className="min-h-screen bg-white px-6 py-8">
+    <div className="nm-screen-pad">
       {isWorkContextMode && (savePhase === 'saving' || savePhase === 'generating') ? (
-        <div className="fixed inset-x-0 top-4 z-40 mx-auto w-[92%] max-w-md rounded-2xl border border-indigo-100 bg-white/95 px-4 py-3 shadow-lg backdrop-blur">
-          <p className="text-sm font-medium text-indigo-700">
+        <div className="fixed inset-x-0 top-4 z-40 mx-auto w-[92%] max-w-md rounded-[22px] border border-[var(--line)] bg-white/95 px-4 py-3 shadow-[var(--sh-md)] backdrop-blur">
+          <p className="text-sm font-bold text-[var(--mint-d)]">
             {savePhase === 'saving'
               ? 'saving your context...'
               : 'suggestions being generated based on your inputs...'}
@@ -252,64 +252,64 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
       ) : null}
 
       {isWorkContextMode && (savePhase === 'preview' || savePhase === 'saved') ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-white px-6 py-8">
-          <div className="w-full max-w-2xl text-center">
-            <p className="text-sm font-medium text-indigo-600">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[rgba(243,247,244,.96)] px-6 py-8 backdrop-blur">
+          <div className="nm-card-strong nm-pop-in w-full max-w-2xl px-5 py-8 text-center">
+            <p className="text-sm font-bold text-[var(--mint-d)]">
               {savePhase === 'preview' ? 'suggestions generated from your context' : 'context saved'}
             </p>
             <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
               {(previewKeyterms.length > 0 ? previewKeyterms : normalizedGeneratedKeyterms).slice(0, 32).map((term, index) => (
                 <span
                   key={`${term}-${index}`}
-                  className={`inline-flex rounded-full px-3 py-1 text-indigo-700 transition-all ${
+                  className={`inline-flex rounded-full px-3 py-1 text-[var(--mint-d)] transition-all ${
                     index % 4 === 0
-                      ? 'bg-indigo-100 text-base font-semibold'
+                      ? 'bg-[var(--mint-soft)] text-base font-bold'
                       : index % 4 === 1
-                        ? 'bg-indigo-50 text-sm font-medium'
+                        ? 'bg-emerald-50 text-sm font-semibold'
                         : index % 4 === 2
-                          ? 'bg-sky-50 text-xs font-medium'
-                          : 'bg-violet-50 text-[11px]'
+                          ? 'bg-sky-50 text-xs font-semibold'
+                          : 'bg-white text-[11px]'
                   }`}
                 >
                   {term}
                 </span>
               ))}
             </div>
-            <p className="mt-8 text-xs text-gray-500">
+            <p className="mt-8 text-xs font-medium text-[var(--ink3)]">
               {savePhase === 'preview' ? 'verifying and saving context...' : 'redirecting to homepage...'}
             </p>
           </div>
         </div>
       ) : null}
 
-      <div className="mx-auto w-full max-w-xl">
-        <h1 className="text-xl font-semibold text-gray-900">{title}</h1>
-        <p className="mt-1 text-sm text-gray-400">{subtitle}</p>
+      <div className="nm-container nm-fade-in">
+        <h1 className="nm-title text-3xl">{title}</h1>
+        <p className="mt-2 text-sm font-medium text-[var(--ink3)]">{subtitle}</p>
 
-        {loading ? <p className="mt-6 text-sm text-gray-400">loading context...</p> : null}
+        {loading ? <p className="mt-6 text-sm font-medium text-[var(--ink3)]">loading context...</p> : null}
 
         {!loading ? (
           <div className="mt-6 space-y-5">
             {mode !== 'dictionary' ? (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">industry</label>
+                <label className="mb-2 block text-sm font-bold text-[var(--ink)]">industry</label>
                 <input
                   value={industrySelection}
                   onChange={(event) => setIndustrySelection(event.target.value)}
                   placeholder="Banking"
-                  className="w-full h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                  className="nm-input text-sm"
                 />
               </div>
             ) : null}
 
             {mode !== 'dictionary' ? (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">role</label>
+                <label className="mb-2 block text-sm font-bold text-[var(--ink)]">role</label>
                 <input
                   value={roleSelection}
                   onChange={(event) => setRoleSelection(event.target.value)}
                   placeholder="Financial Analyst"
-                  className="w-full h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                  className="nm-input text-sm"
                 />
               </div>
             ) : null}
@@ -330,7 +330,7 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
                   type="button"
                   onClick={handleSave}
                   disabled={saving || regenerating || savePhase === 'preview' || savePhase === 'saved'}
-                  className="w-full h-11 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="nm-btn nm-btn-primary w-full text-sm disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {savePhase === 'saving'
                     ? 'saving context...'
@@ -341,13 +341,13 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
                         : 'save context'}
                 </button>
                 {savePhase === 'preview' ? (
-                  <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50/40 px-3 py-3">
-                    <p className="text-xs font-medium text-indigo-700">suggestions generated</p>
+                  <div className="nm-card mt-3 px-3 py-3">
+                    <p className="text-xs font-bold text-[var(--mint-d)]">suggestions generated</p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {normalizedGeneratedKeyterms.slice(0, 24).map((term, index) => (
                         <span
                           key={`${term}-${index}`}
-                          className={`rounded-full bg-white/80 px-2.5 py-1 text-indigo-700 ${
+                          className={`rounded-full bg-[var(--mint-soft)] px-2.5 py-1 text-[var(--mint-d)] ${
                             index % 3 === 0 ? 'text-xs font-semibold' : index % 3 === 1 ? 'text-[11px]' : 'text-[10px]'
                           }`}
                         >
@@ -361,14 +361,14 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
             ) : null}
 
             {showGeneratedSuggestionsPanel ? (
-              <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
+              <div className="nm-card px-3 py-3">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-xs font-medium text-gray-700">generated keyterms</p>
+                <p className="text-xs font-bold text-[var(--ink)]">generated keyterms</p>
                 <button
                   type="button"
                   onClick={() => void runRegenerateSuggestions()}
                   disabled={regenerating}
-                  className="text-xs text-indigo-600 underline disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="text-xs font-bold text-[var(--mint-d)] underline disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {regenerating ? 'regenerating...' : 'regenerate suggestions'}
                 </button>
@@ -380,14 +380,14 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
                       key={term}
                       type="button"
                       onClick={() => handleRemoveKeyterm(term)}
-                      className="rounded-full bg-white border border-gray-200 px-2.5 py-1 text-[11px] text-gray-600 hover:bg-gray-100"
+                      className="rounded-full border border-[var(--line)] bg-white px-2.5 py-1 text-[11px] font-semibold text-[var(--ink2)] hover:bg-[var(--paper)]"
                       title="remove term"
                     >
                       {term} ×
                     </button>
                   ))
                 ) : (
-                  <p className="text-xs text-gray-400">no generated keyterms yet</p>
+                  <p className="text-xs text-[var(--ink3)]">no generated keyterms yet</p>
                 )}
               </div>
               <div className="mt-2 flex items-center gap-2">
@@ -395,18 +395,18 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
                   value={newKeytermInput}
                   onChange={(event) => setNewKeytermInput(event.target.value)}
                   placeholder="add important term"
-                  className="h-8 flex-1 rounded-lg border border-gray-200 bg-white px-2.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+                  className="nm-input min-h-9 flex-1 px-3 py-1 text-xs"
                 />
                 <button
                   type="button"
                   onClick={handleAddKeyterm}
-                  className="h-8 rounded-lg border border-gray-200 bg-white px-2.5 text-xs text-gray-600 hover:bg-gray-100"
+                  className="nm-btn nm-btn-soft min-h-9 px-3 py-1 text-xs"
                 >
                   add
                 </button>
               </div>
               {isEditMode ? (
-                <p className="mt-2 text-[11px] text-gray-500">
+                <p className="mt-2 text-[11px] text-[var(--ink3)]">
                   these suggestions will be refreshed automatically when you save.
                 </p>
               ) : null}
@@ -414,27 +414,27 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
             ) : null}
 
             {isDictionaryMode ? (
-              <div className="rounded-xl border border-gray-100 bg-gray-50 px-3 py-3">
-              <p className="text-xs font-medium text-gray-700">recent corrections</p>
-              <p className="mt-1 text-[11px] text-gray-500">
+              <div className="nm-card px-3 py-3">
+              <p className="text-xs font-bold text-[var(--ink)]">recent corrections</p>
+              <p className="mt-1 text-[11px] text-[var(--ink3)]">
                 learned from transcript edits; used to improve future transcription hints.
               </p>
               <div className="mt-2 space-y-1.5">
                 {recentCorrections.length > 0 ? (
                   recentCorrections.slice(0, 12).map((pair) => (
-                    <p key={`${pair.original}=>${pair.corrected}`} className="text-xs text-gray-600">
+                    <p key={`${pair.original}=>${pair.corrected}`} className="text-xs text-[var(--ink2)]">
                       "{pair.original}" → "{pair.corrected}" ({Number(pair.count || 0)}x)
                     </p>
                   ))
                 ) : (
-                  <p className="text-xs text-gray-400">no correction history yet</p>
+                  <p className="text-xs text-[var(--ink3)]">no correction history yet</p>
                 )}
               </div>
               </div>
             ) : null}
 
-            {error ? <p className="text-sm text-red-500">{error}</p> : null}
-            {generationWarning ? <p className="text-sm text-amber-600">{generationWarning}</p> : null}
+            {error ? <p className="rounded-2xl bg-red-50 px-3 py-2 text-sm font-medium text-red-500">{error}</p> : null}
+            {generationWarning ? <p className="rounded-2xl bg-amber-50 px-3 py-2 text-sm font-medium text-amber-600">{generationWarning}</p> : null}
 
             <div className="pt-2">
               {isDictionaryMode ? (
@@ -442,7 +442,7 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
                   type="button"
                   onClick={handleSave}
                   disabled={saving || regenerating}
-                  className="w-full h-11 rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="nm-btn nm-btn-primary w-full text-sm disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {saving ? 'saving context...' : 'save context'}
                 </button>
@@ -451,13 +451,13 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
                 type="button"
                 onClick={onSkip}
                 disabled={saving}
-                className="mt-2 w-full h-10 rounded-xl text-sm text-gray-500 hover:text-gray-700 transition-colors"
+                className="mt-2 h-10 w-full rounded-xl text-sm font-semibold text-[var(--ink3)] transition-colors hover:text-[var(--ink)]"
               >
                 {isDictionaryMode ? 'skip for now' : 'cancel'}
               </button>
             </div>
 
-            <p className="text-xs text-gray-300">
+            <p className="text-xs font-medium text-[var(--ink3)]">
               saved terms are used to improve transcription and summaries.
             </p>
           </div>
@@ -470,15 +470,15 @@ export default function ContextOnboardingScreen({ user, mode = 'initial', onComp
 function Field({ label, value, onChange, placeholder, helper }) {
   return (
     <div>
-      <label className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
+      <label className="mb-2 block text-sm font-bold text-[var(--ink)]">{label}</label>
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         rows={3}
-        className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 resize-y"
+        className="nm-input resize-y text-sm"
       />
-      <p className="mt-1 text-xs text-gray-400">{helper}</p>
+      <p className="mt-1 text-xs font-medium text-[var(--ink3)]">{helper}</p>
     </div>
   )
 }

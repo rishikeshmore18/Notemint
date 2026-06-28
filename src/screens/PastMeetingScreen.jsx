@@ -218,9 +218,9 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
       if (trimmed.startsWith('->') || trimmed.startsWith('=>') || trimmed.startsWith('>')) {
         const actionText = trimmed.replace(/^(->|=>|>)\s*/, '')
         return (
-          <div key={i} className="flex items-start gap-2 bg-indigo-50 rounded-lg px-3 py-2 mb-1.5">
-            <span className="text-indigo-400 flex-shrink-0 mt-0.5 text-sm">-&gt;</span>
-            <span className="text-sm text-indigo-800 leading-relaxed">{renderTextWithCitations(actionText)}</span>
+          <div key={i} className="mb-1.5 flex items-start gap-2 rounded-2xl bg-[var(--mint-soft)] px-3 py-2">
+            <span className="mt-0.5 flex-shrink-0 text-sm text-[var(--mint-d)]">-&gt;</span>
+            <span className="text-sm leading-relaxed text-[var(--ink)]">{renderTextWithCitations(actionText)}</span>
           </div>
         )
       }
@@ -267,7 +267,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
             key={`${citationId}-${match.index}`}
             type="button"
             onClick={() => handleSummaryCitationClick(citationId)}
-            className="inline text-indigo-600 hover:text-indigo-800 underline underline-offset-2"
+            className="inline font-bold text-[var(--blue)] underline underline-offset-2 hover:text-[var(--mint-d)]"
             title={`Jump to transcript at source ${citationId}`}
           >
             {label}
@@ -293,11 +293,11 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
 
   function getSpeakerBadgeClass(label) {
     const labelLower = String(label).toLowerCase()
-    if (labelLower === 'you') return 'bg-indigo-100 text-indigo-700'
+    if (labelLower === 'you') return 'bg-[var(--mint-soft)] text-[var(--mint-d)]'
     if (labelLower === 'person 1' || labelLower === 'person1') return 'bg-emerald-100 text-emerald-700'
     if (labelLower === 'person 2' || labelLower === 'person2') return 'bg-amber-100 text-amber-700'
     if (labelLower === 'person 3' || labelLower === 'person3') return 'bg-rose-100 text-rose-700'
-    if (labelLower === '0') return 'bg-indigo-100 text-indigo-700'
+    if (labelLower === '0') return 'bg-[var(--mint-soft)] text-[var(--mint-d)]'
     if (labelLower === '1') return 'bg-emerald-100 text-emerald-700'
     if (labelLower === '2') return 'bg-amber-100 text-amber-700'
     return 'bg-gray-100 text-gray-600'
@@ -362,7 +362,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
   function renderAudioPlayer(blocks) {
     if (audioStatus === 'loading') {
       return (
-        <div className="sticky top-0 z-20 mb-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3 text-xs text-gray-500 shadow-sm">
+        <div className="sticky top-0 z-20 mb-3 rounded-[22px] border border-[var(--line)] bg-white/95 px-3 py-3 text-xs font-medium text-[var(--ink3)] shadow-[var(--sh-sm)] backdrop-blur">
           loading meeting audio...
         </div>
       )
@@ -390,7 +390,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
     }
 
     return (
-      <div className="sticky top-0 z-20 mb-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3 shadow-sm">
+      <div className="sticky top-0 z-20 mb-3 rounded-[22px] border border-[var(--line)] bg-white/95 px-3 py-3 shadow-[var(--sh-sm)] backdrop-blur">
         <audio
           ref={audioRef}
           src={audioUrl}
@@ -428,7 +428,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
               <button
                 type="button"
                 onClick={resumeAutoScroll}
-                className="text-[11px] text-indigo-600 underline"
+                className="text-[11px] font-bold text-[var(--mint-d)] underline"
               >
                 resume auto-scroll
               </button>
@@ -698,36 +698,36 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
   const effectiveTranscript = buildTranscriptFromSegments(effectiveSegments) || String(meeting?.transcript_compressed || '')
 
   return (
-    <div className="min-h-screen bg-white flex flex-col max-w-2xl mx-auto px-5 md:px-10">
+    <div className="nm-screen mx-auto flex min-h-screen max-w-2xl flex-col px-5 md:px-10">
       <div className="flex items-center justify-between h-14 flex-shrink-0">
         <div className="w-8 flex-shrink-0" aria-hidden="true" />
 
-        <span className="text-sm font-medium text-gray-900 truncate px-4">{meeting.title || 'Untitled meeting'}</span>
+        <span className="truncate px-4 text-[16.5px] font-extrabold tracking-[-.04em] text-[var(--ink)]">{meeting.title || 'Untitled meeting'}</span>
 
-        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
-          <span className="text-sm font-medium text-indigo-600">
+        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2A4B40] to-[var(--ink)] shadow-[var(--sh-sm)]">
+          <span className="text-sm font-bold text-white">
             {user?.email?.[0]?.toUpperCase() || '?'}
           </span>
         </div>
       </div>
 
-      <div className="flex rounded-xl overflow-hidden border border-gray-100 mb-4 flex-shrink-0">
+      <div className="nm-segmented mb-4 grid grid-cols-2 flex-shrink-0">
         <button
           onClick={() => setActiveTab('summary')}
-          className={`flex-1 h-9 text-sm transition-colors ${
+          className={`h-10 text-sm font-bold transition-colors ${
             activeTab === 'summary'
-              ? 'bg-indigo-600 text-white font-medium'
-              : 'bg-white text-gray-500 hover:text-gray-700'
+              ? 'nm-segmented-active'
+              : 'text-[var(--ink3)] hover:text-[var(--ink)]'
           }`}
         >
           summary
         </button>
         <button
           onClick={() => setActiveTab('transcript')}
-          className={`flex-1 h-9 text-sm transition-colors ${
+          className={`h-10 text-sm font-bold transition-colors ${
             activeTab === 'transcript'
-              ? 'bg-indigo-600 text-white font-medium'
-              : 'bg-white text-gray-500 hover:text-gray-700'
+              ? 'nm-segmented-active'
+              : 'text-[var(--ink3)] hover:text-[var(--ink)]'
           }`}
         >
           transcript
@@ -735,7 +735,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
       </div>
 
       {transcriptionStatus === 'processing' ? (
-        <div className="mb-3 rounded-xl border border-indigo-100 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+        <div className="mb-3 rounded-2xl border border-[var(--line)] bg-[var(--mint-soft)] px-3 py-2 text-xs font-medium text-[var(--mint-d)]">
           transcript is still processing. this page will update automatically.
         </div>
       ) : null}
@@ -772,7 +772,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
                         if (node) lineRefs.current[i] = node
                       }}
                       className={`flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0 ${
-                        i === activeLineIndex ? 'bg-indigo-50' : 'bg-white'
+                        i === activeLineIndex ? 'bg-[var(--mint-soft)]' : 'bg-white'
                       }`}
                     >
                       <div className="w-10 flex-shrink-0 pt-0.5">
@@ -808,7 +808,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
                               }}
                               autoFocus
                               maxLength={32}
-                              className="h-9 flex-1 rounded-lg border border-indigo-200 bg-white px-2.5 text-sm text-gray-800 focus:outline-none focus:border-indigo-400"
+                              className="nm-input min-h-9 flex-1 px-3 py-1 text-sm"
                               placeholder="speaker name"
                             />
                             <button
@@ -825,14 +825,14 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
                           <button
                             type="button"
                             onClick={() => startEditingBlock(block)}
-                            className="text-[11px] text-indigo-600 underline"
+                            className="text-[11px] font-bold text-[var(--mint-d)] underline"
                           >
                             edit
                           </button>
                           <button
                             type="button"
                             onClick={() => startEditingSpeaker(block.speaker)}
-                            className="text-[11px] text-indigo-600 underline"
+                            className="text-[11px] font-bold text-[var(--mint-d)] underline"
                           >
                             rename speaker
                           </button>
@@ -850,7 +850,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
 
       {splitReview ? (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/20 px-4 py-6 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-2xl">
+          <div className="nm-card-strong w-full max-w-md p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-base font-semibold text-gray-900">Find similar speaker moments?</p>
@@ -874,14 +874,14 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
                 <button
                   type="button"
                   onClick={() => void runSplitReviewSearch()}
-                  className="h-11 flex-1 rounded-xl bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700"
+                  className="nm-btn nm-btn-primary flex-1 text-sm"
                 >
                   find similar moments
                 </button>
                 <button
                   type="button"
                   onClick={() => setSplitReview(null)}
-                  className="h-11 flex-1 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50"
+                  className="nm-btn nm-btn-soft flex-1 text-sm"
                 >
                   skip
                 </button>
@@ -889,9 +889,9 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
             ) : null}
 
             {splitReviewStatus === 'running' ? (
-              <div className="mt-4 flex items-center gap-3 rounded-xl bg-indigo-50 px-3 py-3">
-                <span className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-200 border-t-indigo-600" />
-                <p className="text-sm text-indigo-700">checking similar voice moments...</p>
+              <div className="mt-4 flex items-center gap-3 rounded-xl bg-[var(--mint-soft)] px-3 py-3">
+                <span className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--mint-soft)] border-t-[var(--mint-d)]" />
+                <p className="text-sm text-[var(--mint-d)]">checking similar voice moments...</p>
               </div>
             ) : null}
 
@@ -913,7 +913,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
                           type="checkbox"
                           checked={Boolean(selectedSplitMatches[candidate.key])}
                           onChange={() => toggleSplitReviewMatch(candidate.key)}
-                          className="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600"
+                          className="mt-1 h-4 w-4 rounded border-gray-300 text-[var(--mint-d)]"
                         />
                         <span className="min-w-0 flex-1">
                           <span className="block text-xs text-gray-400">
@@ -954,7 +954,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
 
       {getEditingBlock() ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-4 py-6 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-4 shadow-2xl">
+          <div className="nm-card-strong w-full max-w-lg p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-base font-semibold text-gray-900">Edit transcript text</p>
@@ -989,7 +989,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
               }}
               autoFocus
               rows={6}
-              className="mt-4 w-full rounded-xl border border-indigo-100 bg-gray-50 px-3 py-3 text-sm leading-relaxed text-gray-900 focus:border-indigo-400 focus:bg-white focus:outline-none"
+              className="nm-input mt-4 w-full text-sm leading-relaxed"
             />
 
             <p className="mt-2 text-xs text-gray-500">
@@ -1002,14 +1002,14 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
                 type="button"
                 onClick={() => void saveEditingBlock(getEditingBlock())}
                 disabled={editSaveStatus === 'saving'}
-                className="h-11 flex-1 rounded-xl bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                className="nm-btn nm-btn-primary flex-1 text-sm disabled:opacity-50"
               >
                 {editSaveStatus === 'saving' ? 'saving...' : 'save'}
               </button>
               <button
                 type="button"
                 onClick={cancelEditingBlock}
-                className="h-11 flex-1 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50"
+                className="nm-btn nm-btn-soft flex-1 text-sm"
               >
                 cancel
               </button>
@@ -1031,7 +1031,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
         <button
           onClick={() => handleCopy('summary')}
           disabled={!effectiveSummary}
-          className="h-11 w-full rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="nm-btn nm-btn-primary w-full text-sm disabled:cursor-not-allowed disabled:opacity-40"
         >
           {copiedWhat === 'summary' ? 'copied!' : 'copy summary'}
         </button>
@@ -1039,7 +1039,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
         <button
           onClick={() => handleCopy('transcript')}
           disabled={!effectiveTranscript}
-          className="h-11 w-full rounded-xl border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50 active:bg-gray-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="nm-btn nm-btn-soft w-full text-sm disabled:cursor-not-allowed disabled:opacity-40"
         >
           {copiedWhat === 'transcript' ? 'copied!' : 'copy transcript'}
         </button>

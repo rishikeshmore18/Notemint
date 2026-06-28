@@ -3,25 +3,25 @@ export default function AuthCallbackScreen({ status, title, message, onContinue 
   const isError = status === 'error'
 
   return (
-    <div className="min-h-screen bg-white">
+    <div className="nm-screen">
       <div className="mx-auto flex min-h-screen w-full max-w-[360px] flex-col px-6">
-        <div className="mt-[60px] text-center text-xl font-semibold text-gray-900">Notemint</div>
+        <div className="mt-[60px] text-center text-2xl font-black tracking-[-0.04em] text-[var(--ink)]">Notemint</div>
 
         <div className="flex flex-1 flex-col items-center justify-center text-center">
           <div
             className={`flex h-12 w-12 items-center justify-center rounded-full ${
-              isSuccess ? 'bg-emerald-50 text-emerald-600' : isError ? 'bg-red-50 text-red-500' : 'bg-indigo-50 text-indigo-600'
+              isSuccess ? 'bg-emerald-50 text-emerald-600' : isError ? 'bg-red-50 text-red-500' : 'bg-[var(--mint-soft)] text-[var(--mint-d)]'
             }`}
           >
             {isSuccess ? <SuccessIcon /> : isError ? <ErrorIcon /> : <LoadingDot />}
           </div>
-          <h1 className="mt-6 text-xl font-medium text-gray-900">{title}</h1>
-          <p className="mt-2 text-sm leading-relaxed text-gray-500">{message}</p>
+          <h1 className="mt-6 text-xl font-bold text-[var(--ink)]">{title}</h1>
+          <p className="mt-2 text-sm leading-relaxed text-[var(--ink3)]">{message}</p>
           {onContinue ? (
             <button
               type="button"
               onClick={onContinue}
-              className="mt-6 h-11 rounded-lg bg-indigo-600 px-4 text-sm font-medium text-white"
+              className="nm-btn nm-btn-primary mt-6 px-4"
             >
               back to sign in
             </button>

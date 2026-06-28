@@ -491,14 +491,14 @@ export default function ResultsScreen({
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col max-w-2xl mx-auto px-5 md:px-10">
+    <div className="nm-screen mx-auto flex min-h-screen max-w-2xl flex-col px-5 md:px-10">
       <div className="flex items-center justify-between h-14 flex-shrink-0">
-        <span className="text-sm font-medium text-gray-900">notemint</span>
-        <span className="text-xs text-gray-400">
+        <span className="text-[16.5px] font-extrabold tracking-[-.04em] text-[var(--ink)]">notemint</span>
+        <span className="text-xs font-medium text-[var(--ink3)]">
           {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
         </span>
-        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
-          <span className="text-sm font-medium text-indigo-600">{user?.email?.[0]?.toUpperCase() || '?'}</span>
+        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#2A4B40] to-[var(--ink)] shadow-[var(--sh-sm)]">
+          <span className="text-sm font-bold text-white">{user?.email?.[0]?.toUpperCase() || '?'}</span>
         </div>
       </div>
 
@@ -520,7 +520,7 @@ export default function ResultsScreen({
                 <button
                   type="button"
                   onClick={() => void onRetryAudioUpload()}
-                  className="text-xs text-indigo-600 underline"
+                  className="text-xs font-bold text-[var(--mint-d)] underline"
                 >
                   retry audio upload
                 </button>
@@ -534,19 +534,19 @@ export default function ResultsScreen({
         </div>
       </div>
 
-      <div className="flex rounded-xl overflow-hidden border border-gray-100 mb-4 flex-shrink-0">
+      <div className="nm-segmented mb-4 grid grid-cols-2 flex-shrink-0">
         <button
           onClick={() => setActiveTab('summary')}
-          className={`flex-1 h-9 text-sm transition-colors ${
-            activeTab === 'summary' ? 'bg-indigo-600 text-white font-medium' : 'bg-white text-gray-500 hover:text-gray-700'
+          className={`h-10 text-sm font-bold transition-colors ${
+            activeTab === 'summary' ? 'nm-segmented-active' : 'text-[var(--ink3)] hover:text-[var(--ink)]'
           }`}
         >
           summary
         </button>
         <button
           onClick={() => setActiveTab('transcript')}
-          className={`flex-1 h-9 text-sm transition-colors ${
-            activeTab === 'transcript' ? 'bg-indigo-600 text-white font-medium' : 'bg-white text-gray-500 hover:text-gray-700'
+          className={`h-10 text-sm font-bold transition-colors ${
+            activeTab === 'transcript' ? 'nm-segmented-active' : 'text-[var(--ink3)] hover:text-[var(--ink)]'
           }`}
         >
           transcript
@@ -571,7 +571,7 @@ export default function ResultsScreen({
                 type="button"
                 onClick={handleRegenerateSummary}
                 disabled={editableSegments.length === 0 || summaryStatus === 'generating'}
-                className="text-xs text-indigo-600 underline disabled:opacity-40 disabled:cursor-not-allowed"
+                className="text-xs font-bold text-[var(--mint-d)] underline disabled:cursor-not-allowed disabled:opacity-40"
               >
                 regenerate summary from corrected transcript
               </button>
@@ -580,9 +580,9 @@ export default function ResultsScreen({
             {summaryStatus === 'generating' && !summaryText && (
               <div className="flex flex-col items-center py-12">
                 <div className="flex items-center gap-1.5 mb-3">
-                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-300 dot-pulse" style={{ animationDelay: '0ms' }} />
-                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-300 dot-pulse" style={{ animationDelay: '200ms' }} />
-                  <div className="w-1.5 h-1.5 rounded-full bg-indigo-300 dot-pulse" style={{ animationDelay: '400ms' }} />
+                  <div className="w-1.5 h-1.5 rounded-full bg-[var(--mint)] dot-pulse" style={{ animationDelay: '0ms' }} />
+                  <div className="w-1.5 h-1.5 rounded-full bg-[var(--mint)] dot-pulse" style={{ animationDelay: '200ms' }} />
+                  <div className="w-1.5 h-1.5 rounded-full bg-[var(--mint)] dot-pulse" style={{ animationDelay: '400ms' }} />
                 </div>
                 <p className="text-sm text-gray-400">generating summary...</p>
               </div>
@@ -609,7 +609,7 @@ export default function ResultsScreen({
                     summaryTextRef.current = ''
                     void handleRegenerateSummary()
                   }}
-                  className="text-sm text-indigo-600 underline"
+                  className="text-sm font-bold text-[var(--mint-d)] underline"
                 >
                   try again
                 </button>
@@ -620,7 +620,7 @@ export default function ResultsScreen({
 
         {activeTab === 'transcript' && (
           <div>
-            <div className="sticky top-0 z-20 mb-3 rounded-xl border border-gray-100 bg-gray-50 px-3 py-3 shadow-sm">
+            <div className="sticky top-0 z-20 mb-3 rounded-[22px] border border-[var(--line)] bg-white/95 px-3 py-3 shadow-[var(--sh-sm)] backdrop-blur">
               {audioUrl ? (
                 <div>
                   <audio
@@ -649,7 +649,7 @@ export default function ResultsScreen({
                       <button
                         type="button"
                         onClick={resumeAutoScroll}
-                        className="text-[11px] text-indigo-600 underline"
+                        className="text-[11px] font-bold text-[var(--mint-d)] underline"
                       >
                         resume auto-scroll
                       </button>
@@ -690,7 +690,7 @@ export default function ResultsScreen({
                 type="button"
                 onClick={handleRegenerateSummary}
                 disabled={editableSegments.length === 0 || summaryStatus === 'generating'}
-                className="text-xs text-indigo-600 underline disabled:opacity-40 disabled:cursor-not-allowed"
+                className="text-xs font-bold text-[var(--mint-d)] underline disabled:cursor-not-allowed disabled:opacity-40"
               >
                 regenerate summary from corrected transcript
               </button>
@@ -703,7 +703,7 @@ export default function ResultsScreen({
                 const isEditing = editingSegmentKey === segment.key
                 const isCorrected = Boolean(segment?.correctionMeta)
                 const rowClass = isActive
-                  ? 'bg-indigo-50'
+                  ? 'bg-[var(--mint-soft)]'
                   : isCorrected
                     ? 'bg-amber-50'
                     : 'bg-white'
@@ -747,7 +747,7 @@ export default function ResultsScreen({
                             onBlur={() => void handleSaveCorrection(segment, editingText)}
                             rows={2}
                             autoFocus
-                            className="w-full rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-sm text-gray-800 focus:outline-none focus:border-indigo-400 resize-y"
+                            className="nm-input resize-y text-sm"
                           />
                           <p className="mt-1 text-[11px] text-gray-500">enter to save, shift+enter for newline, esc to cancel</p>
                         </div>
@@ -767,7 +767,7 @@ export default function ResultsScreen({
                             <button
                               type="button"
                               onClick={() => startEditing(segment)}
-                              className="text-[11px] text-indigo-600 underline"
+                              className="text-[11px] font-bold text-[var(--mint-d)] underline"
                             >
                               edit
                             </button>
@@ -776,7 +776,7 @@ export default function ResultsScreen({
                               <button
                                 type="button"
                                 onClick={() => startEditing(segment)}
-                                className="text-[11px] text-indigo-600 underline"
+                                className="text-[11px] font-bold text-[var(--mint-d)] underline"
                               >
                                 edit
                               </button>
@@ -807,19 +807,19 @@ export default function ResultsScreen({
         <button
           onClick={() => handleCopy('summary')}
           disabled={!summaryText || summaryText.trim().length === 0}
-          className="h-11 w-full rounded-xl bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 active:bg-indigo-800 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="nm-btn nm-btn-primary w-full text-sm disabled:cursor-not-allowed disabled:opacity-40"
         >
           {copiedWhat === 'summary' ? 'copied!' : 'copy summary'}
         </button>
 
         <button
           onClick={() => handleCopy('transcript')}
-          className="h-11 w-full rounded-xl border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50 active:bg-gray-100 transition-colors"
+          className="nm-btn nm-btn-soft w-full text-sm"
         >
           {copiedWhat === 'transcript' ? 'copied!' : 'copy transcript'}
         </button>
 
-        <button onClick={onNewMeeting} className="h-11 w-full text-sm text-gray-400 hover:text-gray-600 transition-colors">
+        <button onClick={onNewMeeting} className="h-11 w-full text-sm font-bold text-[var(--ink3)] transition-colors hover:text-[var(--ink)]">
           new meeting
         </button>
       </div>
@@ -934,9 +934,9 @@ function renderMarkdownLite(text, citationOptions = {}) {
     if (trimmed.startsWith('->') || trimmed.startsWith('=>') || trimmed.startsWith('>')) {
       const actionText = trimmed.replace(/^(->|=>|>)\s*/, '')
       return (
-        <div key={i} className="flex items-start gap-2 bg-indigo-50 rounded-lg px-3 py-2 mb-1.5">
-          <span className="text-indigo-400 flex-shrink-0 mt-0.5 text-sm">-&gt;</span>
-          <span className="text-sm text-indigo-800 leading-relaxed">
+        <div key={i} className="mb-1.5 flex items-start gap-2 rounded-2xl bg-[var(--mint-soft)] px-3 py-2">
+          <span className="mt-0.5 flex-shrink-0 text-sm text-[var(--mint-d)]">-&gt;</span>
+          <span className="text-sm leading-relaxed text-[var(--ink)]">
             {renderTextWithCitations(actionText, citationOptions)}
           </span>
         </div>
@@ -986,7 +986,7 @@ function renderTextWithCitations(text, { onCitationClick = null, maxCitationId =
           key={`${citationId}-${match.index}`}
           type="button"
           onClick={() => onCitationClick(citationId)}
-          className="inline text-indigo-600 hover:text-indigo-800 underline underline-offset-2"
+          className="inline font-bold text-[var(--blue)] underline underline-offset-2 hover:text-[var(--mint-d)]"
           title={`Jump to transcript at source ${citationId}`}
         >
           {label}
@@ -1012,11 +1012,11 @@ function renderTextWithCitations(text, { onCitationClick = null, maxCitationId =
 
 function getSpeakerBadgeClass(label) {
   const labelLower = String(label).toLowerCase()
-  if (labelLower === 'you') return 'bg-indigo-100 text-indigo-700'
+  if (labelLower === 'you') return 'bg-[var(--mint-soft)] text-[var(--mint-d)]'
   if (labelLower === 'person 1' || labelLower === 'person1') return 'bg-emerald-100 text-emerald-700'
   if (labelLower === 'person 2' || labelLower === 'person2') return 'bg-amber-100 text-amber-700'
   if (labelLower === 'person 3' || labelLower === 'person3') return 'bg-rose-100 text-rose-700'
-  if (labelLower === '0') return 'bg-indigo-100 text-indigo-700'
+  if (labelLower === '0') return 'bg-[var(--mint-soft)] text-[var(--mint-d)]'
   if (labelLower === '1') return 'bg-emerald-100 text-emerald-700'
   if (labelLower === '2') return 'bg-amber-100 text-amber-700'
   return 'bg-gray-100 text-gray-600'

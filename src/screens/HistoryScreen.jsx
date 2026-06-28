@@ -322,15 +322,15 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting, onRetryPend
   const showSuggestions = searchFocused && normalizedSearch.length >= 2 && searchSuggestions.length > 0
 
   return (
-    <div className="min-h-screen bg-white flex flex-col max-w-2xl mx-auto px-5 md:px-8">
-      <p className="text-lg font-semibold text-gray-900 mb-1">past meetings</p>
-      <p className="text-xs text-gray-400 mb-5">
+    <div className="nm-screen mx-auto flex min-h-screen max-w-2xl flex-col px-5 md:px-8">
+      <p className="nm-title mb-1 text-2xl">past meetings</p>
+      <p className="nm-subtle mb-5">
         {meetings.length} meeting{meetings.length !== 1 ? 's' : ''} saved
       </p>
 
-      <div className="sticky top-0 z-10 mb-4 bg-white/95 pb-2 backdrop-blur">
+      <div className="sticky top-0 z-10 mb-4 rounded-b-[28px] bg-[var(--paper)]/95 pb-3 pt-1 backdrop-blur">
         <div className="relative">
-          <div className="flex h-11 items-center gap-2 rounded-2xl border border-gray-100 bg-gray-50 px-3 shadow-sm">
+          <div className="flex h-12 items-center gap-2 rounded-[24px] border border-[var(--line)] bg-white/95 px-4 shadow-[var(--sh-sm)]">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-gray-400" aria-hidden="true">
               <path
                 d="m20 20-4.2-4.2M10.8 18a7.2 7.2 0 1 1 0-14.4 7.2 7.2 0 0 1 0 14.4Z"
@@ -347,13 +347,13 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting, onRetryPend
                 window.setTimeout(() => setSearchFocused(false), 120)
               }}
               placeholder="Search date, time, person..."
-              className="min-w-0 flex-1 bg-transparent text-sm text-gray-800 placeholder:text-gray-400 focus:outline-none"
+              className="min-w-0 flex-1 bg-transparent text-sm text-[var(--ink)] placeholder:text-[var(--ink3)] focus:outline-none"
             />
             {searchQuery ? (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="rounded-full px-2 py-1 text-xs text-gray-400 hover:bg-white hover:text-gray-600"
+                className="rounded-full px-2 py-1 text-xs text-[var(--ink3)] hover:bg-[var(--paper)] hover:text-[var(--ink2)]"
                 aria-label="Clear search"
               >
                 clear
@@ -361,7 +361,7 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting, onRetryPend
             ) : null}
           </div>
           {showSuggestions ? (
-            <div className="absolute left-0 right-0 top-12 z-20 overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-lg">
+            <div className="absolute left-0 right-0 top-14 z-20 overflow-hidden rounded-[24px] border border-[var(--line)] bg-white shadow-[var(--sh-md)]">
               {searchSuggestions.map((suggestion) => (
                 <button
                   key={`${suggestion.type}_${suggestion.value}`}
@@ -371,10 +371,10 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting, onRetryPend
                     setSearchQuery(suggestion.value)
                     setSearchFocused(false)
                   }}
-                  className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left text-sm hover:bg-gray-50"
+                  className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left text-sm hover:bg-[var(--paper)]"
                 >
-                  <span className="truncate text-gray-800">{suggestion.value}</span>
-                  <span className="shrink-0 text-[11px] text-gray-400">{suggestion.type}</span>
+                  <span className="truncate text-[var(--ink)]">{suggestion.value}</span>
+                  <span className="shrink-0 text-[11px] text-[var(--ink3)]">{suggestion.type}</span>
                 </button>
               ))}
             </div>
@@ -385,10 +385,10 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting, onRetryPend
             <button
               type="button"
               onClick={() => setDateFilterOpen((prev) => !prev)}
-              className={`h-8 rounded-full border px-3 text-xs font-medium shadow-sm transition ${
+              className={`h-9 rounded-full border px-4 text-xs font-bold shadow-[var(--sh-sm)] transition active:scale-95 ${
                 dateFilter.mode === 'all'
-                  ? 'border-gray-100 bg-white text-gray-600 hover:bg-gray-50'
-                  : 'border-gray-900 bg-gray-900 text-white'
+                  ? 'border-[var(--line)] bg-white text-[var(--ink2)] hover:bg-[var(--paper)]'
+                  : 'border-[var(--mint-d)] bg-[var(--mint-d)] text-white'
               }`}
             >
               {getDateFilterLabel(dateFilter)}
@@ -404,13 +404,13 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting, onRetryPend
           <button
             type="button"
             onClick={() => setSortOrder((prev) => (prev === 'newest' ? 'oldest' : 'newest'))}
-            className="h-8 rounded-full border border-gray-100 bg-white px-3 text-xs font-medium text-gray-600 shadow-sm hover:bg-gray-50 sm:ml-auto"
+            className="h-9 rounded-full border border-[var(--line)] bg-white px-4 text-xs font-bold text-[var(--ink2)] shadow-[var(--sh-sm)] hover:bg-[var(--paper)] sm:ml-auto"
           >
             {sortOrder === 'newest' ? 'Newest first' : 'Oldest first'}
           </button>
         </div>
         {normalizedSearch ? (
-          <p className="mt-2 text-xs text-gray-400">
+          <p className="mt-2 text-xs text-[var(--ink3)]">
             {visibleMeetings.length} result{visibleMeetings.length !== 1 ? 's' : ''} for "{searchQuery.trim()}"
           </p>
         ) : null}
@@ -419,7 +419,7 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting, onRetryPend
       {loading && (
         <div className="flex justify-center py-12">
           <div
-            className="w-1.5 h-1.5 rounded-full bg-indigo-400"
+            className="w-2 h-2 rounded-full bg-[var(--mint-d)]"
             style={{ animation: 'dotPulse 1.2s ease-in-out infinite' }}
           />
         </div>
@@ -428,7 +428,7 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting, onRetryPend
       {error && !loading && (
         <div className="text-center py-8">
           <p className="text-sm text-red-400 mb-3">{error}</p>
-          <button onClick={loadMeetings} className="text-sm text-indigo-600 underline">
+          <button onClick={loadMeetings} className="text-sm text-[var(--mint-d)] underline">
             try again
           </button>
         </div>
@@ -436,15 +436,15 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting, onRetryPend
 
       {!loading && !error && meetings.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <p className="text-sm text-gray-400 mb-1">no meetings yet</p>
-          <p className="text-xs text-gray-300">record your first meeting to see it here</p>
+          <p className="text-sm text-[var(--ink3)] mb-1">no meetings yet</p>
+          <p className="text-xs text-[var(--muted)]">record your first meeting to see it here</p>
         </div>
       )}
 
       {!loading && !error && meetings.length > 0 && visibleMeetings.length === 0 && (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <p className="text-sm text-gray-400 mb-1">no matching meetings</p>
-          <p className="text-xs text-gray-300">try a date, time, title, or participant name</p>
+          <p className="text-sm text-[var(--ink3)] mb-1">no matching meetings</p>
+          <p className="text-xs text-[var(--muted)]">try a date, time, title, or participant name</p>
         </div>
       )}
 
@@ -458,26 +458,26 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting, onRetryPend
                 onTouchMove={(event) => handleTouchMove(event, meeting.id)}
                 onTouchEnd={handleTouchEnd}
                 onTouchCancel={handleTouchEnd}
-                className="flex flex-col items-start text-left py-4 border-b border-gray-50 hover:bg-gray-50 active:bg-gray-100 transition-colors px-1 rounded-lg w-full"
+                className="flex w-full flex-col items-start rounded-[24px] border border-transparent px-3 py-4 text-left transition-colors hover:border-[var(--line)] hover:bg-white/70 active:bg-[var(--mint-soft)]"
               >
                 <div className="flex items-center justify-between w-full mb-1">
-                  <span className="text-sm font-medium text-gray-900 truncate flex-1 mr-3">
+                  <span className="mr-3 flex-1 truncate text-sm font-bold text-[var(--ink)]">
                     {meeting.title || 'Untitled meeting'}
                   </span>
-                  <span className="text-xs text-gray-400 flex-shrink-0">
+                  <span className="flex-shrink-0 text-xs text-[var(--ink3)]">
                     {formatDate(meeting.created_at)}
                   </span>
                 </div>
-                <p className="text-xs text-gray-400 leading-relaxed line-clamp-2">
+                <p className="line-clamp-2 text-xs leading-relaxed text-[var(--ink3)]">
                   {getTldr(meeting.summary)}
                 </p>
                 {meeting.duration_segments > 0 && (
-                  <span className="text-xs text-gray-300 mt-1.5">
+                  <span className="mt-1.5 text-xs text-[var(--muted)]">
                     {meeting.duration_segments} segments
                   </span>
                 )}
                 {meeting.audio_storage_path ? (
-                  <span className="text-xs text-gray-300 mt-1">
+                  <span className="mt-1 text-xs text-[var(--muted)]">
                     {meeting.audio_upload_status === 'pending'
                       ? 'audio uploaded, verifying'
                       : meeting.audio_expires_at
@@ -507,7 +507,7 @@ export default function HistoryScreen({ user, onBack, onOpenMeeting, onRetryPend
                   void handleDeleteMeeting(meeting)
                 }}
                 disabled={deletingMeetingId === meeting.id}
-                className={`absolute right-2 top-1/2 -translate-y-1/2 h-8 w-8 rounded-full border border-red-200 bg-white text-red-500 flex items-center justify-center transition-opacity ${
+                className={`absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full border border-red-100 bg-white text-red-500 shadow-[var(--sh-sm)] transition-opacity ${
                   revealedMeetingId === meeting.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
                 } disabled:opacity-40`}
                 title="delete meeting"
@@ -548,7 +548,7 @@ function DateFilterPanel({ value, onChange, onClose }) {
   }
 
   return (
-    <div className="absolute left-0 top-10 z-30 w-[min(320px,calc(100vw-40px))] rounded-2xl border border-gray-100 bg-white p-3 shadow-xl">
+    <div className="absolute left-0 top-11 z-30 w-[min(320px,calc(100vw-40px))] rounded-[24px] border border-[var(--line)] bg-white p-3 shadow-[var(--sh-md)]">
       <div className="grid grid-cols-2 gap-1.5">
         {[
           ['all', 'All dates'],
@@ -561,7 +561,7 @@ function DateFilterPanel({ value, onChange, onClose }) {
             type="button"
             onClick={() => setPreset(nextMode)}
             className={`h-9 rounded-xl px-2 text-xs font-medium transition ${
-              mode === nextMode ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+              mode === nextMode ? 'bg-[var(--mint-d)] text-white' : 'bg-[var(--paper)] text-[var(--ink2)] hover:bg-[var(--mint-soft)]'
             }`}
           >
             {label}
@@ -573,8 +573,8 @@ function DateFilterPanel({ value, onChange, onClose }) {
         <button
           type="button"
           onClick={() => onChange({ mode: 'exact', startDate, endDate: '' })}
-          className={`mb-2 h-8 rounded-full px-3 text-xs font-medium ${
-            mode === 'exact' ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-600'
+          className={`mb-2 h-8 rounded-full px-3 text-xs font-bold ${
+            mode === 'exact' ? 'bg-[var(--mint-d)] text-white' : 'bg-[var(--paper)] text-[var(--ink2)]'
           }`}
         >
           Exact date
@@ -589,7 +589,7 @@ function DateFilterPanel({ value, onChange, onClose }) {
               endDate: '',
             })
           }}
-          className="h-9 w-full rounded-xl border border-gray-100 bg-white px-3 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+          className="h-10 w-full rounded-xl border border-[var(--line)] bg-white px-3 text-xs text-[var(--ink2)] focus:outline-none focus:ring-2 focus:ring-[var(--mint-soft)]"
         />
       </div>
 
@@ -597,8 +597,8 @@ function DateFilterPanel({ value, onChange, onClose }) {
         <button
           type="button"
           onClick={() => onChange({ mode: 'range', startDate, endDate })}
-          className={`mb-2 h-8 rounded-full px-3 text-xs font-medium ${
-            mode === 'range' ? 'bg-gray-900 text-white' : 'bg-gray-50 text-gray-600'
+          className={`mb-2 h-8 rounded-full px-3 text-xs font-bold ${
+            mode === 'range' ? 'bg-[var(--mint-d)] text-white' : 'bg-[var(--paper)] text-[var(--ink2)]'
           }`}
         >
           Date range
@@ -614,7 +614,7 @@ function DateFilterPanel({ value, onChange, onClose }) {
                 endDate,
               })
             }}
-            className="h-9 min-w-0 rounded-xl border border-gray-100 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            className="h-10 min-w-0 rounded-xl border border-[var(--line)] bg-white px-2 text-xs text-[var(--ink2)] focus:outline-none focus:ring-2 focus:ring-[var(--mint-soft)]"
             aria-label="Start date"
           />
           <input
@@ -627,7 +627,7 @@ function DateFilterPanel({ value, onChange, onClose }) {
                 endDate: event.target.value,
               })
             }}
-            className="h-9 min-w-0 rounded-xl border border-gray-100 bg-white px-2 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-indigo-100"
+            className="h-10 min-w-0 rounded-xl border border-[var(--line)] bg-white px-2 text-xs text-[var(--ink2)] focus:outline-none focus:ring-2 focus:ring-[var(--mint-soft)]"
             aria-label="End date"
           />
         </div>
@@ -640,14 +640,14 @@ function DateFilterPanel({ value, onChange, onClose }) {
             onChange({ mode: 'all', startDate: '', endDate: '' })
             onClose?.()
           }}
-          className="h-8 rounded-full px-3 text-xs text-gray-400 hover:bg-gray-50 hover:text-gray-600"
+          className="h-8 rounded-full px-3 text-xs text-[var(--ink3)] hover:bg-[var(--paper)] hover:text-[var(--ink2)]"
         >
           clear
         </button>
         <button
           type="button"
           onClick={onClose}
-          className="h-8 rounded-full bg-indigo-600 px-3 text-xs font-medium text-white hover:bg-indigo-700"
+          className="h-8 rounded-full bg-[var(--mint-d)] px-3 text-xs font-bold text-white hover:bg-[var(--mint)]"
         >
           apply
         </button>

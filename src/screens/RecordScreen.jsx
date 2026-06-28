@@ -416,7 +416,7 @@ export default function RecordScreen({
 
   function getSpeakerBadgeClass(speaker) {
     const colors = [
-      'bg-indigo-100 text-indigo-700',
+      'bg-[var(--mint-soft)] text-[var(--mint-d)]',
       'bg-emerald-100 text-emerald-700',
       'bg-amber-100 text-amber-700',
       'bg-rose-100 text-rose-700',
@@ -425,20 +425,25 @@ export default function RecordScreen({
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col max-w-2xl mx-auto px-5 md:px-8">
-      <div className="w-full flex min-h-screen flex-col">
+    <div className="nm-screen flex flex-col px-5 md:px-8">
+      <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col">
         <header className="flex h-14 items-center justify-between">
           <button
             type="button"
             onClick={() => onGoHome?.()}
-            className="text-sm font-medium text-gray-900 hover:text-indigo-600"
+            className="inline-flex items-center gap-2 text-[16.5px] font-extrabold tracking-[-.04em] text-[var(--ink)] hover:text-[var(--mint-d)]"
           >
+            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--mint-glow)] to-[var(--mint-d)] text-white shadow-[0_3px_8px_rgba(6,177,122,.35)]">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M3 12c4 0 6-2 6-6 0 4 2 6 6 6-4 0-6 2-6 6 0-4-2-6-6-6z" />
+              </svg>
+            </span>
             notemint
           </button>
           <div className="flex items-center gap-3">
             <button
               onClick={onViewHistory}
-              className="text-xs text-gray-400 hover:text-gray-600 transition-colors flex items-center gap-1"
+              className="flex items-center gap-1 text-xs font-bold text-[var(--ink3)] transition-colors hover:text-[var(--mint-d)]"
               title="past meetings"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -457,20 +462,20 @@ export default function RecordScreen({
                 type="button"
                 onClick={() => setMenuOpen((prev) => !prev)}
                 aria-label="Open profile menu"
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-sm font-medium text-indigo-600"
+                className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#2A4B40] to-[var(--ink)] text-sm font-bold text-white shadow-[var(--sh-sm)]"
               >
                 {initial}
               </button>
 
               {menuOpen ? (
-                <div className="absolute right-0 mt-2 w-40 rounded-xl border border-gray-200 bg-white shadow-sm z-20 overflow-hidden">
+                <div className="absolute right-0 z-20 mt-2 w-52 overflow-hidden rounded-2xl border border-[var(--line)] bg-white shadow-[var(--sh-md)]">
                   <button
                     type="button"
                     onClick={() => {
                       setMenuOpen(false)
                       onEditContext?.()
                     }}
-                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                    className="w-full px-4 py-3 text-left text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-[var(--paper)]"
                   >
                     edit work context
                   </button>
@@ -480,7 +485,7 @@ export default function RecordScreen({
                       setMenuOpen(false)
                       onOpenCorrectionDictionary?.()
                     }}
-                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors border-t border-gray-100"
+                    className="w-full border-t border-[var(--line)] px-4 py-3 text-left text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-[var(--paper)]"
                   >
                     correction dictionary
                   </button>
@@ -490,7 +495,7 @@ export default function RecordScreen({
                       setMenuOpen(false)
                       onReEnrollVoice?.()
                     }}
-                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors border-t border-gray-100"
+                    className="w-full border-t border-[var(--line)] px-4 py-3 text-left text-sm font-semibold text-[var(--ink)] transition-colors hover:bg-[var(--paper)]"
                   >
                     re-enroll voice
                   </button>
@@ -500,7 +505,7 @@ export default function RecordScreen({
                       setMenuOpen(false)
                       onSignOut()
                     }}
-                    className="w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors border-t border-gray-100"
+                    className="w-full border-t border-[var(--line)] px-4 py-3 text-left text-sm font-semibold text-[var(--coral)] transition-colors hover:bg-[var(--paper)]"
                   >
                     sign out
                   </button>
@@ -511,7 +516,7 @@ export default function RecordScreen({
         </header>
 
         {!isRecording && segments.length === 0 ? (
-          <main className="flex flex-col items-center justify-center flex-1 text-center px-6">
+          <main className="nm-fade-in flex flex-1 flex-col items-center justify-center px-6 text-center">
             <input
               ref={fileInputRef}
               type="file"
@@ -520,47 +525,51 @@ export default function RecordScreen({
               onChange={handleAudioFileSelected}
             />
             {voiceEnrollmentIssue ? (
-              <div className="mb-5 w-full max-w-xs rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-left shadow-sm">
-                <p className="text-sm font-medium text-amber-900">voice setup needs another try</p>
+              <div className="mb-5 w-full max-w-xs rounded-[22px] border border-amber-100 bg-amber-50 px-4 py-3 text-left shadow-[var(--sh-sm)]">
+                <p className="text-sm font-bold text-amber-900">voice setup needs another try</p>
                 <p className="mt-1 text-xs leading-relaxed text-amber-700">
                   We could not finish verifying your first voice setup in the background.
                 </p>
                 <button
                   type="button"
                   onClick={() => onReEnrollVoice?.()}
-                  className="mt-2 text-xs font-medium text-amber-900 underline underline-offset-2"
+                  className="mt-2 text-xs font-bold text-amber-900 underline underline-offset-2"
                 >
                   re-enroll voice
                 </button>
               </div>
             ) : null}
-            <div className="w-16 h-16 rounded-full bg-indigo-50 flex items-center justify-center mb-4">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                <rect x="9" y="2" width="6" height="12" rx="3" stroke="#4F46E5" strokeWidth="1.5" />
+            <div className="relative mb-4 flex h-44 w-44 items-center justify-center">
+              <span className="nm-breathe absolute inset-0 rounded-full bg-[rgba(31,214,160,.28)]" />
+              <span className="nm-breathe absolute inset-5 rounded-full bg-[rgba(6,177,122,.20)] [animation-delay:.35s]" />
+              <div className="relative flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-br from-[var(--mint-glow)] to-[var(--mint-d)] text-white shadow-[0_18px_44px_rgba(6,177,122,.40)]">
+              <svg width="42" height="42" viewBox="0 0 24 24" fill="none">
+                <rect x="9" y="2" width="6" height="12" rx="3" stroke="currentColor" strokeWidth="1.8" />
                 <path
                   d="M5 10C5 14.4 7.8 17 12 17C16.2 17 19 14.4 19 10"
-                  stroke="#4F46E5"
-                  strokeWidth="1.5"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
                   strokeLinecap="round"
                 />
-                <line x1="12" y1="17" x2="12" y2="21" stroke="#4F46E5" strokeWidth="1.5" strokeLinecap="round" />
-                <line x1="9" y1="21" x2="15" y2="21" stroke="#4F46E5" strokeWidth="1.5" strokeLinecap="round" />
+                <line x1="12" y1="17" x2="12" y2="21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                <line x1="9" y1="21" x2="15" y2="21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
               </svg>
+              </div>
             </div>
-            <p className="text-sm font-medium text-gray-700 mb-1">ready to record</p>
-            <p className="text-xs text-gray-400 leading-relaxed max-w-xs">
+            <p className="nm-title mb-1 text-3xl">Ready when you are.</p>
+            <p className="max-w-xs text-sm font-medium leading-relaxed text-[var(--ink3)]">
               tap the button below to start.
               <br />
               speakers are detected automatically.
             </p>
             {meetingDetailsMode === 'details' ? (
-              <div className="mt-5 w-full max-w-xs rounded-2xl border border-gray-100 bg-gray-50 p-3 text-left">
+              <div className="nm-card mt-5 w-full max-w-xs p-3 text-left">
                 <div className="flex items-center justify-between">
-                  <p className="text-[11px] font-medium uppercase tracking-[0.16em] text-gray-400">meeting details</p>
+                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--ink3)]">meeting details</p>
                   <button
                     type="button"
                     onClick={() => setMeetingDetailsMode('skip')}
-                    className="text-[11px] text-gray-400 hover:text-gray-600"
+                    className="text-[11px] font-bold text-[var(--ink3)] hover:text-[var(--ink)]"
                   >
                     hide
                   </button>
@@ -593,7 +602,7 @@ export default function RecordScreen({
                       onClick={() => {
                         void handleProcessUploadedFile(pendingUploadFile, 'details')
                       }}
-                      className="h-10 w-full rounded-xl bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700"
+                      className="nm-btn nm-btn-primary h-10 w-full text-sm"
                     >
                       process uploaded file
                     </button>
@@ -605,11 +614,14 @@ export default function RecordScreen({
               type="button"
               onClick={handleUploadClick}
               disabled={isRecording}
-              className="mt-4 inline-flex items-center justify-center rounded-full border border-gray-200 bg-white px-4 py-2 text-xs font-medium text-gray-600 shadow-sm transition hover:border-indigo-200 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+              className="nm-btn nm-btn-soft mt-5 gap-2 rounded-full px-5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
             >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mint-d)" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+              </svg>
               upload audio file
             </button>
-            <p className="mt-1 text-[11px] text-gray-400">MP3, WAV, M4A, OGG, FLAC, MP4, or WebM</p>
+            <p className="mt-2 text-[11px] font-medium text-[var(--ink3)]">MP3, WAV, M4A, OGG, FLAC, MP4, or WebM</p>
             {false ? (
               <>
               <div className="mt-8 w-full max-w-xs bg-gray-50 rounded-2xl px-4 py-3.5 flex items-center justify-between">
@@ -623,7 +635,7 @@ export default function RecordScreen({
                 type="button"
                 onClick={() => setLiveTranscriptEnabled((prev) => !prev)}
                 className={`relative w-12 h-6 rounded-full transition-colors duration-200 flex-shrink-0 ml-4 ${
-                  liveTranscriptEnabled ? 'bg-indigo-600' : 'bg-gray-300'
+                  liveTranscriptEnabled ? 'bg-[var(--mint-d)]' : 'bg-gray-300'
                 }`}
                 role="switch"
                 aria-checked={liveTranscriptEnabled}
@@ -645,20 +657,20 @@ export default function RecordScreen({
             ) : null}
           </main>
         ) : (
-          <main className="flex flex-1 flex-col pt-6">
-            <div className="w-full" style={{ minHeight: '40px' }}>
+          <main className="nm-fade-in flex flex-1 flex-col pt-6">
+            <div className="nm-card px-4 py-5" style={{ minHeight: '40px' }}>
               <WaveformVisualizer className="w-full" isRecording={isRecording} audioStream={audioStream} />
             </div>
             <div className="mt-6 flex items-center justify-center gap-3">
               <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-              <p className="text-3xl font-medium text-gray-900">{formatTime(elapsedSeconds)}</p>
+              <p className="text-4xl font-extrabold tracking-[-.04em] text-[var(--ink)]">{formatTime(elapsedSeconds)}</p>
             </div>
-            <p className="mt-2 text-center text-xs uppercase tracking-[0.2em] text-gray-400">recording</p>
+            <p className="mt-2 text-center text-xs font-bold uppercase tracking-[0.2em] text-[var(--ink3)]">recording</p>
 
-            <div className="mt-6 overflow-y-auto" style={{ maxHeight: 'calc(100dvh - 280px)' }}>
+            <div className="mt-6 overflow-y-auto rounded-[22px] bg-white/45 px-2 py-1" style={{ maxHeight: 'calc(100dvh - 280px)' }}>
               <div className="flex flex-col gap-3 pb-2">
                 {segments.length === 0 && isRecording && (
-                  <p className="text-xs text-gray-400 text-center pt-4">
+                  <p className="pt-4 text-center text-xs font-medium text-[var(--ink3)]">
                     listening... speak now
                   </p>
                 )}
@@ -691,24 +703,24 @@ export default function RecordScreen({
             type="button"
             onClick={isRecording ? handleStop : handleRecordClick}
             disabled={isRecording ? false : undefined}
-            className={`relative flex h-[72px] w-[72px] items-center justify-center rounded-full transition md:h-20 md:w-20 ${
+            className={`relative flex h-[78px] w-[78px] items-center justify-center rounded-full transition active:scale-95 md:h-20 md:w-20 ${
               isRecording
-                ? 'border-2 border-indigo-600 bg-white text-indigo-600'
-                : 'bg-indigo-600 text-white'
+                ? 'border-2 border-[var(--mint-d)] bg-white text-[var(--mint-d)] shadow-[var(--sh-sm)]'
+                : 'bg-gradient-to-br from-[var(--mint-glow)] to-[var(--mint-d)] text-white shadow-[0_18px_44px_rgba(6,177,122,.40)]'
             }`}
           >
             {isRecording ? <PulseRing /> : null}
             {isRecording ? <StopIcon className="h-4 w-4" /> : <MicIcon className="h-6 w-6" />}
           </button>
-          <p className="mt-3 text-xs text-gray-400">{isRecording ? 'stop recording' : 'start meeting'}</p>
+          <p className="mt-3 text-xs font-bold text-[var(--ink3)]">{isRecording ? 'stop recording' : 'start meeting'}</p>
 
           {error ? (
             <div className="mt-4 text-center">
-              <p className="text-xs text-red-500">{error}</p>
+              <p className="rounded-2xl bg-red-50 px-3 py-2 text-xs font-medium text-red-500">{error}</p>
               <button
                 type="button"
                 onClick={handleRetry}
-                className="mt-2 text-xs font-medium text-indigo-600"
+                className="mt-2 text-xs font-bold text-[var(--mint-d)]"
               >
                 retry
               </button>
@@ -717,18 +729,18 @@ export default function RecordScreen({
         </div>
 
         {showStartChoice && !isRecording ? (
-          <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/30 px-4 pb-8">
-            <div className="w-full max-w-sm rounded-2xl bg-white p-4 shadow-lg">
-              <p className="text-sm font-medium text-gray-900">
+          <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/30 px-4 pb-8 backdrop-blur-sm">
+            <div className="nm-card-strong nm-pop-in w-full max-w-sm p-4">
+              <p className="text-base font-extrabold tracking-[-.02em] text-[var(--ink)]">
                 {startChoiceAction === 'upload' ? 'before processing audio' : 'before you start'}
               </p>
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs font-medium text-[var(--ink3)]">
                 {startChoiceAction === 'upload'
                   ? 'add context first, or process this file now.'
                   : 'add context first, or start recording now.'}
               </p>
               {startChoiceAction === 'upload' && pendingUploadFile ? (
-                <p className="mt-2 truncate rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                <p className="mt-2 truncate rounded-2xl bg-[var(--paper)] px-3 py-2 text-xs font-medium text-[var(--ink3)]">
                   {pendingUploadFile.name}
                 </p>
               ) : null}
@@ -739,7 +751,7 @@ export default function RecordScreen({
                     setMeetingDetailsMode('details')
                     setShowStartChoice(false)
                   }}
-                  className="h-10 rounded-xl border border-gray-200 text-sm text-gray-700 hover:bg-gray-50"
+                  className="nm-btn nm-btn-soft h-11 text-sm"
                 >
                   add meeting details
                 </button>
@@ -752,7 +764,7 @@ export default function RecordScreen({
                       void handleStart('skip')
                     }
                   }}
-                  className="h-10 rounded-xl bg-indigo-600 text-sm font-medium text-white hover:bg-indigo-700"
+                  className="nm-btn nm-btn-primary h-11 text-sm"
                 >
                   {startChoiceAction === 'upload' ? 'skip & process file' : 'skip & start recording'}
                 </button>
@@ -764,7 +776,7 @@ export default function RecordScreen({
                       setPendingUploadFile(null)
                     }
                   }}
-                  className="h-9 text-xs text-gray-500 hover:text-gray-700"
+                  className="h-9 text-xs font-bold text-[var(--ink3)] hover:text-[var(--ink)]"
                 >
                   cancel
                 </button>
@@ -921,12 +933,12 @@ function normalizeParticipantCount(value) {
 function Field({ label, value, onChange, placeholder, maxLength }) {
   return (
     <div>
-      <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400">{label}</p>
+      <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--ink3)]">{label}</p>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value.slice(0, maxLength))}
         placeholder={placeholder}
-        className="h-8 w-full rounded-lg border border-gray-200 bg-white px-2.5 text-xs text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+        className="nm-input min-h-9 px-3 py-1 text-xs placeholder:text-[var(--ink3)]"
       />
     </div>
   )
@@ -935,13 +947,13 @@ function Field({ label, value, onChange, placeholder, maxLength }) {
 function TextAreaField({ label, value, onChange, placeholder, maxLength }) {
   return (
     <div>
-      <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400">{label}</p>
+      <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--ink3)]">{label}</p>
       <textarea
         value={value}
         onChange={(event) => onChange(event.target.value.slice(0, maxLength))}
         placeholder={placeholder}
         rows={3}
-        className="w-full resize-none rounded-lg border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+        className="nm-input resize-none text-xs placeholder:text-[var(--ink3)]"
       />
     </div>
   )
@@ -950,7 +962,7 @@ function TextAreaField({ label, value, onChange, placeholder, maxLength }) {
 function NumberField({ label, value, onChange, min = 1, max = 50 }) {
   return (
     <div>
-      <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.12em] text-gray-400">{label}</p>
+      <p className="mb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[var(--ink3)]">{label}</p>
       <input
         type="number"
         inputMode="numeric"
@@ -967,14 +979,14 @@ function NumberField({ label, value, onChange, min = 1, max = 50 }) {
           onChange(String(Math.min(Number(cleaned), max)))
         }}
         placeholder="4"
-        className="h-8 w-full rounded-lg border border-gray-200 bg-white px-2.5 text-xs text-gray-700 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400"
+        className="nm-input min-h-9 px-3 py-1 text-xs placeholder:text-[var(--ink3)]"
       />
     </div>
   )
 }
 
 function PulseRing() {
-  return <span className="absolute inset-[-6px] rounded-full border-2 border-indigo-200 animate-pulse" />
+  return <span className="absolute inset-[-7px] rounded-full border-2 border-[rgba(6,177,122,.24)] animate-pulse" />
 }
 
 function MicIcon({ className }) {

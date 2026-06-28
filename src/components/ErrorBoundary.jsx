@@ -18,22 +18,22 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-white flex flex-col items-center justify-center px-6 text-center">
-          <p className="text-sm font-medium text-gray-900 mb-2">something went wrong</p>
+        <div className="nm-screen flex min-h-screen flex-col items-center justify-center px-6 text-center">
+          <p className="mb-2 text-sm font-bold text-[var(--ink)]">something went wrong</p>
           {import.meta.env.DEV && this.state.error && (
-            <p className="text-xs text-gray-400 mb-6 max-w-xs leading-relaxed">
+            <p className="mb-6 max-w-xs text-xs leading-relaxed text-[var(--ink3)]">
               {this.state.error.message}
             </p>
           )}
           <button
             onClick={() => window.location.reload()}
-            className="h-10 px-6 bg-indigo-600 text-white text-sm font-medium rounded-xl"
+            className="nm-btn nm-btn-primary px-6"
           >
             refresh the page
           </button>
           <button
             onClick={() => this.setState({ hasError: false, error: null })}
-            className="mt-3 text-xs text-gray-400 underline"
+            className="mt-3 text-xs text-[var(--ink3)] underline"
           >
             try without refreshing
           </button>

@@ -549,8 +549,10 @@ export default function App() {
   if (screen === 'loading') {
     return (
       <>
-        <div className="min-h-screen bg-white flex items-center justify-center">
-          <LoadingDot />
+        <div className="nm-screen flex items-center justify-center">
+          <div className="nm-card flex h-20 w-20 items-center justify-center">
+            <LoadingDot />
+          </div>
         </div>
         <FloatingFeedbackButton url={feedbackUrl} />
       </>
@@ -884,22 +886,27 @@ function GlobalBackButton({
 }) {
   if (typeof onClick !== 'function') return null
   return (
-    <div className="sticky top-0 z-40 bg-white/95 px-4 py-2 backdrop-blur">
-      <div className="mx-auto grid h-10 max-w-2xl grid-cols-[auto_1fr_auto] items-center">
+    <div className="sticky top-0 z-40 bg-[rgba(243,247,244,.94)] px-4 pb-2 pt-3 backdrop-blur-md">
+      <div className="mx-auto grid h-11 max-w-2xl grid-cols-[auto_1fr_auto] items-center">
         <button
           type="button"
           onClick={onClick}
-          className="inline-flex h-9 min-w-9 items-center justify-center rounded-full bg-white px-3 text-sm font-medium text-gray-700 shadow-sm ring-1 ring-black/5 hover:bg-gray-50"
+          className="inline-flex h-10 min-w-10 items-center justify-center rounded-[14px] bg-white px-3 text-sm font-bold text-[var(--ink)] shadow-[var(--sh-sm)] transition active:scale-95"
           aria-label="Go back"
         >
-          <span aria-hidden="true" className="mr-1 text-base leading-none">{'<'}</span>
+          <span aria-hidden="true" className="mr-1 text-base leading-none">‹</span>
           back
         </button>
         <button
           type="button"
           onClick={typeof onHome === 'function' ? onHome : onClick}
-          className="justify-self-center text-sm font-medium text-gray-900 hover:text-indigo-600"
+          className="inline-flex items-center gap-2 justify-self-center text-[16.5px] font-extrabold tracking-[-.04em] text-[var(--ink)] transition hover:text-[var(--mint-d)]"
         >
+          <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--mint-glow)] to-[var(--mint-d)] text-white shadow-[0_3px_8px_rgba(6,177,122,.35)]">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M3 12c4 0 6-2 6-6 0 4 2 6 6 6-4 0-6 2-6 6 0-4-2-6-6-6z" />
+            </svg>
+          </span>
           notemint
         </button>
         <div className="flex h-9 w-[70px] items-center justify-end">
@@ -939,38 +946,38 @@ function TopBarProfileMenu({
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         aria-label="Open profile menu"
-        className="flex h-8 w-8 items-center justify-center rounded-full bg-indigo-100 text-sm font-medium text-indigo-600"
+        className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#2A4B40] to-[var(--ink)] text-sm font-bold text-white shadow-[var(--sh-sm)] transition active:scale-95"
       >
         {initial}
       </button>
 
       {open ? (
-        <div className="absolute right-0 mt-2 w-44 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+        <div className="absolute right-0 mt-2 w-52 overflow-hidden rounded-2xl border border-[var(--line)] bg-white shadow-[var(--sh-md)]">
           <button
             type="button"
             onClick={() => handleAction(onEditContext)}
-            className="w-full px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+            className="w-full px-4 py-3 text-left text-sm font-semibold text-[var(--ink)] hover:bg-[var(--paper)]"
           >
             edit work context
           </button>
           <button
             type="button"
             onClick={() => handleAction(onOpenCorrectionDictionary)}
-            className="w-full border-t border-gray-100 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+            className="w-full border-t border-[var(--line)] px-4 py-3 text-left text-sm font-semibold text-[var(--ink)] hover:bg-[var(--paper)]"
           >
             correction dictionary
           </button>
           <button
             type="button"
             onClick={() => handleAction(onReEnrollVoice)}
-            className="w-full border-t border-gray-100 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+            className="w-full border-t border-[var(--line)] px-4 py-3 text-left text-sm font-semibold text-[var(--ink)] hover:bg-[var(--paper)]"
           >
             re-enroll voice
           </button>
           <button
             type="button"
             onClick={() => handleAction(onSignOut)}
-            className="w-full border-t border-gray-100 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+            className="w-full border-t border-[var(--line)] px-4 py-3 text-left text-sm font-semibold text-[var(--coral)] hover:bg-[var(--paper)]"
           >
             sign out
           </button>
@@ -991,8 +998,8 @@ function FloatingFeedbackButton({ url }) {
         if (!hasUrl) return
         window.open(destination, '_blank', 'noopener,noreferrer')
       }}
-      className={`fixed bottom-5 right-5 z-40 inline-flex h-11 items-center justify-center rounded-full px-4 text-sm font-medium text-white shadow-lg transition ${
-        hasUrl ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-gray-400 cursor-not-allowed'
+      className={`fixed bottom-5 right-5 z-40 inline-flex h-12 items-center justify-center rounded-full px-5 text-sm font-bold text-white shadow-[0_14px_34px_rgba(6,177,122,.32)] transition active:scale-95 ${
+        hasUrl ? 'bg-gradient-to-br from-[var(--mint-glow)] to-[var(--mint-d)] hover:brightness-105' : 'cursor-not-allowed bg-gray-400'
       }`}
       title={hasUrl ? 'Open feedback form in new tab' : 'Set VITE_FEEDBACK_FORM_URL to enable feedback'}
       aria-label="Open feedback form"
@@ -1005,11 +1012,15 @@ function FloatingFeedbackButton({ url }) {
 
 function ProcessingScreen({ message }) {
   return (
-    <div className="min-h-screen bg-white/85 flex items-center justify-center px-6 backdrop-blur-sm">
-      <div className="text-center">
-        <div className="mx-auto mb-4 h-9 w-9 animate-spin rounded-full border-2 border-gray-200 border-t-indigo-600" />
-        <p className="text-sm font-medium text-gray-900">Processing your meeting</p>
-        <p className="mt-1 text-xs text-gray-400">{message || 'Recognizing speakers...'}</p>
+    <div className="nm-screen flex items-center justify-center px-6 backdrop-blur-sm">
+      <div className="nm-card-strong nm-pop-in w-full max-w-sm px-8 py-9 text-center">
+        <div className="relative mx-auto mb-6 h-20 w-20">
+          <span className="nm-breathe absolute inset-0 rounded-full bg-[rgba(31,214,160,.28)]" />
+          <div className="absolute inset-3 rounded-full bg-gradient-to-br from-[var(--mint-glow)] to-[var(--mint-d)] shadow-[0_16px_38px_rgba(6,177,122,.35)]" />
+          <div className="nm-spin absolute inset-0 rounded-full border-2 border-transparent border-t-[var(--mint-d)]" />
+        </div>
+        <p className="text-base font-extrabold tracking-[-.02em] text-[var(--ink)]">Processing your meeting</p>
+        <p className="mt-2 text-sm font-medium text-[var(--ink3)]">{message || 'Recognizing speakers...'}</p>
       </div>
     </div>
   )

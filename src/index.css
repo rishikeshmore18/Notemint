@@ -1,6 +1,207 @@
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400..800;1,500..800&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  :root {
+    --mint: #06B17A;
+    --mint-d: #04936A;
+    --mint-soft: #E2F4EC;
+    --mint-glow: #1FD6A0;
+    --ink: #11221C;
+    --ink2: #56655D;
+    --ink3: #8B978F;
+    --line: #E7ECE9;
+    --paper: #F3F7F4;
+    --card: #FFFFFF;
+    --coral: #F1594B;
+    --amber: #E0913B;
+    --blue: #3B82C4;
+    --r-lg: 26px;
+    --r-md: 18px;
+    --r-sm: 13px;
+    --sh-sm: 0 1px 2px rgba(17, 34, 28, .04), 0 2px 8px rgba(17, 34, 28, .05);
+    --sh-md: 0 4px 14px rgba(17, 34, 28, .06), 0 18px 50px rgba(17, 34, 28, .08);
+    --sh-lg: 0 12px 30px rgba(17, 34, 28, .10), 0 30px 80px rgba(17, 34, 28, .14);
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    font-family: 'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--ink);
+    background: radial-gradient(120% 90% at 50% -10%, #F1F7F3 0%, #E3EBE6 60%, #DCE5DF 100%);
+  }
+}
+
+@layer components {
+  .nm-screen {
+    min-height: 100vh;
+    width: 100%;
+    background: radial-gradient(120% 90% at 50% -10%, #F1F7F3 0%, #E3EBE6 60%, #DCE5DF 100%);
+    color: var(--ink);
+  }
+
+  .nm-screen-pad {
+    min-height: 100vh;
+    width: 100%;
+    padding: 78px 22px 28px;
+    background: radial-gradient(120% 90% at 50% -10%, #F1F7F3 0%, #E3EBE6 60%, #DCE5DF 100%);
+    color: var(--ink);
+  }
+
+  .nm-container {
+    width: 100%;
+    max-width: 430px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .nm-card {
+    border: 1px solid rgba(17, 34, 28, .04);
+    border-radius: var(--r-lg);
+    background: var(--card);
+    box-shadow: var(--sh-sm);
+  }
+
+  .nm-card-strong {
+    border: 1px solid rgba(17, 34, 28, .04);
+    border-radius: 30px;
+    background: var(--card);
+    box-shadow: var(--sh-md);
+  }
+
+  .nm-title {
+    color: var(--ink);
+    font-weight: 800;
+    letter-spacing: -.04em;
+    line-height: 1.08;
+  }
+
+  .nm-muted {
+    color: var(--ink3);
+  }
+
+  .nm-subtle {
+    color: var(--ink2);
+  }
+
+  .nm-input {
+    min-height: 46px;
+    width: 100%;
+    border-radius: 16px;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, .92);
+    padding: 11px 14px;
+    color: var(--ink);
+    outline: none;
+    box-shadow: 0 1px 0 rgba(255, 255, 255, .7) inset;
+    transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+  }
+
+  .nm-input:focus {
+    border-color: rgba(6, 177, 122, .45);
+    box-shadow: 0 0 0 4px rgba(6, 177, 122, .10);
+    background: #fff;
+  }
+
+  .nm-btn {
+    display: inline-flex;
+    min-height: 44px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 16px;
+    padding: 11px 18px;
+    font-weight: 700;
+    transition: transform .16s ease, box-shadow .16s ease, background .16s ease, opacity .16s ease;
+  }
+
+  .nm-btn:active {
+    transform: scale(.97);
+  }
+
+  .nm-btn-primary {
+    background: linear-gradient(155deg, var(--mint-glow), var(--mint-d));
+    color: #fff;
+    box-shadow: 0 12px 28px rgba(6, 177, 122, .28), inset 0 1px 2px rgba(255, 255, 255, .35);
+  }
+
+  .nm-btn-primary:hover {
+    background: linear-gradient(155deg, #22e1aa, var(--mint-d));
+  }
+
+  .nm-btn-soft {
+    background: var(--card);
+    color: var(--ink);
+    box-shadow: var(--sh-sm);
+  }
+
+  .nm-chip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: var(--mint-soft);
+    color: var(--mint-d);
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .nm-segmented {
+    border-radius: 999px;
+    background: rgba(17, 34, 28, .055);
+    padding: 4px;
+  }
+
+  .nm-segmented-active {
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: var(--sh-sm);
+    color: var(--ink);
+  }
+
+  .nm-fade-in {
+    animation: nmScreenIn .45s cubic-bezier(.2, .8, .2, 1) both;
+  }
+
+  .nm-pop-in {
+    animation: nmPopIn .32s cubic-bezier(.2, .8, .2, 1) both;
+  }
+
+  .nm-breathe {
+    animation: nmBreathe 3.4s ease-in-out infinite;
+  }
+
+  .nm-spin {
+    animation: nmSpin 1s linear infinite;
+  }
+}
+
+@keyframes nmScreenIn {
+  from { opacity: 0; transform: translateY(10px) scale(.995); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes nmPopIn {
+  from { opacity: 0; transform: translateY(8px) scale(.95); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes nmBreathe {
+  0%, 100% { transform: scale(1); opacity: .48; }
+  50% { transform: scale(1.18); opacity: 0; }
+}
+
+@keyframes nmSpin {
+  to { transform: rotate(360deg); }
+}
 
 /* ── Prevent iOS Safari input zoom ── */
 /* iOS zooms in when input font-size < 16px. This forces 16px globally. */
