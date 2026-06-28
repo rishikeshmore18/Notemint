@@ -425,15 +425,15 @@ export default function RecordScreen({
   }
 
   return (
-    <div className="nm-screen flex flex-col px-5 md:px-8">
-      <div className="mx-auto flex min-h-screen w-full max-w-2xl flex-col">
-        <header className="flex h-14 items-center justify-between">
+    <div className="nm-screen flex flex-col px-7 md:px-8">
+      <div className="mx-auto flex min-h-screen w-full max-w-[512px] flex-col">
+        <header className="flex items-center justify-between pt-5">
           <button
             type="button"
             onClick={() => onGoHome?.()}
-            className="inline-flex items-center gap-2 text-[16.5px] font-extrabold tracking-[-.04em] text-[var(--ink)] hover:text-[var(--mint-d)]"
+            className="inline-flex items-center gap-2 text-[20px] font-extrabold tracking-[-.04em] text-[var(--ink)] hover:text-[var(--mint-d)]"
           >
-            <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--mint-glow)] to-[var(--mint-d)] text-white shadow-[0_3px_8px_rgba(6,177,122,.35)]">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-[var(--mint-glow)] to-[var(--mint-d)] text-white shadow-[0_8px_18px_rgba(6,177,122,.30)]">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M3 12c4 0 6-2 6-6 0 4 2 6 6 6-4 0-6 2-6 6 0-4-2-6-6-6z" />
               </svg>
@@ -441,28 +441,12 @@ export default function RecordScreen({
             notemint
           </button>
           <div className="flex items-center gap-3">
-            <button
-              onClick={onViewHistory}
-              className="flex items-center gap-1 text-xs font-bold text-[var(--ink3)] transition-colors hover:text-[var(--mint-d)]"
-              title="past meetings"
-            >
-              <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                <circle cx="7" cy="7" r="5.5" stroke="currentColor" strokeWidth="1.25" />
-                <path
-                  d="M7 4.5V7L8.5 8.5"
-                  stroke="currentColor"
-                  strokeWidth="1.25"
-                  strokeLinecap="round"
-                />
-              </svg>
-              history
-            </button>
             <div className="relative" ref={menuRef}>
               <button
                 type="button"
                 onClick={() => setMenuOpen((prev) => !prev)}
                 aria-label="Open profile menu"
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-[#2A4B40] to-[var(--ink)] text-sm font-bold text-white shadow-[var(--sh-sm)]"
+                className="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-[#2A4B40] to-[var(--ink)] text-base font-bold text-white shadow-[var(--sh-sm)]"
               >
                 {initial}
               </button>
@@ -516,7 +500,7 @@ export default function RecordScreen({
         </header>
 
         {!isRecording && segments.length === 0 ? (
-          <main className="nm-fade-in flex flex-1 flex-col items-center justify-center px-6 text-center">
+          <main className="nm-fade-in flex flex-1 flex-col">
             <input
               ref={fileInputRef}
               type="file"
@@ -539,29 +523,40 @@ export default function RecordScreen({
                 </button>
               </div>
             ) : null}
-            <div className="relative mb-4 flex h-44 w-44 items-center justify-center">
-              <span className="nm-breathe absolute inset-0 rounded-full bg-[rgba(31,214,160,.28)]" />
-              <span className="nm-breathe absolute inset-5 rounded-full bg-[rgba(6,177,122,.20)] [animation-delay:.35s]" />
-              <div className="relative flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-br from-[var(--mint-glow)] to-[var(--mint-d)] text-white shadow-[0_18px_44px_rgba(6,177,122,.40)]">
-              <svg width="42" height="42" viewBox="0 0 24 24" fill="none">
-                <rect x="9" y="2" width="6" height="12" rx="3" stroke="currentColor" strokeWidth="1.8" />
-                <path
-                  d="M5 10C5 14.4 7.8 17 12 17C16.2 17 19 14.4 19 10"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                />
-                <line x1="12" y1="17" x2="12" y2="21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-                <line x1="9" y1="21" x2="15" y2="21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              </svg>
-              </div>
+            <div className="pt-7 text-left">
+              <p className="text-[17px] font-semibold text-[var(--ink2)]">Good morning, {user?.email?.split('@')?.[0] || 'there'}</p>
+              <h1 className="mt-2 max-w-[340px] text-[31px] font-black leading-[1.12] tracking-[-1.2px] text-[var(--ink)]">
+                Ready when you are. Hit record.
+              </h1>
             </div>
-            <p className="nm-title mb-1 text-3xl">Ready when you are.</p>
-            <p className="max-w-xs text-sm font-medium leading-relaxed text-[var(--ink3)]">
-              tap the button below to start.
-              <br />
-              speakers are detected automatically.
-            </p>
+
+            <div className="flex flex-1 flex-col items-center justify-center pt-7 text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  void handleStart('skip')
+                }}
+                disabled={isRecording}
+                className="relative flex h-[148px] w-[148px] items-center justify-center rounded-full bg-gradient-to-br from-[var(--mint-glow)] to-[var(--mint-d)] text-white shadow-[0_22px_70px_rgba(6,177,122,.42)] transition active:scale-95 disabled:opacity-60"
+                aria-label="Start recording"
+              >
+                <span className="absolute -inset-12 rounded-full bg-[radial-gradient(circle,rgba(31,214,160,.28),rgba(31,214,160,0)_68%)]" />
+                <svg width="54" height="54" viewBox="0 0 24 24" fill="none" className="relative z-[1]">
+                  <rect x="9" y="2" width="6" height="12" rx="3" stroke="currentColor" strokeWidth="1.8" />
+                  <path
+                    d="M5 10C5 14.4 7.8 17 12 17C16.2 17 19 14.4 19 10"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                  />
+                  <line x1="12" y1="17" x2="12" y2="21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                  <line x1="9" y1="21" x2="15" y2="21" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                </svg>
+              </button>
+              <p className="mt-20 text-[17px] font-extrabold text-[var(--ink)]">Tap to start a meeting</p>
+              <p className="mt-1 text-[15px] font-medium text-[var(--ink3)]">Transcribed & summarized automatically</p>
+            </div>
+
             {meetingDetailsMode === 'details' ? (
               <div className="nm-card mt-5 w-full max-w-xs p-3 text-left">
                 <div className="flex items-center justify-between">
@@ -614,14 +609,14 @@ export default function RecordScreen({
               type="button"
               onClick={handleUploadClick}
               disabled={isRecording}
-              className="nm-btn nm-btn-soft mt-5 gap-2 rounded-full px-5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+              className="mx-auto mt-2 inline-flex h-[54px] items-center gap-3 rounded-[16px] bg-white px-7 text-[15px] font-extrabold text-[var(--ink)] shadow-[var(--sh-md)] transition active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--mint-d)" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
               </svg>
-              upload audio file
+              Upload audio file
             </button>
-            <p className="mt-2 text-[11px] font-medium text-[var(--ink3)]">MP3, WAV, M4A, OGG, FLAC, MP4, or WebM</p>
+            <p className="mt-2 text-center text-[11px] font-medium text-[var(--ink3)]">MP3, WAV, M4A, OGG, FLAC, MP4, or WebM</p>
             {false ? (
               <>
               <div className="mt-8 w-full max-w-xs bg-gray-50 rounded-2xl px-4 py-3.5 flex items-center justify-between">
@@ -655,6 +650,26 @@ export default function RecordScreen({
             </p>
             </>
             ) : null}
+            <button
+              type="button"
+              onClick={onViewHistory}
+              className="mt-auto mb-7 flex w-full items-center gap-4 rounded-[22px] bg-white px-4 py-4 text-left shadow-[var(--sh-md)] transition active:scale-[.99]"
+            >
+              <span className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-[16px] bg-[var(--mint-soft)] text-[var(--mint-d)]">
+                <svg width="23" height="23" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                  <path d="M3 3v5h5" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+                  <path d="M12 7v5l4 2" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[16px] font-extrabold text-[var(--ink)]">Past meetings</span>
+                <span className="mt-1 block text-[13px] font-semibold text-[var(--ink3)]">Open your saved notes</span>
+              </span>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink3)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M9 18l6-6-6-6" />
+              </svg>
+            </button>
           </main>
         ) : (
           <main className="nm-fade-in flex flex-1 flex-col pt-6">
@@ -698,6 +713,7 @@ export default function RecordScreen({
           </main>
         )}
 
+        {isRecording || segments.length > 0 ? (
         <div className="mt-auto flex flex-col items-center pb-8 pt-4 safe-bottom">
           <button
             type="button"
@@ -727,6 +743,7 @@ export default function RecordScreen({
             </div>
           ) : null}
         </div>
+        ) : null}
 
         {showStartChoice && !isRecording ? (
           <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/30 px-4 pb-8 backdrop-blur-sm">
