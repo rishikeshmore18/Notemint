@@ -30,6 +30,8 @@ export default function App() {
   const [enrollMode, setEnrollMode] = useState('initial')
   const [contextMode, setContextMode] = useState('initial')
   const [processingMessage, setProcessingMessage] = useState('')
+  const [processingStage, setProcessingStage] = useState(0)
+  const [processingPct, setProcessingPct] = useState(0)
   const [currentUser, setCurrentUser] = useState(null)
   const [meetingSegments, setMeetingSegments] = useState([])
   const [meetingAudioBlob, setMeetingAudioBlob] = useState(null)
@@ -106,6 +108,20 @@ export default function App() {
       subscription.unsubscribe()
     }
   }, [])
+
+  useEffect(() => {
+    if (screen !== 'processing') return undefined
+
+    const timer = window.setInterval(() => {
+      setProcessingPct((current) => {
+        const cap = processingStage === 0 ? 44 : processingStage === 1 ? 76 : 94
+        if (current >= cap) return current
+        return Math.min(cap, current + (processingStage === 0 ? 3 : 2))
+      })
+    }, 700)
+
+    return () => window.clearInterval(timer)
+  }, [processingStage, screen])
 
   useEffect(() => {
     if (!currentUser?.id) return
@@ -266,6 +282,27 @@ export default function App() {
     await signOut()
     setCurrentUser(null)
     setScreen('auth')
+  }
+
+  function updateProcessingStatus(message) {
+    const text = String(message || '')
+    const lower = text.toLowerCase()
+    setProcessingMessage(text)
+
+    if (lower.includes('speaker') || lower.includes('voice') || lower.includes('diar')) {
+      setProcessingStage(1)
+      setProcessingPct((current) => Math.max(current, 54))
+      return
+    }
+
+    if (lower.includes('summary') || lower.includes('saving') || lower.includes('polish') || lower.includes('final')) {
+      setProcessingStage(2)
+      setProcessingPct((current) => Math.max(current, 82))
+      return
+    }
+
+    setProcessingStage(0)
+    setProcessingPct((current) => Math.max(current, 18))
   }
 
   async function transcribeWithAssemblyAI(audioBlob, onStatus, options = {}) {
@@ -651,11 +688,7 @@ export default function App() {
 
   if (screen === 'processing') {
     return (
-      <>
-        <GlobalBackButton onClick={() => setScreen('home')} onHome={() => setScreen('home')} />
-        <ProcessingScreen message={processingMessage} />
-        <FloatingFeedbackButton url={feedbackUrl} />
-      </>
+      <ProcessingScreen message={processingMessage} procStage={processingStage} procPct={processingPct} />
     )
   }
 
@@ -685,6 +718,8 @@ export default function App() {
             setDiarizedSegments([])
             setConfirmedLabelMap({})
             setProcessingMessage('')
+            setProcessingStage(0)
+            setProcessingPct(0)
             setEnrollMode('initial')
             setScreen('home')
           }}
@@ -789,7 +824,9 @@ export default function App() {
           setConfirmedLabelMap({})
           setDiarizedSegments([])
           setMeetingSegments(Array.isArray(segments) ? segments : [])
-          setProcessingMessage('Preparing your transcript...')
+          setProcessingStage(0)
+          setProcessingPct(8)
+          updateProcessingStatus('Preparing your transcript...')
           setScreen('processing')
 
           const audioPersistence = await prepareMeetingAudioPersistence(audioBlob)
@@ -809,7 +846,7 @@ export default function App() {
               const parsed = await transcribeMeetingAudioOptimized({
                 audioBlob,
                 audioPersistence,
-                onStatus: setProcessingMessage,
+                onStatus: updateProcessingStatus,
                 options: transcriptionOptions,
               })
               if (Array.isArray(parsed) && parsed.length > 0) {
@@ -820,12 +857,16 @@ export default function App() {
               setDiarizedSegments([])
             }
 
+            setProcessingStage(2)
+            setProcessingPct(100)
             setScreen('speaker-review')
             return
           }
 
           setMeetingSegments([])
-          setProcessingMessage('Preparing your transcript...')
+          setProcessingStage(0)
+          setProcessingPct(12)
+          updateProcessingStatus('Preparing your transcript...')
 
           if (!audioBlob || audioBlob.size === 0) {
             setScreen('results')
@@ -836,19 +877,25 @@ export default function App() {
             const parsed = await transcribeMeetingAudioOptimized({
               audioBlob,
               audioPersistence,
-              onStatus: setProcessingMessage,
+              onStatus: updateProcessingStatus,
               options: transcriptionOptions,
             })
             if (Array.isArray(parsed) && parsed.length > 0) {
               setDiarizedSegments(parsed)
+              setProcessingStage(2)
+              setProcessingPct(100)
               setScreen('speaker-review')
             } else {
               setDiarizedSegments([])
+              setProcessingStage(2)
+              setProcessingPct(100)
               setScreen('results')
             }
           } catch (err) {
             console.warn('[App] Silent-mode diarization failed:', err?.message || err)
             setDiarizedSegments([])
+            setProcessingStage(2)
+            setProcessingPct(100)
             setScreen('results')
           }
         }}
@@ -1010,17 +1057,12 @@ function FloatingFeedbackButton({ url }) {
   )
 }
 
-function ProcessingScreen({ message }) {
-  const lowerMessage = String(message || '').toLowerCase()
-  const procStage = lowerMessage.includes('speaker') || lowerMessage.includes('voice')
-    ? 1
-    : lowerMessage.includes('summary') || lowerMessage.includes('saving') || lowerMessage.includes('polish')
-      ? 2
-      : 0
-  const procPct = procStage === 0 ? 38 : procStage === 1 ? 68 : 88
+function ProcessingScreen({ message, procStage = 0, procPct = 0 }) {
+  const safeStage = Math.max(0, Math.min(2, Number(procStage) || 0))
+  const safePct = Math.max(0, Math.min(100, Number(procPct) || 0))
   const steps = ['Transcribing audio', 'Identifying speakers', 'Polishing your summary']
   const titles = ['Listening closely...', 'Sorting out voices...', 'Writing it up...']
-  const title = titles[procStage] || 'Listening closely...'
+  const title = safePct >= 100 ? 'All set!' : titles[safeStage] || 'Listening closely...'
 
   return (
     <div
@@ -1064,9 +1106,9 @@ function ProcessingScreen({ message }) {
 
       <div className="flex w-full max-w-[280px] flex-col gap-3.5">
         {steps.map((label, index) => {
-          const done = index < procStage
-          const active = index === procStage
-          const wait = index > procStage
+          const done = safePct >= 100 || index < safeStage
+          const active = safePct < 100 && index === safeStage
+          const wait = safePct < 100 && index > safeStage
           return (
             <div
               key={label}
@@ -1098,7 +1140,7 @@ function ProcessingScreen({ message }) {
       <div className="mt-[30px] h-[5px] w-full max-w-[280px] overflow-hidden rounded bg-[var(--line)]">
         <div
           className="h-full rounded bg-gradient-to-r from-[var(--mint)] to-[var(--mint-glow)] transition-[width] duration-300"
-          style={{ width: `${procPct}%` }}
+          style={{ width: `${safePct}%` }}
         />
       </div>
     </div>

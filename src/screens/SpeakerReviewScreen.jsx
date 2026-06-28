@@ -610,22 +610,6 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
     const singleMeta = autoLabelMeta[onlySpeaker]
     const singleReviewState = reviewStateMap[onlySpeaker]
 
-    if (identifyingStatus === 'identifying') {
-      return (
-        <div className="nm-screen mx-auto flex min-h-screen max-w-md flex-col px-5">
-          <div className="flex h-14 items-center justify-between">
-            <span className="text-sm font-bold text-[var(--ink)]">notemint</span>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--mint-soft)]">
-              <span className="text-sm font-bold text-[var(--mint-d)]">{initial}</span>
-            </div>
-          </div>
-          <div className="flex flex-1 items-center justify-center">
-            <p className="text-sm text-[var(--mint-d)]">matching your voice...</p>
-          </div>
-        </div>
-      )
-    }
-
     return (
       <div className="nm-screen mx-auto flex min-h-screen max-w-md flex-col px-5">
         <div className="flex h-14 items-center justify-between">
@@ -666,11 +650,7 @@ export default function SpeakerReviewScreen({ segments, audioBlob, user, onConfi
     <div className="nm-screen mx-auto flex min-h-screen max-w-md flex-col px-5">
       <div className="flex h-14 items-center justify-between">
         <span className="text-sm font-bold text-[var(--ink)]">notemint</span>
-        {identifyingStatus === 'identifying' ? (
-          <span className="text-xs text-[var(--mint-d)]">matching voices...</span>
-        ) : (
-          <span className="text-xs text-[var(--muted)]">review speakers</span>
-        )}
+        <span className="text-xs text-[var(--muted)]">review speakers</span>
         <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--mint-soft)]">
           <span className="text-sm font-bold text-[var(--mint-d)]">{initial}</span>
         </div>
