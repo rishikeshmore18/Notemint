@@ -534,7 +534,7 @@ export default function RecordScreen({
               <button
                 type="button"
                 onClick={() => {
-                  void handleStart('skip')
+                  void handleRecordClick()
                 }}
                 disabled={isRecording}
                 className="relative flex h-[148px] w-[148px] items-center justify-center rounded-full bg-gradient-to-br from-[var(--mint-glow)] to-[var(--mint-d)] text-white shadow-[0_22px_70px_rgba(6,177,122,.42)] transition active:scale-95 disabled:opacity-60"
@@ -557,54 +557,6 @@ export default function RecordScreen({
               <p className="mt-1 text-[15px] font-medium text-[var(--ink3)]">Transcribed & summarized automatically</p>
             </div>
 
-            {meetingDetailsMode === 'details' ? (
-              <div className="nm-card mt-5 w-full max-w-xs p-3 text-left">
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-[var(--ink3)]">meeting details</p>
-                  <button
-                    type="button"
-                    onClick={() => setMeetingDetailsMode('skip')}
-                    className="text-[11px] font-bold text-[var(--ink3)] hover:text-[var(--ink)]"
-                  >
-                    hide
-                  </button>
-                </div>
-                <div className="mt-3 space-y-2.5">
-                  <Field
-                    label="meeting topic"
-                    value={meetingTopic}
-                    onChange={setMeetingTopic}
-                    placeholder="branch wait times review"
-                    maxLength={120}
-                  />
-                  <TextAreaField
-                    label="goal, agenda, important terms"
-                    value={meetingGoal}
-                    onChange={setMeetingGoal}
-                    placeholder="review wait times, staffing plan, CDs, fraud hold"
-                    maxLength={260}
-                  />
-                  <NumberField
-                    label="number of participants"
-                    value={expectedParticipantCount}
-                    onChange={setExpectedParticipantCount}
-                    min={1}
-                    max={50}
-                  />
-                  {pendingUploadFile ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void handleProcessUploadedFile(pendingUploadFile, 'details')
-                      }}
-                      className="nm-btn nm-btn-primary h-10 w-full text-sm"
-                    >
-                      process uploaded file
-                    </button>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
             <button
               type="button"
               onClick={handleUploadClick}
@@ -746,32 +698,56 @@ export default function RecordScreen({
         ) : null}
 
         {showStartChoice && !isRecording ? (
-          <div className="fixed inset-0 z-30 flex items-end justify-center bg-black/30 px-4 pb-8 backdrop-blur-sm">
-            <div className="nm-card-strong nm-pop-in w-full max-w-sm p-4">
-              <p className="text-base font-extrabold tracking-[-.02em] text-[var(--ink)]">
-                {startChoiceAction === 'upload' ? 'before processing audio' : 'before you start'}
-              </p>
-              <p className="mt-1 text-xs font-medium text-[var(--ink3)]">
-                {startChoiceAction === 'upload'
-                  ? 'add context first, or process this file now.'
-                  : 'add context first, or start recording now.'}
-              </p>
+          <>
+            <div
+              className="fixed inset-0 z-50 bg-[rgba(17,34,28,.40)]"
+              style={{ animation: 'fadeIn .3s' }}
+              onClick={() => {
+                setShowStartChoice(false)
+                if (startChoiceAction === 'upload') {
+                  setPendingUploadFile(null)
+                }
+              }}
+            />
+            <div
+              className="fixed inset-x-0 bottom-0 z-[51] mx-auto w-full max-w-[512px] rounded-t-[30px] bg-white px-[22px] pb-[30px] pt-2 shadow-[0_-10px_40px_rgba(17,34,28,.18)]"
+              style={{ animation: 'sheetUp .42s cubic-bezier(.2,.9,.2,1)' }}
+            >
+              <div className="mx-auto my-2 h-[5px] w-[38px] rounded bg-[var(--line)]" />
+              <div className="text-[20px] font-extrabold tracking-[-.5px] text-[var(--ink)]">Meeting details</div>
+              <div className="mb-5 mt-1 text-[13px] text-[var(--ink3)]">Optional - helps sharpen the summary.</div>
+
               {startChoiceAction === 'upload' && pendingUploadFile ? (
-                <p className="mt-2 truncate rounded-2xl bg-[var(--paper)] px-3 py-2 text-xs font-medium text-[var(--ink3)]">
+                <p className="mb-3 truncate rounded-[13px] bg-[var(--paper)] px-3 py-2 text-xs font-semibold text-[var(--ink3)]">
                   {pendingUploadFile.name}
                 </p>
               ) : null}
-              <div className="mt-3 grid grid-cols-1 gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMeetingDetailsMode('details')
-                    setShowStartChoice(false)
-                  }}
-                  className="nm-btn nm-btn-soft h-11 text-sm"
-                >
-                  add meeting details
-                </button>
+
+              <div className="flex flex-col gap-[13px]">
+                <Field
+                  label="meeting topic"
+                  value={meetingTopic}
+                  onChange={setMeetingTopic}
+                  placeholder="e.g. onboarding redesign sync"
+                  maxLength={120}
+                />
+                <TextAreaField
+                  label="goal, agenda, important terms"
+                  value={meetingGoal}
+                  onChange={setMeetingGoal}
+                  placeholder="review wait times, staffing plan, CDs, fraud hold"
+                  maxLength={260}
+                />
+                <NumberField
+                  label="participants"
+                  value={expectedParticipantCount}
+                  onChange={setExpectedParticipantCount}
+                  min={1}
+                  max={50}
+                />
+              </div>
+
+              <div className="mt-6 flex gap-[11px]">
                 <button
                   type="button"
                   onClick={() => {
@@ -781,25 +757,26 @@ export default function RecordScreen({
                       void handleStart('skip')
                     }
                   }}
-                  className="nm-btn nm-btn-primary h-11 text-sm"
+                  className="h-[52px] flex-1 rounded-[15px] bg-[var(--paper)] text-[14.5px] font-bold text-[var(--ink2)]"
                 >
-                  {startChoiceAction === 'upload' ? 'skip & process file' : 'skip & start recording'}
+                  Skip
                 </button>
                 <button
                   type="button"
                   onClick={() => {
-                    setShowStartChoice(false)
                     if (startChoiceAction === 'upload') {
-                      setPendingUploadFile(null)
+                      void handleProcessUploadedFile(pendingUploadFile, 'details')
+                    } else {
+                      void handleStart('details')
                     }
                   }}
-                  className="h-9 text-xs font-bold text-[var(--ink3)] hover:text-[var(--ink)]"
+                  className="h-[52px] flex-[2] rounded-[15px] bg-gradient-to-br from-[var(--mint)] to-[var(--mint-d)] text-[14.5px] font-bold text-white shadow-[0_8px_20px_rgba(6,177,122,.34)]"
                 >
-                  cancel
+                  {startChoiceAction === 'upload' ? 'Process file' : 'Start recording'}
                 </button>
               </div>
             </div>
-          </div>
+          </>
         ) : null}
       </div>
     </div>
