@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import WaveformVisualizer from '../components/WaveformVisualizer'
 import { getAudioStream, getFullAudioBlob, startTranscription, stopTranscription } from '../lib/gladia'
 import { getContextProfile, getCorrectionMemory, parseTerms } from '../lib/contextProfile'
 import { supabase } from '../lib/supabase'
@@ -19,6 +18,15 @@ const AUDIO_FILE_EXTENSIONS = new Set([
   'wav',
   'webm',
 ])
+
+const WAVE_BARS = Array.from({ length: 30 }, (_, i) => {
+  const heights = [34, 52, 28, 66, 44, 72, 38, 58, 30, 62, 48, 40, 68, 36, 54]
+  return {
+    h: heights[i % heights.length],
+    dur: `${(0.7 + (i % 5) * 0.13).toFixed(2)}s`,
+    delay: `${(i * 0.06).toFixed(2)}s`,
+  }
+})
 
 export default function RecordScreen({
   user,
@@ -624,48 +632,137 @@ export default function RecordScreen({
             </button>
           </main>
         ) : (
-          <main className="nm-fade-in flex flex-1 flex-col pt-6">
-            <div className="nm-card px-4 py-5" style={{ minHeight: '40px' }}>
-              <WaveformVisualizer className="w-full" isRecording={isRecording} audioStream={audioStream} />
-            </div>
-            <div className="mt-6 flex items-center justify-center gap-3">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-              <p className="text-4xl font-extrabold tracking-[-.04em] text-[var(--ink)]">{formatTime(elapsedSeconds)}</p>
-            </div>
-            <p className="mt-2 text-center text-xs font-bold uppercase tracking-[0.2em] text-[var(--ink3)]">recording</p>
-
-            <div className="mt-6 overflow-y-auto rounded-[22px] bg-white/45 px-2 py-1" style={{ maxHeight: 'calc(100dvh - 280px)' }}>
-              <div className="flex flex-col gap-3 pb-2">
-                {segments.length === 0 && isRecording && (
-                  <p className="pt-4 text-center text-xs font-medium text-[var(--ink3)]">
-                    listening... speak now
-                  </p>
-                )}
-                {segments.map((seg, i) => (
-                  <div key={seg.id || i} className="flex items-start gap-2.5">
-                    <span
-                      className={`text-xs font-medium px-2 py-0.5 rounded-full flex-shrink-0 mt-0.5 ${getSpeakerBadgeClass(
-                        seg.speaker,
-                      )}`}
-                    >
-                      {seg.speaker === 0 ? 'you' : 'person ' + seg.speaker}
-                    </span>
-                    <p
-                      className={`text-sm leading-relaxed transition-colors duration-200 ${
-                        seg.isFinal ? 'text-gray-900' : 'text-gray-400 italic'
-                      }`}
-                    >
-                      {seg.text}
-                    </p>
-                  </div>
-                ))}
-                <div ref={transcriptEndRef} />
+          <main
+            className="nm-fade-in -mx-7 flex flex-1 flex-col md:mx-0"
+            style={{
+              background: 'radial-gradient(125% 75% at 50% 8%, #EAF6F0 0%, var(--paper) 52%)',
+            }}
+          >
+            <div
+              className="flex items-center justify-between px-6 pt-[60px]"
+              style={{ animation: 'dropIn .5s cubic-bezier(.2,.8,.2,1) both' }}
+            >
+              <div className="flex items-center gap-2 rounded-full border border-[#F6D2CD] bg-[#FCEBE9] px-[13px] py-[7px]">
+                <span className="h-2 w-2 rounded-full bg-[var(--coral)]" style={{ animation: 'recPulse 1.4s ease-in-out infinite' }} />
+                <span className="text-xs font-bold tracking-[.3px] text-[var(--coral)]">Recording</span>
               </div>
+              <div className="flex items-center gap-1.5 text-[12.5px] font-semibold text-[var(--ink2)]">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+                  <circle cx="9" cy="7" r="4" />
+                  <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13A4 4 0 0 1 16 11" />
+                </svg>
+                {normalizeParticipantCount(expectedParticipantCount) || 1}
+              </div>
+            </div>
+
+            <div className="flex flex-1 flex-col items-center justify-center gap-1.5 px-6">
+              <div className="relative mb-3.5 flex h-[208px] w-[208px] items-center justify-center">
+                {[0, 0.9, 1.8].map((delay) => (
+                  <span
+                    key={delay}
+                    className="absolute h-[118px] w-[118px] rounded-full border border-[var(--mint)] opacity-0"
+                    style={{ animation: `sonar 2.8s ease-out infinite ${delay}s` }}
+                  />
+                ))}
+                <span
+                  className="absolute h-[160px] w-[160px] rounded-full bg-[radial-gradient(circle,rgba(31,214,160,.22),rgba(31,214,160,0)_70%)]"
+                  style={{ animation: 'breathe 3.4s ease-in-out infinite' }}
+                />
+                <span
+                  className="relative flex h-[118px] w-[118px] items-center justify-center rounded-full bg-gradient-to-br from-[var(--mint-glow)] to-[var(--mint-d)] shadow-[0_16px_40px_rgba(6,177,122,.42),inset_0_2px_4px_rgba(255,255,255,.4)]"
+                  style={{ animation: 'bloomIn .6s cubic-bezier(.3,1.3,.5,1) both' }}
+                >
+                  <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="9" y="2" width="6" height="12" rx="3" />
+                    <path d="M5 10a7 7 0 0 0 14 0M12 17v4M8 21h8" />
+                  </svg>
+                </span>
+              </div>
+
+              <div
+                className="text-[13px] font-semibold text-[var(--ink3)]"
+                style={{ animation: 'riseIn .5s cubic-bezier(.2,.8,.2,1) both .12s' }}
+              >
+                {meetingTopic.trim() || 'Untitled meeting'}
+              </div>
+              <div
+                className="text-[58px] font-extrabold leading-none tracking-[-1.5px] text-[var(--ink)] [font-variant-numeric:tabular-nums]"
+                style={{ animation: 'riseIn .55s cubic-bezier(.2,.8,.2,1) both .18s' }}
+              >
+                {formatTime(elapsedSeconds)}
+              </div>
+              <div
+                className="mt-2 flex h-[30px] items-center gap-[3px]"
+                style={{ animation: 'riseIn .55s cubic-bezier(.2,.8,.2,1) both .24s' }}
+              >
+                {WAVE_BARS.map((bar, index) => (
+                  <span
+                    key={index}
+                    className="block w-[3px] origin-center rounded bg-[var(--mint)] opacity-55"
+                    style={{
+                      height: bar.h,
+                      maxHeight: 26,
+                      animation: `wave ${bar.dur} ease-in-out infinite`,
+                      animationDelay: bar.delay,
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+
+            <div className="mb-[22px] px-[22px]" style={{ animation: 'riseIn .55s cubic-bezier(.2,.8,.2,1) both .32s' }}>
+              <div
+                className="flex flex-col gap-[11px] rounded-[var(--r-md)] border border-[var(--line)] bg-white/80 px-4 py-[15px] shadow-[var(--sh-md)] backdrop-blur-[10px]"
+                style={{ animation: 'floatY 5.5s ease-in-out infinite' }}
+              >
+                <div className="flex items-center gap-[11px]">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[var(--mint-soft)] text-[var(--mint-d)]">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <circle cx="12" cy="12" r="9" />
+                      <circle cx="12" cy="12" r="3.4" />
+                      <path d="M12 3v3M12 18v3M3 12h3M18 12h3" />
+                    </svg>
+                  </span>
+                  <span className="flex-1 text-[12.5px] font-medium leading-[1.4] text-[var(--ink)]">
+                    Keep your device centered between everyone for the clearest audio.
+                  </span>
+                </div>
+                <div className="h-px bg-[var(--line)]" />
+                <div className="flex items-center gap-[11px]">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[var(--mint-soft)] text-[var(--mint-d)]">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.1" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="4" y="11" width="16" height="10" rx="2" />
+                      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                    </svg>
+                  </span>
+                  <span className="flex-1 text-[12.5px] font-medium leading-[1.4] text-[var(--ink)]">
+                    You can lock your phone - the meeting keeps recording.
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div
+              className="flex items-center justify-center gap-[34px] px-6 pb-11"
+              style={{ animation: 'riseIn .55s cubic-bezier(.2,.8,.2,1) both .4s' }}
+            >
+              <div className="h-[58px] w-[58px]" />
+              <button
+                type="button"
+                onClick={handleStop}
+                className="relative flex h-[84px] w-[84px] items-center justify-center rounded-full bg-[var(--coral)] shadow-[0_12px_34px_rgba(241,89,75,.45)] transition active:scale-95"
+                aria-label="Stop recording"
+              >
+                <span className="absolute -inset-[7px] rounded-full border-2 border-[rgba(241,89,75,.35)]" style={{ animation: 'recPulse 1.8s ease-in-out infinite' }} />
+                <span className="h-7 w-7 rounded-lg bg-white" />
+              </button>
+              <div className="h-[58px] w-[58px]" />
             </div>
           </main>
         )}
 
-        {isRecording || segments.length > 0 ? (
+        {!isRecording && segments.length > 0 ? (
         <div className="mt-auto flex flex-col items-center pb-8 pt-4 safe-bottom">
           <button
             type="button"
