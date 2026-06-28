@@ -1011,16 +1011,95 @@ function FloatingFeedbackButton({ url }) {
 }
 
 function ProcessingScreen({ message }) {
+  const lowerMessage = String(message || '').toLowerCase()
+  const procStage = lowerMessage.includes('speaker') || lowerMessage.includes('voice')
+    ? 1
+    : lowerMessage.includes('summary') || lowerMessage.includes('saving') || lowerMessage.includes('polish')
+      ? 2
+      : 0
+  const procPct = procStage === 0 ? 38 : procStage === 1 ? 68 : 88
+  const steps = ['Transcribing audio', 'Identifying speakers', 'Polishing your summary']
+  const titles = ['Listening closely...', 'Sorting out voices...', 'Writing it up...']
+  const title = titles[procStage] || 'Listening closely...'
+
   return (
-    <div className="nm-screen flex items-center justify-center px-6 backdrop-blur-sm">
-      <div className="nm-card-strong nm-pop-in w-full max-w-sm px-8 py-9 text-center">
-        <div className="relative mx-auto mb-6 h-20 w-20">
-          <span className="nm-breathe absolute inset-0 rounded-full bg-[rgba(31,214,160,.28)]" />
-          <div className="absolute inset-3 rounded-full bg-gradient-to-br from-[var(--mint-glow)] to-[var(--mint-d)] shadow-[0_16px_38px_rgba(6,177,122,.35)]" />
-          <div className="nm-spin absolute inset-0 rounded-full border-2 border-transparent border-t-[var(--mint-d)]" />
-        </div>
-        <p className="text-base font-extrabold tracking-[-.02em] text-[var(--ink)]">Processing your meeting</p>
-        <p className="mt-2 text-sm font-medium text-[var(--ink3)]">{message || 'Recognizing speakers...'}</p>
+    <div
+      className="flex flex-1 flex-col items-center justify-center px-[30px]"
+      style={{
+        animation: 'fadeIn .45s',
+        background: 'radial-gradient(120% 80% at 50% 30%, #F4FAF7 0%, var(--paper) 70%)',
+      }}
+    >
+      <div className="relative mb-[38px] flex h-[160px] w-[160px] items-center justify-center">
+        <span
+          className="absolute h-[118px] w-[118px] bg-gradient-to-br from-[var(--mint-glow)] to-[var(--mint-d)] opacity-90 blur-[2px]"
+          style={{ animation: 'blob 7s ease-in-out infinite' }}
+        />
+        <span className="absolute inset-0" style={{ animation: 'orbit 3.2s linear infinite' }}>
+          <span className="absolute left-1/2 top-1 h-[11px] w-[11px] -ml-[5px] rounded-full bg-[var(--mint-glow)] shadow-[0_0_12px_var(--mint-glow)]" />
+        </span>
+        <span className="absolute inset-[14px]" style={{ animation: 'orbit 4.4s linear infinite reverse' }}>
+          <span className="absolute bottom-0.5 left-1/2 h-[7px] w-[7px] -ml-[3px] rounded-full bg-white shadow-[0_0_8px_rgba(255,255,255,.9)]" />
+        </span>
+        <svg
+          width="40"
+          height="40"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="#fff"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="relative z-[2]"
+          aria-hidden="true"
+        >
+          <path d="M3 12c4 0 6-2 6-6 0 4 2 6 6 6-4 0-6 2-6 6 0-4-2-6-6-6z" />
+        </svg>
+      </div>
+
+      <div className="text-[21px] font-extrabold tracking-[-.5px] text-[var(--ink)]">{title}</div>
+      <div className="mb-[30px] mt-1.5 text-[13px] text-[var(--ink3)]">
+        {message || 'Usually takes just a few seconds'}
+      </div>
+
+      <div className="flex w-full max-w-[280px] flex-col gap-3.5">
+        {steps.map((label, index) => {
+          const done = index < procStage
+          const active = index === procStage
+          const wait = index > procStage
+          return (
+            <div
+              key={label}
+              className="flex items-center gap-3 transition-opacity duration-300"
+              style={{ opacity: wait ? 0.4 : 1 }}
+            >
+              <span
+                className="flex h-[26px] w-[26px] shrink-0 items-center justify-center rounded-full transition-colors duration-300"
+                style={{ background: done ? 'var(--mint)' : active ? 'var(--mint-d)' : 'var(--line)' }}
+              >
+                {done ? (
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M20 6 9 17l-5-5" />
+                  </svg>
+                ) : null}
+                {active ? (
+                  <span className="h-[13px] w-[13px] rounded-full border-[2.4px] border-[rgba(255,255,255,.4)] border-t-white" style={{ animation: 'spin .7s linear infinite' }} />
+                ) : null}
+                {wait ? <span className="h-1.5 w-1.5 rounded-full bg-[var(--ink3)]" /> : null}
+              </span>
+              <span className="text-sm font-semibold" style={{ color: wait ? 'var(--ink3)' : 'var(--ink)' }}>
+                {label}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="mt-[30px] h-[5px] w-full max-w-[280px] overflow-hidden rounded bg-[var(--line)]">
+        <div
+          className="h-full rounded bg-gradient-to-r from-[var(--mint)] to-[var(--mint-glow)] transition-[width] duration-300"
+          style={{ width: `${procPct}%` }}
+        />
       </div>
     </div>
   )

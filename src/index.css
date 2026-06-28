@@ -46,6 +46,7 @@
     width: 100%;
     background: radial-gradient(120% 90% at 50% -10%, #F1F7F3 0%, #E3EBE6 60%, #DCE5DF 100%);
     color: var(--ink);
+    animation: screenIn .5s cubic-bezier(.2, .8, .2, 1) both;
   }
 
   .nm-screen-pad {
@@ -54,6 +55,7 @@
     padding: 78px 22px 28px;
     background: radial-gradient(120% 90% at 50% -10%, #F1F7F3 0%, #E3EBE6 60%, #DCE5DF 100%);
     color: var(--ink);
+    animation: screenIn .5s cubic-bezier(.2, .8, .2, 1) both;
   }
 
   .nm-container {
@@ -168,20 +170,124 @@
   }
 
   .nm-fade-in {
-    animation: nmScreenIn .45s cubic-bezier(.2, .8, .2, 1) both;
+    animation: screenIn .5s cubic-bezier(.2, .8, .2, 1) both;
   }
 
   .nm-pop-in {
-    animation: nmPopIn .32s cubic-bezier(.2, .8, .2, 1) both;
+    animation: popIn .3s cubic-bezier(.3, 1.2, .5, 1) both;
   }
 
   .nm-breathe {
-    animation: nmBreathe 3.4s ease-in-out infinite;
+    animation: breathe 3.4s ease-in-out infinite;
   }
 
   .nm-spin {
-    animation: nmSpin 1s linear infinite;
+    animation: spin .7s linear infinite;
   }
+
+  .screen-enter {
+    animation: screenIn .5s cubic-bezier(.2, .8, .2, 1) both;
+  }
+
+  .skeleton {
+    background: linear-gradient(90deg, var(--line) 25%, #EEF3F0 50%, var(--line) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.3s infinite;
+    border-radius: 6px;
+  }
+}
+
+@keyframes screenIn {
+  from { opacity: 0; transform: translateY(10px) scale(.995); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes popIn {
+  from { opacity: 0; transform: translateY(8px) scale(.95); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes sheetUp {
+  from { transform: translateY(105%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes dropIn {
+  from { transform: translateY(-16px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes riseIn {
+  from { transform: translateY(22px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: .5; }
+  50% { transform: scale(1.18); opacity: 0; }
+}
+
+@keyframes breathe2 {
+  0%, 100% { transform: scale(1); opacity: .32; }
+  50% { transform: scale(1.32); opacity: 0; }
+}
+
+@keyframes bloomIn {
+  0% { transform: scale(.42); opacity: 0; }
+  62% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes sonar {
+  0% { transform: scale(.5); opacity: .5; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+@keyframes recPulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.06); }
+}
+
+@keyframes wave {
+  0%, 100% { transform: scaleY(.28); }
+  50% { transform: scaleY(1); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes orbit {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes blob {
+  0%, 100% { border-radius: 46% 54% 58% 42%/52% 44% 56% 48%; transform: rotate(0deg); }
+  33% { border-radius: 58% 42% 44% 56%/46% 58% 42% 54%; }
+  66% { border-radius: 42% 58% 52% 48%/56% 46% 54% 44%; transform: rotate(180deg); }
+}
+
+@keyframes shimmer {
+  to { background-position: 200% 0; }
+}
+
+@keyframes floatY {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-5px); }
+}
+
+@keyframes chipIn {
+  from { opacity: 0; transform: translateY(6px) scale(.9); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes drawCheck {
+  to { stroke-dashoffset: 0; }
 }
 
 @keyframes nmScreenIn {
