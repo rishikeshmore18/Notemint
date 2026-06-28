@@ -1066,7 +1066,7 @@ function ProcessingScreen({ message, procStage = 0, procPct = 0 }) {
 
   return (
     <div
-      className="flex flex-1 flex-col items-center justify-center px-[30px]"
+      className="flex min-h-[100dvh] w-full flex-col items-center justify-center overflow-hidden px-[30px]"
       style={{
         animation: 'fadeIn .45s',
         background: 'radial-gradient(120% 80% at 50% 30%, #F4FAF7 0%, var(--paper) 70%)',
