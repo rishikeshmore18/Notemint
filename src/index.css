@@ -359,3 +359,128 @@ button, a {
 * {
   -webkit-overflow-scrolling: touch;
 }
+
+.nm-print-only {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: auto;
+    margin: 14mm 13mm 16mm;
+  }
+
+  html,
+  body,
+  #root {
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+  }
+
+  body {
+    color: #111 !important;
+    font-family: 'Hanken Grotesk', Arial, sans-serif;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  .nm-print-root,
+  .nm-print-root * {
+    visibility: visible;
+  }
+
+  .nm-print-root {
+    position: absolute !important;
+    inset: 0 !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    animation: none !important;
+  }
+
+  .nm-print-hide {
+    display: none !important;
+  }
+
+  .nm-print-content {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
+  }
+
+  .nm-print-only {
+    display: block !important;
+    margin-bottom: 8mm;
+    padding-bottom: 4mm;
+    border-bottom: 1px solid #dfe5e1;
+  }
+
+  .nm-print-only h1 {
+    margin: 1mm 0 1.5mm;
+    color: #11221c;
+    font-size: 20pt;
+    font-weight: 800;
+    line-height: 1.15;
+  }
+
+  .nm-print-only p {
+    margin: 0;
+    color: #68736d;
+    font-size: 9.5pt;
+  }
+
+  .nm-print-only .nm-print-brand {
+    color: #04936a;
+    font-size: 10pt;
+    font-weight: 800;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+
+  .nm-print-block {
+    break-inside: avoid;
+    page-break-inside: avoid;
+    background: #fff !important;
+    border-color: #e5e7eb !important;
+  }
+
+  .nm-print-block > * {
+    min-width: 0 !important;
+  }
+
+  .nm-print-block > span {
+    max-width: 38mm;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+  }
+
+  .nm-print-content p,
+  .nm-print-content span {
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+
+  .nm-print-content p,
+  .nm-print-content span,
+  .nm-print-content div {
+    orphans: 3;
+    widows: 3;
+  }
+
+  .nm-print-content button {
+    box-shadow: none !important;
+  }
+}

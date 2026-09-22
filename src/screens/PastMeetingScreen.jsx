@@ -202,6 +202,17 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
     }, 2000)
   }
 
+  function handlePrint() {
+    const hasPrintableContent =
+      activeTab === 'summary'
+        ? Boolean(effectiveSummary.trim())
+        : editableBlocks.length > 0 || Boolean(effectiveTranscript.trim())
+
+    if (!hasPrintableContent) return
+
+    window.print()
+  }
+
   function renderMarkdownLite(text) {
     if (!text) return null
     return text.split('\n').map((line, i) => {
@@ -698,8 +709,8 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
   const effectiveTranscript = buildTranscriptFromSegments(effectiveSegments) || String(meeting?.transcript_compressed || '')
 
   return (
-    <div className="nm-screen mx-auto flex min-h-screen max-w-2xl flex-col px-5 md:px-10">
-      <div className="flex items-center justify-between h-14 flex-shrink-0">
+    <div className="nm-screen nm-print-root mx-auto flex min-h-screen max-w-2xl flex-col px-5 md:px-10">
+      <div className="nm-print-hide flex items-center justify-between h-14 flex-shrink-0">
         <div className="w-8 flex-shrink-0" aria-hidden="true" />
 
         <span className="truncate px-4 text-[16.5px] font-extrabold tracking-[-.04em] text-[var(--ink)]">{meeting.title || 'Untitled meeting'}</span>
@@ -711,7 +722,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
         </div>
       </div>
 
-      <div className="nm-segmented mb-4 grid grid-cols-2 flex-shrink-0">
+      <div className="nm-print-hide nm-segmented mb-4 grid grid-cols-2 flex-shrink-0">
         <button
           onClick={() => setActiveTab('summary')}
           className={`h-10 text-sm font-bold transition-colors ${
@@ -748,12 +759,21 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
 
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto pb-4"
+        className="nm-print-content flex-1 overflow-y-auto pb-4"
         style={{ maxHeight: 'calc(100dvh - 220px)' }}
         onScroll={handleTranscriptManualScroll}
         onWheel={handleTranscriptManualScroll}
         onTouchMove={handleTranscriptManualScroll}
       >
+        <div className="nm-print-only">
+          <p className="nm-print-brand">Notemint</p>
+          <h1>{meeting.title || 'Untitled meeting'}</h1>
+          <p>
+            {activeTab === 'summary' ? 'Meeting summary' : 'Meeting transcript'}
+            {meeting?.created_at ? ` - ${new Date(meeting.created_at).toLocaleString()}` : ''}
+          </p>
+        </div>
+
         {activeTab === 'summary' && <div>{renderMarkdownLite(effectiveSummary)}</div>}
 
         {activeTab === 'transcript' &&
@@ -764,14 +784,14 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
 
               return (
                 <div className="flex flex-col gap-0">
-                  {renderAudioPlayer(blocks)}
+                  <div className="nm-print-hide">{renderAudioPlayer(blocks)}</div>
                   {blocks.map((block, i) => (
                     <div
                       key={block.key || i}
                       ref={(node) => {
                         if (node) lineRefs.current[i] = node
                       }}
-                      className={`flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0 ${
+                      className={`nm-print-block flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0 ${
                         i === activeLineIndex ? 'bg-[var(--mint-soft)]' : 'bg-white'
                       }`}
                     >
@@ -821,7 +841,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
                           </div>
                         ) : null}
                         <p className="text-sm text-gray-800 leading-relaxed">{block.text}</p>
-                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                        <div className="nm-print-hide mt-1 flex flex-wrap items-center gap-2">
                           <button
                             type="button"
                             onClick={() => startEditingBlock(block)}
@@ -849,7 +869,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
       </div>
 
       {splitReview ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/20 px-4 py-6 backdrop-blur-sm">
+        <div className="nm-print-hide fixed inset-0 z-40 flex items-center justify-center bg-black/20 px-4 py-6 backdrop-blur-sm">
           <div className="nm-card-strong w-full max-w-md p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -953,7 +973,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
       ) : null}
 
       {getEditingBlock() ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-4 py-6 backdrop-blur-sm">
+        <div className="nm-print-hide fixed inset-0 z-50 flex items-center justify-center bg-black/20 px-4 py-6 backdrop-blur-sm">
           <div className="nm-card-strong w-full max-w-lg p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -1018,7 +1038,7 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
         </div>
       ) : null}
 
-      <div className="flex flex-col gap-2 pt-4 flex-shrink-0" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
+      <div className="nm-print-hide flex flex-col gap-2 pt-4 flex-shrink-0" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
         {editSaveStatus !== 'idle' ? (
           <p
             className={`text-center text-xs ${
@@ -1028,6 +1048,15 @@ export default function PastMeetingScreen({ user, meeting, onBack, onRetryPendin
             {editSaveStatus === 'saving' ? 'saving transcript edits...' : editSaveStatus === 'saved' ? 'transcript edits saved' : 'could not save edits'}
           </p>
         ) : null}
+        <button
+          type="button"
+          onClick={handlePrint}
+          disabled={activeTab === 'summary' ? !effectiveSummary.trim() : editableBlocks.length === 0 && !effectiveTranscript.trim()}
+          className="nm-btn nm-btn-soft w-full text-sm disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          print {activeTab}
+        </button>
+
         <button
           onClick={() => handleCopy('summary')}
           disabled={!effectiveSummary}

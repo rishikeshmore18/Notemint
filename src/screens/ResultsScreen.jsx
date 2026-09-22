@@ -490,9 +490,25 @@ export default function ResultsScreen({
     touchStateRef.current.key = null
   }
 
+  function handlePrint() {
+    const hasPrintableContent =
+      activeTab === 'summary'
+        ? Boolean(summaryText.trim())
+        : editableSegments.length > 0
+
+    if (!hasPrintableContent) return
+
+    if (editingSegmentKey) {
+      window.alert('Save or cancel the transcript edit before printing.')
+      return
+    }
+
+    window.print()
+  }
+
   return (
-    <div className="nm-screen mx-auto flex min-h-screen max-w-2xl flex-col px-5 md:px-10">
-      <div className="flex items-center justify-between h-14 flex-shrink-0">
+    <div className="nm-screen nm-print-root mx-auto flex min-h-screen max-w-2xl flex-col px-5 md:px-10">
+      <div className="nm-print-hide flex items-center justify-between h-14 flex-shrink-0">
         <span className="text-[16.5px] font-extrabold tracking-[-.04em] text-[var(--ink)]">notemint</span>
         <span className="text-xs font-medium text-[var(--ink3)]">
           {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
@@ -502,7 +518,7 @@ export default function ResultsScreen({
         </div>
       </div>
 
-      <div className="h-5 flex items-center justify-end mb-1">
+      <div className="nm-print-hide h-5 flex items-center justify-end mb-1">
         <div className="text-right">
           {audioUploadStatus === 'uploaded' && <p className="text-xs text-emerald-600">Recording saved</p>}
           {audioUploadStatus === 'pending' && (
@@ -534,7 +550,7 @@ export default function ResultsScreen({
         </div>
       </div>
 
-      <div className="nm-segmented mb-4 grid grid-cols-2 flex-shrink-0">
+      <div className="nm-print-hide nm-segmented mb-4 grid grid-cols-2 flex-shrink-0">
         <button
           onClick={() => setActiveTab('summary')}
           className={`h-10 text-sm font-bold transition-colors ${
@@ -555,15 +571,21 @@ export default function ResultsScreen({
 
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto pb-4"
+        className="nm-print-content flex-1 overflow-y-auto pb-4"
         style={{ maxHeight: 'calc(100dvh - 220px)' }}
         onScroll={handleTranscriptManualScroll}
         onWheel={handleTranscriptManualScroll}
         onTouchMove={handleTranscriptManualScroll}
       >
+        <div className="nm-print-only">
+          <p className="nm-print-brand">Notemint</p>
+          <h1>{activeTab === 'summary' ? 'Meeting summary' : 'Meeting transcript'}</h1>
+          <p>{new Date().toLocaleString()}</p>
+        </div>
+
         {activeTab === 'summary' && (
           <div>
-            <div className="mb-3 flex items-center justify-between">
+            <div className="nm-print-hide mb-3 flex items-center justify-between">
               <p className="text-xs text-gray-400">
                 {correctedCount > 0 ? `${correctedCount} corrected line${correctedCount > 1 ? 's' : ''}` : 'no manual corrections yet'}
               </p>
@@ -620,7 +642,7 @@ export default function ResultsScreen({
 
         {activeTab === 'transcript' && (
           <div>
-            <div className="sticky top-0 z-20 mb-3 rounded-[22px] border border-[var(--line)] bg-white/95 px-3 py-3 shadow-[var(--sh-sm)] backdrop-blur">
+            <div className="nm-print-hide sticky top-0 z-20 mb-3 rounded-[22px] border border-[var(--line)] bg-white/95 px-3 py-3 shadow-[var(--sh-sm)] backdrop-blur">
               {audioUrl ? (
                 <div>
                   <audio
@@ -681,7 +703,7 @@ export default function ResultsScreen({
               )}
             </div>
 
-            <div className="flex items-center justify-between mb-4">
+            <div className="nm-print-hide flex items-center justify-between mb-4">
               <p className="text-xs text-gray-400">
                 {new Set(editableSegments.map((s) => s.speaker)).size} speaker
                 {new Set(editableSegments.map((s) => s.speaker)).size > 1 ? 's' : ''} - {editableSegments.length} segments
@@ -714,7 +736,7 @@ export default function ResultsScreen({
                     ref={(node) => {
                       if (node) lineRefs.current[index] = node
                     }}
-                    className={`flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0 ${rowClass}`}
+                    className={`nm-print-block flex items-start gap-2.5 py-2.5 border-b border-gray-50 last:border-0 ${rowClass}`}
                   >
                     <div className="w-10 flex-shrink-0 pt-0.5">
                       <span className="text-xs text-gray-300 font-mono tabular-nums">
@@ -763,7 +785,7 @@ export default function ResultsScreen({
                           >
                             {segment.text}
                           </p>
-                          <div className="mt-1 flex items-center gap-3">
+                          <div className="nm-print-hide mt-1 flex items-center gap-3">
                             <button
                               type="button"
                               onClick={() => startEditing(segment)}
@@ -803,7 +825,16 @@ export default function ResultsScreen({
         )}
       </div>
 
-      <div className="flex flex-col gap-2 pt-4 flex-shrink-0" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
+      <div className="nm-print-hide flex flex-col gap-2 pt-4 flex-shrink-0" style={{ paddingBottom: 'max(24px, env(safe-area-inset-bottom))' }}>
+        <button
+          type="button"
+          onClick={handlePrint}
+          disabled={activeTab === 'summary' ? !summaryText.trim() : editableSegments.length === 0}
+          className="nm-btn nm-btn-soft w-full text-sm disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          print {activeTab}
+        </button>
+
         <button
           onClick={() => handleCopy('summary')}
           disabled={!summaryText || summaryText.trim().length === 0}
