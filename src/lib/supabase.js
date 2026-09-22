@@ -9,6 +9,24 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey)
 
+export function getAuthErrorMessage(error, fallback = 'authentication failed') {
+  const message = String(error?.message || '').trim()
+  const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false
+  const isNetworkFailure =
+    error instanceof TypeError ||
+    /failed to fetch|fetch failed|networkerror|network request failed|load failed/i.test(message)
+
+  if (isOffline) {
+    return 'you appear to be offline - reconnect and try again'
+  }
+
+  if (isNetworkFailure) {
+    return 'authentication service is temporarily unavailable - please try again shortly'
+  }
+
+  return message || fallback
+}
+
 function getEmailRedirectUrl() {
   if (typeof window === 'undefined') return undefined
   const redirectUrl = new URL(import.meta.env.BASE_URL, window.location.origin)

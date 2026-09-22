@@ -9,7 +9,13 @@ import ResultsScreen from './screens/ResultsScreen'
 import HistoryScreen from './screens/HistoryScreen'
 import PastMeetingScreen from './screens/PastMeetingScreen'
 import LoadingDot from './components/LoadingDot'
-import { getCurrentUser, signOut, supabase, syncUserProfile } from './lib/supabase'
+import {
+  getAuthErrorMessage,
+  getCurrentUser,
+  signOut,
+  supabase,
+  syncUserProfile,
+} from './lib/supabase'
 import {
   getStoredAudioTranscriptionStatus,
   getVoiceStatus,
@@ -75,7 +81,7 @@ export default function App() {
         if (!isMounted) return
         console.error('[App] Initial auth bootstrap failed:', err)
         setCurrentUser(null)
-        setAuthScreenError('Could not reach authentication service. Check your setup and try again.')
+        setAuthScreenError(getAuthErrorMessage(err, 'could not reach authentication service'))
         setScreen('auth')
       }
     }
@@ -259,7 +265,7 @@ export default function App() {
     } catch (err) {
       console.error('[App] Post-auth bootstrap failed:', err)
       setCurrentUser(null)
-      setAuthScreenError('Could not finish sign-in setup. Please try again.')
+      setAuthScreenError(getAuthErrorMessage(err, 'could not finish sign-in setup - please try again'))
       setScreen('auth')
     }
   }

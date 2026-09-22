@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { resendSignupConfirmation, signIn, signUp } from '../lib/supabase'
+import { getAuthErrorMessage, resendSignupConfirmation, signIn, signUp } from '../lib/supabase'
 
 const EMAIL_CONFIRMATION_MESSAGE =
   'check your email to confirm your account, then sign in'
@@ -83,7 +83,7 @@ export default function AuthScreen({ initialEmail = '', initialError = null, onA
         setError(EMAIL_CONFIRMATION_MESSAGE)
       }
     } catch (err) {
-      const message = err?.message ?? 'authentication failed'
+      const message = getAuthErrorMessage(err)
 
       if (message.includes('Invalid login credentials')) {
         setError('incorrect email or password')
@@ -121,7 +121,7 @@ export default function AuthScreen({ initialEmail = '', initialError = null, onA
       setPendingEmail(trimmedEmail)
       setNotice('confirmation email sent - open the newest message')
     } catch (err) {
-      const message = err?.message ?? 'could not resend confirmation email'
+      const message = getAuthErrorMessage(err, 'could not resend confirmation email')
       setError(message)
     } finally {
       setLoading(false)
